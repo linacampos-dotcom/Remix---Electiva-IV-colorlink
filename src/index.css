@@ -1,0 +1,287 @@
+@import "tailwindcss";
+@import "./styles.css";
+
+:root {
+  --bg-sand: #F8FAFC;
+  --bg-card: #FFFFFF;
+  --primary-deep-blue: #003366;
+  --secondary-teal: #00A896;
+  --accent-sky: #E0F2FE;
+  --border-subtle: #E2E8F0;
+  --text-primary: #0F172A;
+  --text-muted: #475569;
+}
+
+/* Global overflow control & Marine Beach Light Theme Base */
+html, body, #root {
+  max-width: 100vw !important;
+  overflow-x: hidden !important;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  background-color: #F8FAFC;
+  color: #0F172A;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+/* Beach Fresh Scrollbar */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+::-webkit-scrollbar-track {
+  background: #F1F5F9;
+}
+::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #00A896;
+}
+
+/* Marine Breeze Cards & Containers */
+.cosmic-card {
+  background-color: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
+}
+
+.cosmic-surface {
+  background-color: #F8FAFC;
+  border: 1px solid #E2E8F0;
+}
+
+/* Marine Buttons & CTAs */
+.cosmic-btn-primary {
+  background-color: #003366;
+  color: #ffffff;
+  transition: all 0.25s ease;
+}
+.cosmic-btn-primary:hover {
+  background-color: #002244;
+  box-shadow: 0 4px 12px rgba(0, 51, 102, 0.2);
+}
+
+.cosmic-btn-secondary {
+  background: transparent;
+  border: 1px solid #00A896;
+  color: #00A896;
+  transition: all 0.25s ease;
+}
+.cosmic-btn-secondary:hover {
+  border-color: #008779;
+  background: rgba(0, 168, 150, 0.08);
+}
+
+.cosmic-btn-purple {
+  background: transparent;
+  border: 1px solid #003366;
+  color: #003366;
+  transition: all 0.25s ease;
+}
+.cosmic-btn-purple:hover {
+  border-color: #002244;
+  background: rgba(0, 51, 102, 0.08);
+}
+
+/* Form Inputs */
+.cosmic-input {
+  background-color: #FFFFFF;
+  border: 1px solid #CBD5E1;
+  color: #0F172A;
+}
+.cosmic-input::placeholder {
+  color: #94A3B8;
+}
+.cosmic-input:focus {
+  border-color: #00A896;
+  box-shadow: 0 0 0 1px #00A896, 0 0 8px rgba(0, 168, 150, 0.2);
+  outline: none;
+}
+
+/* Animations for Map Pins & Pulses */
+@keyframes ping-subtle {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.85;
+  }
+  50% {
+    transform: scale(1.6);
+    opacity: 0.35;
+  }
+  100% {
+    transform: scale(2.2);
+    opacity: 0;
+  }
+}
+
+@keyframes pulse-ring {
+  0% {
+    r: 10px;
+    opacity: 0.9;
+  }
+  100% {
+    r: 28px;
+    opacity: 0;
+  }
+}
+
+.map-sede-marker {
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.25s ease-in-out;
+  cursor: pointer;
+}
+
+.map-sede-marker:hover {
+  filter: drop-shadow(0 8px 16px rgba(0, 40, 133, 0.45));
+}
+
+.map-pin-pulse {
+  animation: ping-subtle 2.2s cubic-bezier(0, 0, 0.2, 1) infinite;
+  transform-origin: center;
+}
+
+.map-pin-ring {
+  animation: pulse-ring 2.2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+}
+
+/* Hide scrollbar utility for contained horizontal scroll */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* =========================================================================
+   HERO / BANNER LAYOUT & OVERFLOW CONTAINMENT GUARDS
+   Garantiza que ningún elemento de texto o imagen se desborde fuera de la
+   tarjeta azul ni invada el área del Header superior.
+========================================================================= */
+header, .main-header {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  height: auto;
+  background-color: #002244;
+  overflow: hidden;
+}
+
+header.overflow-visible,
+header.has-dropdown-open,
+header:focus-within {
+  overflow: visible;
+}
+
+main, .page-content {
+  margin-top: 0;
+  position: relative;
+  z-index: 1;
+}
+
+.hero-card, .hero-container, .hero-banner {
+  position: relative;
+  overflow: hidden;
+  border-radius: 24px;
+  box-sizing: border-box;
+}
+
+/* =========================================================================
+   ESTILOS ESPECÍFICOS DEL DRAWER DEL CARRITO (CartDrawer.tsx / CartModal.tsx)
+   - position: fixed !important;
+   - top: 0; right: 0; bottom: 0;
+   - height: 100vh !important;
+   - z-index: 9999 !important;
+   - overflow-y: auto;
+========================================================================= */
+.cart-drawer-overlay,
+.cart-modal-overlay,
+[data-cart-drawer="true"],
+.cart-drawer,
+.cart-modal {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  z-index: 9999 !important;
+}
+
+.cart-drawer-panel,
+.cart-modal-panel,
+.cart-drawer-container,
+.cart-drawer > div:last-child {
+  position: fixed !important;
+  top: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  height: 100vh !important;
+  max-height: 100vh !important;
+  z-index: 9999 !important;
+  overflow-y: auto !important;
+  box-sizing: border-box !important;
+}
+
+/* =========================================================================
+   ANIMACIÓN SHIMMER DESTELLO DE LUZ - BRANDING COLORLINK
+========================================================================= */
+@keyframes textShimmerContinuous {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes textShimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.animate-shimmer-title {
+  /* Fondo de degradado con franja de luz blanca brillante en el centro */
+  background: linear-gradient(
+    110deg,
+    #38bdf8 0%,
+    #ffffff 25%,
+    #00f2fe 50%,
+    #ffffff 75%,
+    #38bdf8 100%
+  );
+  background-size: 200% auto;
+  color: transparent;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: textShimmer 3s linear infinite;
+}
+
+/* =========================================================================
+   ANIMACIÓN VECTORES TRONCALES LOGÍSTICAS - RED NACIONAL PINTUCO
+========================================================================= */
+@keyframes networkDataFlow {
+  0% {
+    stroke-dashoffset: 24;
+  }
+  100% {
+    stroke-dashoffset: 0;
+  }
+}
+
+.animate-network-flow {
+  animation: networkDataFlow 1.6s linear infinite;
+}
+

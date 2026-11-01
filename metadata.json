@@ -1,0 +1,8 @@
+{
+  "name": "Remix COLORLINK - Motor de IA Pintuco",
+  "description": "Motor de Inteligencia Artificial del sistema COLORLINK para Pintuco / Color In. Procesa solicitudes de proyectos de pintura (FMV), aplica lógica técnica de materiales (BOM) y genera órdenes de producción y abastecimiento.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

@@ -1,0 +1,114 @@
+/* =========================================================================
+   REGLA DE AISLAMIENTO PARA EL HEADER (Header.tsx / styles.css)
+   Stacking Context & Layout Isolation
+========================================================================= */
+header, .main-header {
+  position: sticky; /* o fixed */
+  top: 0;
+  z-index: 1000;
+  height: auto;
+  width: 100%;
+  max-width: 100vw;
+  box-sizing: border-box;
+  background-color: #001D3D; /* color azul oscuro oficial */
+  overflow: hidden; /* Evita que elementos internos o barras desborden */
+}
+
+/* Permitir apertura fluida de menús desplegables / buscador al interactuar */
+header.overflow-visible,
+header.has-dropdown-open,
+header:focus-within {
+  overflow: visible;
+}
+
+/* =========================================================================
+   REGLA PARA EL CONTENIDO PRINCIPAL (Home.tsx / HeroBanner.tsx)
+========================================================================= */
+main, .page-content {
+  margin-top: 0;
+  position: relative;
+  z-index: 1;
+}
+
+/* Garantizar que el contenedor del carrusel tenga overflow controlado */
+.hero-card, .hero-container {
+  position: relative;
+  overflow: hidden;
+  border-radius: 24px;
+}
+
+/* =========================================================================
+   ESTILOS ESPECÍFICOS DEL DRAWER DEL CARRITO (CartDrawer.tsx / CartModal.tsx)
+   - position: fixed !important;
+   - top: 0; right: 0; bottom: 0;
+   - height: 100vh !important;
+   - z-index: 9999 !important;
+   - overflow-y: auto;
+========================================================================= */
+.cart-drawer-overlay,
+.cart-modal-overlay,
+[data-cart-drawer="true"],
+.cart-drawer,
+.cart-modal {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  z-index: 9999 !important;
+}
+
+.cart-drawer-panel,
+.cart-modal-panel,
+.cart-drawer-container,
+.cart-drawer > div:last-child {
+  position: fixed !important;
+  top: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  height: 100vh !important;
+  max-height: 100vh !important;
+  z-index: 9999 !important;
+  overflow-y: auto !important;
+  box-sizing: border-box !important;
+}
+
+/* =========================================================================
+   PANEL LATERAL DE INFORMACIÓN DE SEDES (TRANSICIÓN SUAVE 200-300ms)
+========================================================================= */
+@keyframes sedePanelFadeIn {
+  0% {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.sede-panel-transition {
+  animation: sedePanelFadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes markerPulseGlow {
+  0% {
+    r: 18px;
+    opacity: 0.85;
+  }
+  50% {
+    r: 28px;
+    opacity: 0.35;
+  }
+  100% {
+    r: 34px;
+    opacity: 0;
+  }
+}
+
+.map-marker-pulse-glow {
+  animation: markerPulseGlow 1.8s infinite ease-out;
+}
+
