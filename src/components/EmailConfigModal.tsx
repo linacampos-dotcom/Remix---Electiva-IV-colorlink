@@ -73,7 +73,7 @@ export const EmailConfigModal: React.FC<EmailConfigModalProps> = ({
       smtpHost: smtpHost.trim(),
       smtpPort: Number(smtpPort),
       smtpUser: smtpUser.trim(),
-      smtpPass: smtpPass.trim(),
+      smtpPass: smtpPass.trim().replace(/\s+/g, ''),
       smtpSecure,
       emailFrom: emailFrom.trim() || undefined,
     });
@@ -269,11 +269,58 @@ export const EmailConfigModal: React.FC<EmailConfigModalProps> = ({
             </div>
           )}
 
-          {/* TAB 2: BREVO SMTP */}
+          {/* TAB 2: SERVIDOR SMTP */}
           {tab === 'smtp' && (
             <form onSubmit={handleSaveSmtp} className="space-y-4">
-              <div className="p-3.5 bg-blue-50 border border-blue-100 rounded-2xl text-xs text-blue-900 leading-relaxed">
-                <strong>Transporte SMTP Brevo:</strong> El sistema utiliza el servidor SMTP de Brevo para enviar los correos de verificación OTP a cualquier dirección de correo introducida por los usuarios.
+              {/* Presets rápidos */}
+              <div className="flex gap-2 items-center flex-wrap">
+                <span className="text-[11px] font-bold text-slate-500 uppercase">Configuración Rápida:</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSmtpHost('smtp.gmail.com');
+                    setSmtpPort(587);
+                    setSmtpUser('linajazmincampos@gmail.com');
+                    setEmailFrom('linajazmincampos@gmail.com');
+                    setSmtpSecure(false);
+                  }}
+                  className="px-2.5 py-1 text-xs font-bold rounded-lg bg-blue-50 text-blue-900 border border-blue-200 hover:bg-blue-100 transition-colors cursor-pointer"
+                >
+                  ✉️ Gmail SMTP (Recomendado)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSmtpHost('smtp-relay.brevo.com');
+                    setSmtpPort(587);
+                    setSmtpUser('bd9d5f001@smtp-brevo.com');
+                    setEmailFrom('linajazmincampos@gmail.com');
+                    setSmtpSecure(false);
+                  }}
+                  className="px-2.5 py-1 text-xs font-bold rounded-lg bg-slate-100 text-slate-700 border border-slate-200 hover:bg-slate-200 transition-colors cursor-pointer"
+                >
+                  ⚡ Brevo SMTP Relay
+                </button>
+              </div>
+
+              <div className="p-3.5 bg-blue-50 border border-blue-200 rounded-2xl text-xs text-blue-950 leading-relaxed space-y-1.5">
+                <div className="font-bold flex items-center gap-1.5 text-blue-900">
+                  <ShieldCheck className="w-4 h-4 text-blue-700" />
+                  <span>Validación de Correo y Contraseña de Aplicación Gmail:</span>
+                </div>
+                <p>
+                  Si usas Gmail, en el campo <strong>Contraseña</strong> debes ingresar la <strong>contraseña de aplicación de 16 caracteres</strong> generada en Google (myaccount.google.com/apppasswords). Los espacios se eliminan automáticamente.
+                </p>
+                <div className="p-2.5 bg-white rounded-xl border border-blue-100 text-[11px] text-slate-700 space-y-1">
+                  <strong>Configuración idéntica para el Panel de Supabase (Authentication &gt; Settings &gt; SMTP):</strong>
+                  <ul className="list-disc pl-4 space-y-0.5 text-slate-600">
+                    <li><strong>Sender email:</strong> linajazmincampos@gmail.com</li>
+                    <li><strong>Sender name:</strong> COLORLINK Pintuco</li>
+                    <li><strong>Host:</strong> smtp.gmail.com • <strong>Port:</strong> 587</li>
+                    <li><strong>Username:</strong> linajazmincampos@gmail.com</li>
+                    <li><strong>Password:</strong> Contraseña de aplicación de 16 caracteres de Gmail</li>
+                  </ul>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">

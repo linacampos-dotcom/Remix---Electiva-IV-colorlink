@@ -8,7 +8,23 @@ import { createServer as createViteServer } from 'vite';
 import { createClient } from '@supabase/supabase-js';
 import nodemailer from 'nodemailer';
 
-dotenv.config();
+dotenv.config({ override: true });
+
+// Clean and normalize Supabase URL (strip any accidental /rest/v1 suffix)
+function normalizeSupabaseUrl(url?: string): string {
+  if (!url) return 'https://hyzzdjtckejrcfxptjel.supabase.co';
+  let clean = url.trim();
+  clean = clean.replace(/\/rest\/v1\/?$/, '');
+  clean = clean.replace(/\/+$/, '');
+  return clean || 'https://hyzzdjtckejrcfxptjel.supabase.co';
+}
+
+if (process.env.SUPABASE_URL) {
+  process.env.SUPABASE_URL = normalizeSupabaseUrl(process.env.SUPABASE_URL);
+}
+if (process.env.VITE_SUPABASE_URL) {
+  process.env.VITE_SUPABASE_URL = normalizeSupabaseUrl(process.env.VITE_SUPABASE_URL);
+}
 
 const app = express();
 const PORT = 3000;
@@ -19,7 +35,7 @@ app.get(['/health', '/api/health', '/_health', '/ping'], (req, res) => {
 });
 
 // Supabase Server Client Initialization with safe URL check and fallback
-const rawServerUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
+const rawServerUrl = normalizeSupabaseUrl(process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '');
 const rawServerAnonKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '';
 
 const isServerUrlValid = Boolean(
@@ -34,7 +50,7 @@ const isServerKeyValid = Boolean(
 );
 
 const SUPABASE_PROJECT_URL = isServerUrlValid
-  ? rawServerUrl
+  ? normalizeSupabaseUrl(rawServerUrl)
   : 'https://hyzzdjtckejrcfxptjel.supabase.co';
 
 const SUPABASE_ANON_KEY = isServerKeyValid
@@ -691,7 +707,7 @@ app.get('/api/health', (req, res) => {
 
 // API: Supabase configuration check (serves non-secret public anon credentials from server env if set)
 app.get('/api/supabase-env', (req, res) => {
-  const url = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || 'https://hyzzdjtckejrcfxptjel.supabase.co';
+  const url = normalizeSupabaseUrl(process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL);
   const anonKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || 'sb_publishable_fX0rW_21X7HN_Rbbs3iWfw_uwAKIKyG';
   const isConfigured = Boolean(
     url && 
@@ -1758,7 +1774,7 @@ function getActiveEmailConfig(): EmailProviderConfig {
   const smtpHost = process.env.SMTP_HOST?.trim() || 'smtp-relay.brevo.com';
   const smtpPort = Number(process.env.SMTP_PORT) || 587;
   const smtpUser = process.env.SMTP_USER?.trim() || 'bd9d5f001@smtp-brevo.com';
-  const smtpPass = process.env.SMTP_PASS?.trim() || '';
+  const smtpPass = (process.env.SMTP_PASS || '').trim().replace(/\s+/g, '');
   const smtpSecure = process.env.SMTP_SECURE === 'true' || smtpPort === 465;
   const emailFrom = process.env.EMAIL_FROM?.trim() || smtpUser;
 
@@ -1833,7 +1849,7 @@ async function sendTransactionalEmail(options: {
   const host = config.smtpHost || process.env.SMTP_HOST?.trim() || 'smtp-relay.brevo.com';
   const port = config.smtpPort || Number(process.env.SMTP_PORT) || 587;
   const user = config.smtpUser || process.env.SMTP_USER?.trim() || 'bd9d5f001@smtp-brevo.com';
-  const pass = config.smtpPass || process.env.SMTP_PASS?.trim() || '';
+  const pass = (config.smtpPass || process.env.SMTP_PASS || '').trim().replace(/\s+/g, '');
   const secure = config.smtpSecure !== undefined ? config.smtpSecure : (process.env.SMTP_SECURE === 'true' || port === 465);
   const rawSenderAddress = config.emailFrom || process.env.EMAIL_FROM?.trim() || 'Linajazmincampossaboya@gmail.com';
 
@@ -2148,6 +2164,9 @@ app.post('/api/auth/configure-email', async (req, res) => {
       const port = Number(smtpPort) || 587;
       const isSecure = smtpSecure !== undefined ? Boolean(smtpSecure) : (port === 465);
 
+      // Limpiar contraseña de aplicación (eliminar espacios comunes de Gmail de 16 caracteres)
+      const cleanPass = smtpPass.trim().replace(/\s+/g, '');
+
       // Probar conexión antes de guardar
       const testTransporter = nodemailer.createTransport({
         host: smtpHost.trim(),
@@ -2155,7 +2174,7 @@ app.post('/api/auth/configure-email', async (req, res) => {
         secure: isSecure,
         auth: {
           user: smtpUser.trim(),
-          pass: smtpPass.trim(),
+          pass: cleanPass,
         },
         tls: { rejectUnauthorized: false },
       });
@@ -2175,7 +2194,7 @@ app.post('/api/auth/configure-email', async (req, res) => {
         smtpHost: smtpHost.trim(),
         smtpPort: port,
         smtpUser: smtpUser.trim(),
-        smtpPass: smtpPass.trim(),
+        smtpPass: cleanPass,
         smtpSecure: isSecure,
         emailFrom: emailFrom?.trim() || smtpUser.trim(),
       };

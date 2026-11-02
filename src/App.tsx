@@ -323,7 +323,8 @@ export default function App() {
       const params = new URLSearchParams(window.location.search);
       const catParam = params.get('categoria') || params.get('cat');
       const tabParam = params.get('tab');
-      if (catParam || tabParam === 'catalog' || tabParam === 'catalogo') {
+      const path = window.location.pathname.toLowerCase();
+      if (catParam || tabParam === 'catalog' || tabParam === 'catalogo' || path === '/catalogo' || path === '/catalog') {
         return 'catalog';
       }
       if (tabParam === 'cotizador' || tabParam === 'calculadora') {
@@ -1225,7 +1226,9 @@ export default function App() {
           setIsHistoryOpen(true);
         }}
         onOpenCatalog={() => {
-          setActiveClientTab('catalog');
+          setIsCatalogOpen(false);
+          handleSelectCategory('todos');
+          window.scrollTo({ top: 0, behavior: 'smooth' });
         }}
         onOpenChat={() => setIsChatOpen(true)}
         onOpenNLPExtractor={() => setIsNLPOpen(true)}
@@ -1526,8 +1529,10 @@ export default function App() {
         onClearCart={handleClearCart}
         onCheckout={handleCartCheckout}
         onOpenCatalog={() => {
-          setActiveClientTab('catalog');
-          setIsCatalogOpen(true);
+          setIsCartOpen(false);
+          setIsCatalogOpen(false);
+          handleSelectCategory('todos');
+          window.scrollTo({ top: 0, behavior: 'smooth' });
         }}
         userSession={userSession}
         onUpdateUserSession={(updated) => {

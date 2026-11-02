@@ -269,7 +269,7 @@ export const ClientView: React.FC<ClientViewProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-base sm:text-lg font-black text-slate-900">
-                  {activeClientTab === 'catalog' && 'Catálogo'}
+                  {activeClientTab === 'catalog' && 'Catálogo Oficial Pintuco & Color In'}
                   {activeClientTab === 'cotizador' && 'Cotizador en Línea • Cotiza tu Orden'}
                   {activeClientTab === 'nosotros' && 'Quiénes Somos • Trayectoria, Misión y Visión Pintuco'}
                   {activeClientTab === 'favorites' && 'Mis Productos Favoritos'}

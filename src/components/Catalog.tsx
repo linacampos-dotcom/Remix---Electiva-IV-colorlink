@@ -328,7 +328,7 @@ export const Catalog: React.FC<CatalogProps> = ({
           </div>
 
           <h2 className="text-2xl sm:text-3xl font-black tracking-tight text-white">
-            Catálogo
+            Catálogo Oficial Pintuco & Color In
           </h2>
 
           <p className="text-xs sm:text-sm text-slate-200 leading-relaxed font-normal">

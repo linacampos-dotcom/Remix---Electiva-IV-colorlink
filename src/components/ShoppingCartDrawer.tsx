@@ -756,7 +756,7 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
                   onClose();
                   onOpenCatalog();
                 }}
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs shadow-md transition-transform hover:scale-105"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs shadow-md transition-transform hover:scale-105 cursor-pointer active:scale-95"
               >
                 <span>Explorar Catálogo Pintuco</span>
                 <ArrowRight className="w-4 h-4" />
