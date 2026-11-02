@@ -2534,6 +2534,8 @@ app.post('/api/payment/send-receipt', async (req, res) => {
 
 // Start Server with Vite
 async function startServer() {
+  app.use(express.static(path.join(process.cwd(), 'public')));
+
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
       server: { middlewareMode: true },

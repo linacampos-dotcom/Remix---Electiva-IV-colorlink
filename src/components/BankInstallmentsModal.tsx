@@ -27,6 +27,7 @@ interface BankInstallmentsModalProps {
 interface AlliedBank {
   id: string;
   name: string;
+  logoSrc?: string;
   badgeColor: string;
   badgeTextColor: string;
   accentBg: string;
@@ -42,6 +43,7 @@ const ALLIED_BANKS: AlliedBank[] = [
   {
     id: 'bancolombia',
     name: 'Bancolombia',
+    logoSrc: '/images/banks/bancolombia.svg',
     badgeColor: 'bg-[#FDDA24]',
     badgeTextColor: 'text-slate-950 font-black',
     accentBg: 'bg-white',
@@ -59,6 +61,7 @@ const ALLIED_BANKS: AlliedBank[] = [
   {
     id: 'davivienda',
     name: 'Davivienda',
+    logoSrc: '/images/banks/davivienda.png',
     badgeColor: 'bg-[#ED1C24]',
     badgeTextColor: 'text-white font-black',
     accentBg: 'bg-white',
@@ -76,6 +79,7 @@ const ALLIED_BANKS: AlliedBank[] = [
   {
     id: 'banco-bogota',
     name: 'Banco de Bogotá (Grupo Aval)',
+    logoSrc: '/images/banks/banco_bogota.svg',
     badgeColor: 'bg-[#002A86]',
     badgeTextColor: 'text-white font-black',
     accentBg: 'bg-white',
@@ -93,6 +97,7 @@ const ALLIED_BANKS: AlliedBank[] = [
   {
     id: 'bbva',
     name: 'BBVA Colombia',
+    logoSrc: '/images/banks/bbva.svg',
     badgeColor: 'bg-[#004481]',
     badgeTextColor: 'text-white font-black',
     accentBg: 'bg-white',
@@ -110,6 +115,7 @@ const ALLIED_BANKS: AlliedBank[] = [
   {
     id: 'scotiabank',
     name: 'Scotiabank Colpatria',
+    logoSrc: '/images/banks/scotiabank_colpatria.svg',
     badgeColor: 'bg-[#ED0722]',
     badgeTextColor: 'text-white font-black',
     accentBg: 'bg-white',
@@ -127,6 +133,7 @@ const ALLIED_BANKS: AlliedBank[] = [
   {
     id: 'occidente-popular',
     name: 'Banco de Occidente & Popular (Aval)',
+    logoSrc: '/images/banks/banco_occidente.svg',
     badgeColor: 'bg-[#0072CE]',
     badgeTextColor: 'text-white font-black',
     accentBg: 'bg-white',
@@ -326,9 +333,15 @@ export const BankInstallmentsModal: React.FC<BankInstallmentsModalProps> = ({
                     }`}
                   >
                     <div className="flex items-center justify-between gap-2 mb-2">
-                      <span className={`px-2 py-0.5 rounded-md text-[10px] uppercase ${bank.badgeColor} ${bank.badgeTextColor}`}>
-                        {bank.name}
-                      </span>
+                      <div className="h-6 flex items-center">
+                        {bank.logoSrc ? (
+                          <img src={bank.logoSrc} alt={bank.name} className="max-h-5 max-w-[110px] w-auto object-contain" />
+                        ) : (
+                          <span className={`px-2 py-0.5 rounded-md text-[10px] uppercase ${bank.badgeColor} ${bank.badgeTextColor}`}>
+                            {bank.name}
+                          </span>
+                        )}
+                      </div>
                       {isSelected && (
                         <CheckCircle2 className="w-4 h-4 text-teal-600 shrink-0" />
                       )}
@@ -356,8 +369,12 @@ export const BankInstallmentsModal: React.FC<BankInstallmentsModalProps> = ({
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-3">
               <div>
                 <span className="text-[10px] uppercase font-bold text-teal-700">Detalles del Convenio</span>
-                <h4 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
-                  <span>{selectedBank.name}</span>
+                <h4 className="text-base font-extrabold text-slate-900 flex items-center gap-2.5 flex-wrap">
+                  {selectedBank.logoSrc ? (
+                    <img src={selectedBank.logoSrc} alt={selectedBank.name} className="max-h-6 max-w-[130px] w-auto object-contain" />
+                  ) : (
+                    <span>{selectedBank.name}</span>
+                  )}
                   <span className="text-xs px-2 py-0.5 rounded bg-teal-50 text-teal-800 font-bold border border-teal-200">
                     3 Cuotas / 0% E.A.
                   </span>

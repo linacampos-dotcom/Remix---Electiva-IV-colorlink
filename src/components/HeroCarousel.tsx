@@ -24,60 +24,60 @@ export interface HeroCarouselProps {
 interface BankAllyLogo {
   id: string;
   name: string;
-  bgColor: string;
-  textColor: string;
-  tag: string;
-  franchises: string;
+  logoSrc: string;
+  alt: string;
+  maxHeightClass?: string;
+  maxWidthClass?: string;
 }
 
 const ALLIED_BANKS_CAROUSEL: BankAllyLogo[] = [
   {
     id: 'bancolombia',
     name: 'Bancolombia',
-    bgColor: 'bg-[#FDDA24]',
-    textColor: 'text-slate-950 font-black',
-    tag: '3 cuotas 0%',
-    franchises: 'Visa · Mastercard · Amex'
+    logoSrc: '/images/banks/bancolombia.svg',
+    alt: 'Logo Oficial Bancolombia',
+    maxHeightClass: 'max-h-7 sm:max-h-8',
+    maxWidthClass: 'max-w-[125px] sm:max-w-[135px]'
   },
   {
     id: 'davivienda',
     name: 'Davivienda',
-    bgColor: 'bg-[#ED1C24]',
-    textColor: 'text-white font-black',
-    tag: '3 cuotas 0%',
-    franchises: 'Visa · Mastercard · Diners'
+    logoSrc: '/images/banks/davivienda.png',
+    alt: 'Logo Oficial Davivienda',
+    maxHeightClass: 'max-h-7 sm:max-h-8',
+    maxWidthClass: 'max-w-[125px] sm:max-w-[135px]'
   },
   {
     id: 'banco-bogota',
     name: 'Banco de Bogotá',
-    bgColor: 'bg-[#002A86]',
-    textColor: 'text-white font-black',
-    tag: 'Grupo Aval · 0%',
-    franchises: 'Visa · Mastercard'
+    logoSrc: '/images/banks/banco_bogota.svg',
+    alt: 'Logo Oficial Banco de Bogotá',
+    maxHeightClass: 'max-h-7 sm:max-h-8',
+    maxWidthClass: 'max-w-[125px] sm:max-w-[135px]'
   },
   {
     id: 'bbva',
     name: 'BBVA',
-    bgColor: 'bg-[#004481]',
-    textColor: 'text-white font-black',
-    tag: '3 cuotas 0%',
-    franchises: 'Visa · Mastercard'
+    logoSrc: '/images/banks/bbva.svg',
+    alt: 'Logo Oficial BBVA',
+    maxHeightClass: 'max-h-6 sm:max-h-7',
+    maxWidthClass: 'max-w-[90px] sm:max-w-[100px]'
   },
   {
     id: 'scotiabank',
     name: 'Scotiabank Colpatria',
-    bgColor: 'bg-[#ED0722]',
-    textColor: 'text-white font-black',
-    tag: '3 cuotas 0%',
-    franchises: 'Visa · Mastercard'
+    logoSrc: '/images/banks/scotiabank_colpatria.svg',
+    alt: 'Logo Oficial Scotiabank Colpatria',
+    maxHeightClass: 'max-h-8 sm:max-h-9',
+    maxWidthClass: 'max-w-[130px] sm:max-w-[140px]'
   },
   {
     id: 'occidente-popular',
     name: 'Banco de Occidente',
-    bgColor: 'bg-[#0072CE]',
-    textColor: 'text-white font-black',
-    tag: 'Grupo Aval · 0%',
-    franchises: 'Visa · Mastercard'
+    logoSrc: '/images/banks/banco_occidente.svg',
+    alt: 'Logo Oficial Banco de Occidente',
+    maxHeightClass: 'max-h-7 sm:max-h-8',
+    maxWidthClass: 'max-w-[120px] sm:max-w-[130px]'
   }
 ];
 
@@ -139,13 +139,13 @@ const SLIDES: SlideData[] = [
   {
     id: 'slide-bancos-aliados',
     tag: 'Financiación Directa • Convenio Oficial',
-    tagIcon: <CreditCard className="w-3.5 h-3.5 text-amber-300" />,
+    tagIcon: <CreditCard className="w-3.5 h-3.5 text-sky-300" />,
     badge: '0% INTERÉS',
     badgeColor: 'bg-emerald-600 text-white shadow-emerald-600/30',
     titlePrefix: '',
     titleHighlight: 'Paga sin interés con nuestros bancos aliados',
-    titleSuffix: '0% de interés pagando a 3 cuotas',
-    description: 'Difiere tus compras de pinturas, recubrimientos y herramientas Pintuco en 3 cuotas mensuales sin ningún costo ni tasa de interés con tarjetas de crédito autorizadas.',
+    titleSuffix: '',
+    description: 'Financia tus compras con tarjetas de crédito de nuestros bancos aliados en Colombia sin costos financieros adicionales.',
     features: [
       '0% de interés corriente diferido a 3 cuotas',
       'Sin cobro de comisiones de financiamiento',
@@ -350,10 +350,10 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
                   >
                     {/* Eyebrow & Badges */}
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 text-xs font-bold tracking-widest uppercase text-cyan-400">
-                        <CreditCard className="w-4 h-4 text-amber-400" />
+                      <div className="flex items-center gap-2 text-xs font-bold tracking-widest uppercase text-sky-400">
+                        <CreditCard className="w-4 h-4 text-sky-400" />
                         <span>COLORLINK & PINTUCO</span>
-                        <span className="text-cyan-700" aria-hidden="true">·</span>
+                        <span className="text-sky-700" aria-hidden="true">·</span>
                         <span className="text-slate-300 font-medium normal-case tracking-normal">Alianzas Financieras</span>
                       </div>
                       <div className="flex items-center gap-2">
@@ -367,27 +367,24 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
                       </div>
                     </div>
 
-                    {/* Títulos Principales Requeridos */}
-                    <div className="space-y-1 sm:space-y-1.5 text-left mt-2.5 sm:mt-3">
+                    {/* Título Principal y Descripción Limpia */}
+                    <div className="space-y-1.5 text-left mt-2.5 sm:mt-3">
                       <h2 className="text-2xl sm:text-4xl lg:text-[38px] font-black text-white leading-[1.1] tracking-tight group-hover/bankbanner:text-sky-100 transition-colors">
                         Paga sin interés con nuestros bancos aliados
                       </h2>
-                      <p className="text-lg sm:text-2xl lg:text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-yellow-200 to-amber-400">
-                        0% de interés pagando a 3 cuotas
-                      </p>
-                      <p className="text-xs sm:text-sm text-slate-200 leading-relaxed font-normal max-w-2xl pt-0.5 hidden sm:block">
-                        Financia tus compras de pinturas, impermeabilizantes y herramientas sin costos financieros adicionales con tarjetas de crédito de nuestros bancos aliados en Colombia.
+                      <p className="text-xs sm:text-sm text-slate-200 leading-relaxed font-normal max-w-2xl pt-1">
+                        Financia tus compras con tarjetas de crédito de nuestros bancos aliados en Colombia sin costos financieros adicionales.
                       </p>
                     </div>
 
-                    {/* Fila Horizontal Limpia y Ordenada con los Logos de los Bancos Aliados */}
+                    {/* Fila Horizontal Limpia y Ordenada con los Logos Oficiales de los Bancos Aliados */}
                     <div className="w-full my-3 sm:my-4 p-3 sm:p-4 rounded-2xl bg-[#001428]/85 backdrop-blur-md border border-white/15 shadow-2xl">
                       <div className="flex items-center justify-between mb-2.5 px-0.5">
                         <span className="text-[11px] font-bold uppercase tracking-wider text-sky-300 flex items-center gap-1.5">
-                          <Building2 className="w-3.5 h-3.5 text-cyan-400" />
+                          <Building2 className="w-3.5 h-3.5 text-sky-400" />
                           Bancos Aliados Oficiales
                         </span>
-                        <span className="text-[10px] text-amber-300 font-mono font-semibold hidden md:inline">
+                        <span className="text-[10px] text-sky-300/90 font-mono font-semibold hidden md:inline">
                           Tarjetas Visa, Mastercard y Amex • Exención Total de Intereses
                         </span>
                       </div>
@@ -396,21 +393,15 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
                         {ALLIED_BANKS_CAROUSEL.map((bank) => (
                           <div
                             key={bank.id}
-                            className="rounded-xl bg-white p-2.5 sm:p-3 flex flex-col justify-between border border-slate-200/90 shadow-sm transition-all duration-200 hover:scale-[1.03] hover:shadow-lg hover:border-amber-400 text-left group/card"
+                            className="rounded-xl bg-white p-2 sm:p-2.5 h-14 sm:h-16 flex items-center justify-center border border-slate-200/90 shadow-sm transition-all duration-200 hover:scale-[1.03] hover:shadow-md hover:border-sky-400 group/card cursor-pointer"
+                            title={`Banco Aliado Oficial: ${bank.name}`}
                           >
-                            <div className="flex items-center justify-between gap-1 mb-2">
-                              <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-black tracking-tight ${bank.bgColor} ${bank.textColor}`}>
-                                {bank.name}
-                              </span>
-                            </div>
-                            <div>
-                              <span className="block text-xs font-black text-slate-900 group-hover/card:text-blue-900 transition-colors">
-                                {bank.tag}
-                              </span>
-                              <span className="block text-[9px] text-slate-500 font-medium tracking-tight mt-0.5">
-                                {bank.franchises}
-                              </span>
-                            </div>
+                            <img
+                              src={bank.logoSrc}
+                              alt={bank.alt}
+                              className={`${bank.maxHeightClass || 'max-h-7 sm:max-h-8'} ${bank.maxWidthClass || 'max-w-[85%]'} w-auto object-contain transition-transform duration-200 group-hover/card:scale-105`}
+                              loading="eager"
+                            />
                           </div>
                         ))}
                       </div>
@@ -425,11 +416,11 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
                             e.stopPropagation();
                             handleOpenInstallments();
                           }}
-                          className="bg-gradient-to-r from-amber-400 via-amber-500 to-yellow-500 hover:from-amber-300 hover:to-yellow-400 text-slate-950 font-black shadow-lg shadow-amber-950/40 rounded-xl px-5 sm:px-6 py-2.5 sm:py-3 transition-all duration-300 transform hover:-translate-y-0.5 active:scale-95 cursor-pointer inline-flex items-center gap-2 text-xs sm:text-sm group/btn"
+                          className="bg-white hover:bg-sky-50 text-[#001D3D] font-extrabold shadow-lg shadow-blue-950/40 rounded-xl px-5 sm:px-6 py-2.5 sm:py-3 transition-all duration-300 transform hover:-translate-y-0.5 active:scale-95 cursor-pointer inline-flex items-center gap-2 text-xs sm:text-sm group/btn border border-white/80"
                         >
-                          <Calculator className="w-4 h-4 text-slate-950" />
+                          <Calculator className="w-4 h-4 text-sky-600" />
                           <span>Abrir calculadora de cuotas</span>
-                          <ArrowRight className="w-4 h-4 text-slate-950 group-hover/btn:translate-x-1 transition-transform" />
+                          <ArrowRight className="w-4 h-4 text-sky-600 group-hover/btn:translate-x-1 transition-transform" />
                         </button>
 
                         <button
@@ -445,7 +436,7 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
                       </div>
 
                       <div className="flex items-center gap-2 text-xs text-sky-200/90 font-medium">
-                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse inline-block" />
+                        <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse inline-block" />
                         <span>Haz clic en este banner para calcular tus cuotas</span>
                       </div>
                     </div>
