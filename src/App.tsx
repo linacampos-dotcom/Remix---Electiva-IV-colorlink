@@ -1487,6 +1487,12 @@ export default function App() {
           setIsChatOpen(false);
           setIsCustomerInquiryOpen(true);
         }}
+        onOpenAuth={(reason) => {
+          setIsAuthOpen(true);
+          if (reason) setAuthReason(reason);
+        }}
+        onOpenCoverageMap={() => setIsCoverageOpen(true)}
+        orders={orders}
       />
 
       <CustomerInquiryModal

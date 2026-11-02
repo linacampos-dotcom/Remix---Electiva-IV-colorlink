@@ -1,10 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { FMVFormData, CalculationResult, UserSession, CartItem } from '../types';
+import { FMVFormData, CalculationResult, UserSession, CartItem, COLORLINKOrder } from '../types';
 import { 
   X, 
   Send, 
-  Bot, 
   Sparkles, 
   Loader2, 
   CheckCircle2, 
@@ -16,16 +15,29 @@ import {
   ArrowRight,
   Download,
   Eye,
-  Image as ImageIcon,
   Plus,
   Paperclip,
-  HeadphonesIcon
+  HeadphonesIcon,
+  Calculator,
+  Package,
+  MapPin,
+  Clock,
+  ShieldCheck,
+  ChevronRight,
+  FileText,
+  Check,
+  ExternalLink,
+  Phone,
+  Truck
 } from 'lucide-react';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 import { AddToCartModal, ProductToConfigure } from './AddToCartModal';
 import { downloadQuotationSheet } from '../utils/quotationSheetGenerator';
 import { ImageVisualizer } from './ImageVisualizer';
+import { SEDES_PINTUCO, SedePintuco } from './ColombiaInteractiveMap';
+import { DEPARTAMENTOS_COLOMBIA } from '../data/colombiaLogistics';
 import sampleWallImg from '../assets/images/living_room_wall_1789834592467.jpg';
+import facadeWallImg from '../assets/images/facade_wall_1789834604798.jpg';
 
 export const PINTUCO_AI_AVATAR_URL = '/images/pintuco_character_clean.png';
 
@@ -55,12 +67,206 @@ export interface CartAction {
   imagenUrl?: string;
 }
 
-// Analizador numérico estricto de metros cuadrados
+export interface ToolItem {
+  nombre: string;
+  sku: string;
+  cantidad: number;
+  precioUnitario: number;
+  imagenUrl?: string;
+}
+
+export const DEFAULT_TOOLS_KIT: ToolItem[] = [
+  {
+    nombre: 'Rodillo 9" Microfibra Cero Gota con Manija',
+    sku: 'PIN-ROD-9INT',
+    cantidad: 1,
+    precioUnitario: 28500,
+    imagenUrl: '/src/assets/images/paint_roller_tray_1790894457076.jpg'
+  },
+  {
+    nombre: 'Brocha Profesional Master 2.5"',
+    sku: 'PIN-BRO-25',
+    cantidad: 1,
+    precioUnitario: 16900,
+    imagenUrl: '/src/assets/images/pro_brushes_set_1790894448620.jpg'
+  },
+  {
+    nombre: 'Cinta de Enmascarar Azul Antirastro 1"',
+    sku: 'PIN-CIN-AZUL',
+    cantidad: 1,
+    precioUnitario: 9800,
+    imagenUrl: '/src/assets/images/cinta_azul_rollo_1790894607849.jpg'
+  },
+  {
+    nombre: 'Lija de Agua Pintuco Grano 220',
+    sku: 'PIN-LIJ-220',
+    cantidad: 2,
+    precioUnitario: 2400,
+    imagenUrl: '/src/assets/images/lija_agua_pintuco_1790894597920.jpg'
+  }
+];
+
+export interface QuickChipItem {
+  id: 'cotizar' | 'rastrear' | 'sedes' | 'subir_imagen' | 'simulador';
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+}
+
+export const QUICK_ACTION_CHIPS: QuickChipItem[] = [
+  { id: 'cotizar', label: 'Cotizar', icon: Calculator },
+  { id: 'rastrear', label: 'Rastrear pedido', icon: Package },
+  { id: 'sedes', label: 'Sedes y horarios', icon: MapPin },
+  { id: 'subir_imagen', label: 'Subir imagen para cotización', icon: Camera },
+  { id: 'simulador', label: 'Simulador de color', icon: Palette },
+];
+
+// FUENTE ÚNICA DE DATOS (Single Source of Truth vinculada al Mapa Interactivo)
+export const QUICK_CITIES = SEDES_PINTUCO.map((sede) => ({
+  id: sede.id,
+  name: sede.ciudad,
+  departamento: sede.departamento,
+  region: sede.region,
+}));
+
+export function getSedesForCity(cityInput: string): {
+  cityName: string;
+  hubs: SedePintuco[];
+  notaRegional?: string;
+} {
+  const norm = cityInput
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+
+  // 1. Coincidencia directa por nombre de ciudad, departamento, región o id en SEDES_PINTUCO
+  let matchedHubs = SEDES_PINTUCO.filter((s) => {
+    const sCityNorm = s.ciudad.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const sDeptNorm = s.departamento.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const sNameNorm = s.nombre.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const sIdNorm = s.id.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+    return (
+      sCityNorm.includes(norm) || norm.includes(sCityNorm) ||
+      sDeptNorm.includes(norm) || norm.includes(sDeptNorm) ||
+      sNameNorm.includes(norm) || norm.includes(sNameNorm) ||
+      sIdNorm === norm
+    );
+  });
+
+  // 2. Coincidencia por alias metropolitanos de las 12 sedes del mapa
+  if (matchedHubs.length === 0) {
+    if (norm.includes('santa marta') || norm.includes('santamarta') || norm.includes('magdalena') || norm.includes('taganga') || norm.includes('rodadero') || norm.includes('sierra')) {
+      matchedHubs = SEDES_PINTUCO.filter((s) => s.id === 'santamarta');
+    } else if (norm.includes('pasto') || norm.includes('narino') || norm.includes('ipiales') || norm.includes('tumaco') || norm.includes('torobajo')) {
+      matchedHubs = SEDES_PINTUCO.filter((s) => s.id === 'pasto');
+    } else if (norm.includes('villavicencio') || norm.includes('meta') || norm.includes('kirpas') || norm.includes('catama') || norm.includes('llanos')) {
+      matchedHubs = SEDES_PINTUCO.filter((s) => s.id === 'villavicencio');
+    } else if (norm.includes('ibague') || norm.includes('tolima') || norm.includes('salado') || norm.includes('espinal')) {
+      matchedHubs = SEDES_PINTUCO.filter((s) => s.id === 'ibague');
+    } else if (norm.includes('cucuta') || norm.includes('norte de santander') || norm.includes('villa del rosario') || norm.includes('los patios')) {
+      matchedHubs = SEDES_PINTUCO.filter((s) => s.id === 'cucuta');
+    } else if (norm.includes('bogota') || norm.includes('cundinamarca') || norm.includes('soacha') || norm.includes('chia') || norm.includes('fontibon') || norm.includes('montevideo')) {
+      matchedHubs = SEDES_PINTUCO.filter((s) => s.id === 'bogota');
+    } else if (norm.includes('medellin') || norm.includes('rionegro') || norm.includes('antioquia') || norm.includes('bello') || norm.includes('itagui') || norm.includes('envigado') || norm.includes('sabaneta') || norm.includes('guayabal')) {
+      matchedHubs = SEDES_PINTUCO.filter((s) => s.id === 'medellin');
+    } else if (norm.includes('cali') || norm.includes('yumbo') || norm.includes('valle') || norm.includes('palmira') || norm.includes('jamundi') || norm.includes('acopi')) {
+      matchedHubs = SEDES_PINTUCO.filter((s) => s.id === 'cali');
+    } else if (norm.includes('barranquilla') || norm.includes('soledad') || norm.includes('atlantico') || norm.includes('via 40') || norm.includes('malecon')) {
+      matchedHubs = SEDES_PINTUCO.filter((s) => s.id === 'barranquilla');
+    } else if (norm.includes('cartagena') || norm.includes('mamonal') || norm.includes('bolivar')) {
+      matchedHubs = SEDES_PINTUCO.filter((s) => s.id === 'cartagena');
+    } else if (norm.includes('bucaramanga') || norm.includes('santander') || norm.includes('giron') || norm.includes('floridablanca') || norm.includes('piedecuesta')) {
+      matchedHubs = SEDES_PINTUCO.filter((s) => s.id === 'bucaramanga');
+    } else if (norm.includes('pereira') || norm.includes('dosquebradas') || norm.includes('risaralda') || norm.includes('manizales') || norm.includes('armenia') || norm.includes('eje cafetero')) {
+      matchedHubs = SEDES_PINTUCO.filter((s) => s.id === 'pereira');
+    }
+  }
+
+  if (matchedHubs.length > 0) {
+    const displayCity = matchedHubs[0].ciudad;
+    return {
+      cityName: displayCity,
+      hubs: matchedHubs,
+    };
+  }
+
+  // 3. Búsqueda en los 32 departamentos y municipios de Colombia
+  const matchedDept = DEPARTAMENTOS_COLOMBIA.find((d) => {
+    const dNorm = d.nombre.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const cNorm = d.capital.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    return (
+      dNorm.includes(norm) || norm.includes(dNorm) ||
+      cNorm.includes(norm) || norm.includes(cNorm) ||
+      d.municipios.some((m) => m.nombre.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').includes(norm))
+    );
+  });
+
+  if (matchedDept) {
+    const deptNorm = matchedDept.nombre.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    let nearestSede = SEDES_PINTUCO.find((s) => s.departamento.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '') === deptNorm);
+
+    if (!nearestSede) {
+      if (deptNorm.includes('cesar') || deptNorm.includes('guajira')) {
+        nearestSede = SEDES_PINTUCO.find((s) => s.id === 'santamarta') || SEDES_PINTUCO.find((s) => s.id === 'barranquilla');
+      } else if (deptNorm.includes('caldas') || deptNorm.includes('quindio')) {
+        nearestSede = SEDES_PINTUCO.find((s) => s.id === 'pereira');
+      } else if (deptNorm.includes('huila') || deptNorm.includes('caqueta')) {
+        nearestSede = SEDES_PINTUCO.find((s) => s.id === 'ibague');
+      } else if (deptNorm.includes('cauca')) {
+        nearestSede = SEDES_PINTUCO.find((s) => s.id === 'cali');
+      } else if (deptNorm.includes('casanare') || deptNorm.includes('arauca')) {
+        nearestSede = SEDES_PINTUCO.find((s) => s.id === 'villavicencio');
+      } else if (deptNorm.includes('cordoba') || deptNorm.includes('sucre')) {
+        nearestSede = SEDES_PINTUCO.find((s) => s.id === 'cartagena');
+      } else {
+        nearestSede = SEDES_PINTUCO.find((s) => s.id === 'bogota')!;
+      }
+    }
+
+    const targetSede = nearestSede || SEDES_PINTUCO[0];
+    return {
+      cityName: matchedDept.capital || cityInput,
+      hubs: [targetSede],
+      notaRegional: `Para ${matchedDept.nombre} (${matchedDept.capital}), ColorLink opera mediante despachos logísticos directos y red de ferreterías aliadas respaldados desde el nodo de ${targetSede.nombre} en ${targetSede.ciudad}. Tiempo de entrega garantizado: ${targetSede.tiempoEntrega}.`
+    };
+  }
+
+  // 4. Fallback estándar si no es reconocido
+  return {
+    cityName: cityInput,
+    hubs: [SEDES_PINTUCO.find((s) => s.id === 'bogota') || SEDES_PINTUCO[0]],
+    notaRegional: `ColorLink y Pintuco cuentan con cobertura de despachos directos en todo el territorio colombiano y retiro presencial en los 12 nodos estratégicos del mapa nacional.`
+  };
+}
+
+export function isCityOrSedeQuery(query: string): boolean {
+  if (!query) return false;
+  const q = query.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+
+  // Ciudades activas del mapa interactivo (Single Source of Truth)
+  const mapCityNames = SEDES_PINTUCO.map((s) => 
+    s.ciudad.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim()
+  );
+
+  const additionalAliases = [
+    'santa marta', 'santamarta', 'pasto', 'villavicencio', 'ibague', 'cucuta',
+    'rionegro', 'yumbo', 'dosquebradas', 'giron', 'floridablanca', 'soledad',
+    'torobajo', 'kirpas', 'mamonal', 'fontibon', 'guayabal'
+  ];
+
+  const allCityKeywords = Array.from(new Set([...mapCityNames, ...additionalAliases]));
+
+  const hasCity = allCityKeywords.some((c) => q.includes(c));
+  const hasSedeIntent = /sede|tienda|horario|donde comprar|donde queda|sucursal|direccion|atencion|bodega|cedi|punto|ubicacion/i.test(q);
+
+  return (hasCity && hasSedeIntent) || allCityKeywords.some((c) => q === c || q === `en ${c}`);
+}
+
 export function parseSquareMeters(text: string): number | null {
   if (!text) return null;
   const clean = text.toLowerCase().replace(',', '.');
 
-  // Multiplicaciones: "5x4", "5 * 4", "5 por 4", "4.5 x 3"
   const multiMatch = clean.match(/(\d+(?:\.\d+)?)\s*(?:x|\*|por)\s*(\d+(?:\.\d+)?)/i);
   if (multiMatch) {
     const w = parseFloat(multiMatch[1]);
@@ -70,14 +276,12 @@ export function parseSquareMeters(text: string): number | null {
     }
   }
 
-  // Unidades explícitas: "25 m2", "25m2", "25 m²", "unos 25 metros cuadrados", "25 mts", "25 metros"
   const metricMatch = clean.match(/(\d+(?:\.\d+)?)\s*(?:m2|m²|mts2|metros\s*cuadrados|metros|mts|m\b)/i);
   if (metricMatch) {
     const val = parseFloat(metricMatch[1]);
     if (!isNaN(val) && val > 0) return Math.round(val * 10) / 10;
   }
 
-  // Números aislados: "25", "son 25", "tengo 30"
   const numMatch = clean.match(/\b(\d+(?:\.\d+)?)\b/);
   if (numMatch) {
     const val = parseFloat(numMatch[1]);
@@ -87,7 +291,6 @@ export function parseSquareMeters(text: string): number | null {
   return null;
 }
 
-// Generador de recomendaciones duales del catálogo Pintuco (Premium vs Económica)
 export function generateDualRecommendations(sqmValue: number, surfaceType: string): CartAction[] {
   const isExterior = /exterior|fachada|terraza|patio|cerca|reja/i.test(surfaceType);
 
@@ -100,7 +303,7 @@ export function generateDualRecommendations(sqmValue: number, surfaceType: strin
     return [
       {
         tipo: 'recomendada',
-        badge: '⭐ Opción Recomendada / Premium',
+        badge: '⭐ Opción Recomendada / Premium (NTC 1335)',
         productName: 'Koraza Doble Vida Protección Clima Extremo',
         descripcion: 'Máxima resistencia a intemperie, lluvia torrencial, rayos UV y polución. Garantía superior.',
         sku: 'PIN-KOR-02',
@@ -127,7 +330,6 @@ export function generateDualRecommendations(sqmValue: number, surfaceType: strin
     ];
   }
 
-  // Interiores por defecto
   const galonesPrem = Math.max(1, Math.ceil((sqmValue / 32) * 1.10));
   const isCunetePrem = galonesPrem >= 5;
   const galonesEcon = Math.max(1, Math.ceil((sqmValue / 30) * 1.10));
@@ -136,7 +338,7 @@ export function generateDualRecommendations(sqmValue: number, surfaceType: strin
   return [
     {
       tipo: 'recomendada',
-      badge: '⭐ Opción Recomendada / Premium',
+      badge: '⭐ Opción Recomendada / Premium (NTC 1335)',
       productName: 'Viniltex Avanzado Máxima Lavabilidad',
       descripcion: 'Ultra lavable, máxima resistencia a manchas y rayones, acabado mate sedoso de alta gama.',
       sku: 'PIN-VTX-01',
@@ -174,6 +376,9 @@ interface AIChatDrawerProps {
   onAddToCart?: (item: CartItem) => void;
   onOpenCart?: () => void;
   onOpenHumanSupport?: () => void;
+  onOpenAuth?: (reason?: string) => void;
+  onOpenCoverageMap?: () => void;
+  orders?: COLORLINKOrder[];
 }
 
 interface Message {
@@ -185,6 +390,16 @@ interface Message {
   savedSupabaseId?: string;
   cartAction?: CartAction;
   cartActions?: CartAction[];
+  toolsKit?: ToolItem[];
+  areaM2?: number;
+  spaceType?: string;
+  totalCotizacionCOP?: number;
+  showQuickChips?: boolean;
+  orderTrackingData?: any[];
+  sedeInfo?: boolean;
+  isCitySelectionPrompt?: boolean;
+  storeHubs?: SedePintuco[];
+  selectedCity?: string;
 }
 
 export const AIChatDrawer: React.FC<AIChatDrawerProps> = ({
@@ -198,8 +413,10 @@ export const AIChatDrawer: React.FC<AIChatDrawerProps> = ({
   onAddToCart,
   onOpenCart,
   onOpenHumanSupport,
+  onOpenAuth,
+  onOpenCoverageMap,
+  orders,
 }) => {
-  // Manejo de sesión de usuario y almacenamiento de chat disociado para visitante
   const isUserAuthenticated = Boolean(
     userSession && (userSession.isLoggedIn === true || Boolean(userSession.email))
   );
@@ -209,50 +426,46 @@ export const AIChatDrawer: React.FC<AIChatDrawerProps> = ({
   const chatStorageKey = `colorlink_chat_${activeUserEmail}`;
   const chatStateKey = `colorlink_chat_state_${activeUserEmail}`;
 
-  // Mensaje de bienvenida inicial técnico con identidad oficial Pintuco / ColorLink
+  // Saludo oficial de una sola frase solicitado por el usuario
+  const OFFICIAL_GREETING = '¡Hola! Soy tu Asistente IA de Pintuco/ColorLink. ¿En qué puedo ayudarte hoy?';
+
   const getInitialMessages = (): Message[] => [
     {
       id: 'welcome-1',
       sender: 'assistant',
-      text: `¡Hola! Soy el Asistente IA Oficial de Pintuco / ColorLink. ¿Puedo ayudarte con tu proyecto?
-
-Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos y cálculo de materiales según normas colombianas (ej. NTC 1335):
-
-• Líneas Oficiales Pintuco:
-  - Interiores lavables: Viniltex Avanzada / Tipo 1
-  - Fachadas e intemperie: Koraza Doble Vida Protección Clima Extremo
-  - Metales y maderas: Pintulux Esmalte Sintético Anticorrosivo
-  - Zonas húmedas: Viniltex Baños y Cocinas Antihongos
-
-• Rendimiento Oficial: Viniltex rinde hasta 32 m² por galón a 2 manos.
-• Preparación de Superficies: Te oriento en el paso a paso estándar (limpieza, sellado, masilla/estuco, lijado y acabado).
-
-¿Qué superficie deseas pintar y cuántos m² aproximados tiene tu espacio? También puedes adjuntar una fotografía con la cámara 📷.`,
+      text: OFFICIAL_GREETING,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      showQuickChips: true,
     },
   ];
 
-  // Estado del hilo conversacional persistente (chatState)
   const [chatState, setChatState] = useState<ChatState>(() => {
     try {
       const saved = localStorage.getItem(chatStateKey);
-      if (saved) {
-        return JSON.parse(saved);
-      }
+      if (saved) return JSON.parse(saved);
     } catch (e) {
       console.error('Error cargando chatState de localStorage:', e);
     }
     return {};
   });
 
-  // Carga persistente de mensajes desde localStorage vinculada al usuario
   const [messages, setMessages] = useState<Message[]>(() => {
     try {
       const saved = localStorage.getItem(chatStorageKey);
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed;
+          // Reemplazar el saludo inicial previo por la nueva versión corta de una sola frase
+          return parsed.map((m: Message, idx: number) => {
+            if (idx === 0 && m.sender === 'assistant') {
+              return {
+                ...m,
+                text: OFFICIAL_GREETING,
+                showQuickChips: true,
+              };
+            }
+            return m;
+          });
         }
       }
     } catch (e) {
@@ -269,8 +482,8 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
   const [selectedProductToConfigure, setSelectedProductToConfigure] = useState<ProductToConfigure | null>(null);
   const [isColorModalOpen, setIsColorModalOpen] = useState(false);
   const [activeMessageIdForConfig, setActiveMessageIdForConfig] = useState<string | null>(null);
+  const [isAwaitingCityForSedes, setIsAwaitingCityForSedes] = useState<boolean>(false);
 
-  // MÁQUINA DE ESTADOS ESTRICTA (Secuencia Bloqueada: IDLE -> AWAITING_SQM -> SHOW_RECOMMENDATIONS -> SIMULATION)
   const [chatStep, setChatStep] = useState<ChatStep>(() => {
     try {
       const saved = localStorage.getItem(`colorlink_chat_step_${activeUserEmail}`);
@@ -315,7 +528,6 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
     }
   });
 
-  // Estados para Simulación Visual de Color y Descarga de Ficha Técnica
   const [activeSimulationColor, setActiveSimulationColor] = useState<{
     name: string;
     code: string;
@@ -341,7 +553,6 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
     { name: 'Gris Grafito', code: '7024', hex: '#4B5563' },
   ];
 
-  // Guardar variables de estado persistentes en localStorage
   useEffect(() => {
     try {
       localStorage.setItem(`colorlink_chat_step_${activeUserEmail}`, chatStep);
@@ -366,19 +577,19 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
         localStorage.removeItem(`colorlink_chat_sim_prod_${activeUserEmail}`);
       }
     } catch (e) {
-      console.warn('Error guardando variables de la máquina de estados:', e);
+      console.warn('Error guardando variables de estado:', e);
     }
   }, [chatStep, uploadedImage, detectedSurface, sqm, simulatedProduct, activeUserEmail]);
 
   const handleDownloadTechnicalSheet = async (msg?: Message, action?: CartAction) => {
     try {
       setIsDownloadingSheet(true);
-      setDownloadToast({ message: 'Guardando tu ficha de cotización...', type: 'info' });
+      setDownloadToast({ message: 'Generando tu ficha de cotización...', type: 'info' });
 
       const targetAction = action || simulatedProduct || (msg?.cartActions && msg.cartActions[0]) || msg?.cartAction;
       const originalImage = msg?.imageUrl || uploadedImage || sampleWallImg;
       const simulatedImageToUse = (msg && simulatedCanvasMap[msg.id]) || simulatedCanvasMap['latest'] || originalImage;
-      const areaToUse = sqm || chatState.metrosCuadrados || 20;
+      const areaToUse = sqm || chatState.metrosCuadrados || 24;
 
       await downloadQuotationSheet({
         simulatedImageUrl: simulatedImageToUse,
@@ -388,16 +599,16 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
         colorName: activeSimulationColor.name,
         colorCode: activeSimulationColor.code,
         colorHex: activeSimulationColor.hex,
-        cantidad: targetAction?.cantidad || Math.max(1, Math.ceil((areaToUse / 28) * 1.10)),
+        cantidad: targetAction?.cantidad || Math.max(1, Math.ceil((areaToUse / 32) * 1.10)),
         presentacion: targetAction?.presentacion || 'Galón',
         areaM2: areaToUse,
-        clientName: userSession?.nombre || 'Cliente Pintuco',
-        clientEmail: userSession?.email || 'mostrador@pintuco.com',
+        clientName: userSession?.nombre || 'Cliente Pintuco / ColorLink',
+        clientEmail: userSession?.email || 'cliente@pintuco.com',
         esPersonalizado: true,
-        tiempoEstimado: 'Preparación personalizada en tienda. Tiempo de alistamiento estimado: 24 a 48 horas hábiles.',
+        tiempoEstimado: 'Alistamiento en centro de distribución: 24 a 48 horas hábiles.',
       });
 
-      setDownloadToast({ message: '¡Ficha de cotización descargada con éxito! Llévala a tu tienda Pintuco.', type: 'success' });
+      setDownloadToast({ message: '¡Ficha de cotización descargada con éxito!', type: 'success' });
       setTimeout(() => setDownloadToast(null), 4000);
     } catch (err) {
       console.error('Error generando ficha técnica:', err);
@@ -415,10 +626,8 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
   const cameraUploadInputRef = useRef<HTMLInputElement>(null);
   const attachMenuRef = useRef<HTMLDivElement>(null);
 
-  // Estado para el menú desplegable del botón '+'
   const [isAttachMenuOpen, setIsAttachMenuOpen] = useState(false);
 
-  // Cerrar el menú desplegable al hacer clic fuera
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (attachMenuRef.current && !attachMenuRef.current.contains(e.target as Node)) {
@@ -433,8 +642,6 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
     };
   }, [isAttachMenuOpen]);
 
-  // Redirigir el desplazamiento de la rueda del mouse (onWheel) desde cualquier parte
-  // de la ventana del chat (encabezado, bordes, márgenes laterales o pie) al contenedor de mensajes
   const handleDrawerWheel = (e: React.WheelEvent<HTMLDivElement>) => {
     if (messagesContainerRef.current) {
       const target = e.target as HTMLElement | null;
@@ -445,8 +652,6 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
     }
   };
 
-  // Listener nativo con { passive: false } para capturar la rueda del mouse en toda la superficie
-  // del modal (incluyendo bordes, encabezado y pie) y contener estrictamente el overscroll
   useEffect(() => {
     const drawerEl = drawerRef.current;
     if (!drawerEl || !isOpen) return;
@@ -459,13 +664,9 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
       const isInsideMessages = messagesEl.contains(target);
 
       if (!isInsideMessages) {
-        // El puntero está sobre el encabezado, footer, bordes o márgenes del modal:
-        // Redirigir el desplazamiento vertical directamente al contenedor de mensajes
         messagesEl.scrollTop += e.deltaY;
         e.preventDefault();
       } else {
-        // El puntero está sobre los mensajes. Si alcanza el límite superior o inferior,
-        // bloquear la propagación para evitar que se desplace la página web de fondo
         const { scrollTop, scrollHeight, clientHeight } = messagesEl;
         const isAtTop = scrollTop <= 0 && e.deltaY < 0;
         const isAtBottom = scrollTop + clientHeight >= scrollHeight - 1 && e.deltaY > 0;
@@ -481,7 +682,6 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
     };
   }, [isOpen]);
 
-  // Abre el Selector de Color y Configurador Colorlink
   const handleOpenColorSelector = (action: CartAction, messageId: string) => {
     setSelectedProductToConfigure({
       productName: action.productName,
@@ -499,7 +699,6 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
     setIsColorModalOpen(true);
   };
 
-  // Iniciar Simulación Visual de un producto seleccionado (Transiciona a chatStep = 'SIMULATION')
   const handleStartSimulation = (action: CartAction, messageId: string) => {
     setSimulatedProduct(action);
     setChatStep('SIMULATION');
@@ -509,7 +708,7 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
     }, 100);
   };
 
-  // Agregar al carrito directamente desde la tarjeta de simulación
+  // Agregar pintura individual al carrito
   const handleConfirmAddToCartDirect = (action: CartAction, color: { name: string; code: string; hex: string }) => {
     const itemToAdd: CartItem = {
       id: `${action.sku}-${color.code}-${Date.now()}`,
@@ -527,22 +726,6 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
 
     if (onAddToCart) {
       onAddToCart(itemToAdd);
-    } else {
-      try {
-        const existing = localStorage.getItem('colorlink_cart');
-        const cartList: CartItem[] = existing ? JSON.parse(existing) : [];
-        const existingIdx = cartList.findIndex(
-          (c) => c.sku === itemToAdd.sku && c.colorSeleccionado === itemToAdd.colorSeleccionado && c.presentacion === itemToAdd.presentacion
-        );
-        if (existingIdx > -1) {
-          cartList[existingIdx].cantidad += itemToAdd.cantidad;
-          cartList[existingIdx].subtotal = cartList[existingIdx].cantidad * cartList[existingIdx].precioUnitario;
-        } else {
-          cartList.push(itemToAdd);
-        }
-        localStorage.setItem('colorlink_cart', JSON.stringify(cartList));
-        window.dispatchEvent(new Event('storage'));
-      } catch {}
     }
 
     setAddedToCartMap((prev) => ({ ...prev, [action.sku]: true }));
@@ -553,57 +736,91 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
     setTimeout(() => setDownloadToast(null), 3500);
   };
 
-  // Manejo de confirmación desde el Modal de Color
+  // BOTÓN DE LLAMADA A LA ACCIÓN: Proceder con la compra del paquete completo (Pintura + Kit de Herramientas)
+  const handleProceedFullQuotationPurchase = (
+    paintAction: CartAction,
+    tools: ToolItem[] = DEFAULT_TOOLS_KIT,
+    color = activeSimulationColor
+  ) => {
+    // 1. Agregar pintura con el color seleccionado
+    const paintItem: CartItem = {
+      id: `${paintAction.sku}-${color.code}-${Date.now()}`,
+      sku: paintAction.sku,
+      nombre: paintAction.productName,
+      precioUnitario: paintAction.precioUnitario,
+      presentacion: (paintAction.presentacion as any) || 'Galón',
+      cantidad: paintAction.cantidad,
+      colorSeleccionado: `${color.name} (#${color.code})`,
+      imagenUrl: paintAction.imagenUrl || sampleWallImg,
+      subtotal: paintAction.cantidad * paintAction.precioUnitario,
+      esPersonalizado: true,
+      marca: 'Pintuco',
+    };
+
+    if (onAddToCart) {
+      onAddToCart(paintItem);
+    }
+
+    // 2. Agregar cada herramienta del kit
+    tools.forEach((t, i) => {
+      const toolItem: CartItem = {
+        id: `${t.sku}-${Date.now()}-${i}`,
+        sku: t.sku,
+        nombre: t.nombre,
+        precioUnitario: t.precioUnitario,
+        presentacion: 'Unidad',
+        cantidad: t.cantidad,
+        colorSeleccionado: 'Estándar Profesional',
+        imagenUrl: t.imagenUrl || '/src/assets/images/paint_roller_tray_1790894457076.jpg',
+        subtotal: t.cantidad * t.precioUnitario,
+        esPersonalizado: false,
+        marca: 'Pintuco',
+      };
+      if (onAddToCart) {
+        onAddToCart(toolItem);
+      }
+    });
+
+    setAddedToCartMap((prev) => ({ ...prev, [paintAction.sku]: true, fullOrder: true }));
+    setDownloadToast({
+      message: `¡Cotización completa agregada al carrito! (${paintAction.productName} + Kit de Herramientas)`,
+      type: 'success',
+    });
+
+    setTimeout(() => {
+      setDownloadToast(null);
+      if (onOpenCart) {
+        onOpenCart();
+      }
+    }, 700);
+  };
+
   const handleConfirmAddToCartFromModal = (configuredItem: CartItem) => {
     if (onAddToCart) {
       onAddToCart(configuredItem);
-    } else {
-      try {
-        const existing = localStorage.getItem('colorlink_cart');
-        const cartList: CartItem[] = existing ? JSON.parse(existing) : [];
-        const extractKey = (c?: string) => {
-          if (!c) return '';
-          const m = c.match(/\((?:#)?([a-z0-9]+)\)/i) || c.match(/#([a-z0-9]+)/i);
-          return m ? m[1].toLowerCase() : c.replace(/[^a-z0-9]/gi, '').toLowerCase();
-        };
-        const itemColor = extractKey(configuredItem.colorSeleccionado);
-        const itemSku = (configuredItem.sku || '').trim().toLowerCase();
-        const itemPres = (configuredItem.presentacion || '').trim().toLowerCase();
-
-        const existingIdx = cartList.findIndex((it) => {
-          const itSku = (it.sku || '').trim().toLowerCase();
-          const itColor = extractKey(it.colorSeleccionado);
-          const itPres = (it.presentacion || '').trim().toLowerCase();
-          if (itemSku && itSku && itemSku === itSku) {
-            return itColor === itemColor && itPres === itemPres;
-          }
-          return it.nombre?.toLowerCase() === configuredItem.nombre?.toLowerCase() && itColor === itemColor && itPres === itemPres;
-        });
-
-        if (existingIdx > -1) {
-          cartList[existingIdx].cantidad += (configuredItem.cantidad || 1);
-          cartList[existingIdx].subtotal = cartList[existingIdx].cantidad * cartList[existingIdx].precioUnitario;
-        } else {
-          cartList.push(configuredItem);
-        }
-        localStorage.setItem('colorlink_cart', JSON.stringify(cartList));
-        window.dispatchEvent(new Event('storage'));
-      } catch {}
     }
-
     if (activeMessageIdForConfig) {
       setAddedToCartMap((prev) => ({ ...prev, [activeMessageIdForConfig]: true }));
     }
   };
 
-  // Sincronizar historial y estado si cambia la cuenta/correo del usuario
   useEffect(() => {
     try {
       const savedMsgs = localStorage.getItem(chatStorageKey);
       if (savedMsgs) {
         const parsed = JSON.parse(savedMsgs);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          setMessages(parsed);
+          const updated = parsed.map((m: Message, idx: number) => {
+            if (idx === 0 && m.sender === 'assistant') {
+              return {
+                ...m,
+                text: OFFICIAL_GREETING,
+                showQuickChips: true,
+              };
+            }
+            return m;
+          });
+          setMessages(updated);
         } else {
           setMessages(getInitialMessages());
         }
@@ -624,7 +841,6 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
     }
   }, [chatStorageKey, chatStateKey]);
 
-  // Guardar automáticamente cada actualización del chat en localStorage con tolerancia de cuota
   useEffect(() => {
     try {
       if (messages.length > 0) {
@@ -642,7 +858,6 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
     }
   }, [messages, chatStorageKey]);
 
-  // Guardar chatState en localStorage
   useEffect(() => {
     try {
       localStorage.setItem(chatStateKey, JSON.stringify(chatState));
@@ -651,7 +866,6 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
     }
   }, [chatState, chatStateKey]);
 
-  // Limpiar y reiniciar historial y memoria de la conversación
   const handleClearHistory = () => {
     try {
       localStorage.removeItem(chatStorageKey);
@@ -669,12 +883,12 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
     setDetectedSurface('');
     setSqm(null);
     setSimulatedProduct(null);
+    setIsAwaitingCityForSedes(false);
     setChatStep('IDLE');
     setChatState({});
     setMessages(getInitialMessages());
   };
 
-  // Check Supabase connection on open
   useEffect(() => {
     if (isOpen) {
       async function verifySupabase() {
@@ -683,9 +897,7 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
           if (!error && data) {
             setSupabaseConnected(true);
           }
-        } catch {
-          // Keep configured status
-        }
+        } catch {}
       }
       verifySupabase();
     }
@@ -699,7 +911,7 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
 
   if (!isOpen) return null;
 
-  // 1. Manejador para adjuntar foto o archivo desde galería/explorador
+  // Manejo de carga de imagen y disparo inmediato de simulación + cotización
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -707,7 +919,7 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
       reader.onload = (event) => {
         const dataUrl = event.target?.result as string;
         if (dataUrl) {
-          setAttachedImage(dataUrl);
+          handleProcessUploadedImageDirectly(dataUrl);
         }
       };
       reader.readAsDataURL(file);
@@ -716,7 +928,6 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
     setIsAttachMenuOpen(false);
   };
 
-  // 2. Manejador para capturar foto en vivo con la cámara
   const handleCameraUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -724,7 +935,7 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
       reader.onload = (event) => {
         const dataUrl = event.target?.result as string;
         if (dataUrl) {
-          setAttachedImage(dataUrl);
+          handleProcessUploadedImageDirectly(dataUrl);
         }
       };
       reader.readAsDataURL(file);
@@ -733,109 +944,363 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
     setIsAttachMenuOpen(false);
   };
 
-  // Helper compatible
-  const handleImageSelected = handleFileUpload;
+  // Procesar imagen directamente: genera simulación visual y cotización completa
+  const handleProcessUploadedImageDirectly = async (dataUrl: string) => {
+    setUploadedImage(dataUrl);
+    setAttachedImage(null);
+    setIsLoading(true);
 
-  // Envío conversacional con MÁQUINA DE ESTADOS ESTRICTA:
-  // Paso 1: Subida de foto -> Identificación de superficie (NUNCA simular aquí) -> Pide m²
-  // Paso 2: Reconocimiento numérico de m² -> Guarda m² inmediatamente (NUNCA repetir pregunta) -> Muestra recomendación dual
-  // Paso 3: Recomendación dual -> Botón [ 🎨 Elegir Color y Probar Simulación ]
-  // Paso 4: Simulación visual segmentada (sólo tras elegir color)
+    const userMessage: Message = {
+      id: Date.now().toString(),
+      sender: 'user',
+      text: '📷 He adjuntado una fotografía de mi espacio para simulación y cotización precisa.',
+      imageUrl: dataUrl,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    };
+
+    setMessages((prev) => [...prev, userMessage]);
+
+    try {
+      const response = await fetch('/api/ai/chat-advisor', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: 'Analiza esta fotografía, estima el tipo de espacio y sus metros cuadrados, selecciona la pintura Pintuco ideal según NTC 1335 y genera la cotización precisa con el kit de herramientas reglamentario.',
+          imageUrl: dataUrl,
+          history: messages.slice(-6).map((m) => ({
+            role: m.sender === 'user' ? 'user' : 'model',
+            text: m.text,
+          })),
+          userSession,
+        }),
+      });
+
+      const data = await response.json();
+      const identified = data.superficieIdentificada || 'sala interior';
+      const isExterior = /exterior|fachada|terraza|patio/i.test(identified);
+      const estimatedM2 = Number(data.areaEstimadaM2) || (isExterior ? 60 : 24);
+
+      setDetectedSurface(identified);
+      setSqm(estimatedM2);
+      setChatStep('SIMULATION');
+
+      const actionsToUse: CartAction[] = (Array.isArray(data.cartActions) && data.cartActions.length > 0)
+        ? data.cartActions
+        : generateDualRecommendations(estimatedM2, identified);
+
+      const primaryAction = actionsToUse[0];
+      setSimulatedProduct(primaryAction);
+
+      const toolsToUse: ToolItem[] = (Array.isArray(data.toolsKit) && data.toolsKit.length > 0)
+        ? data.toolsKit
+        : DEFAULT_TOOLS_KIT;
+
+      const subtotalPintura = primaryAction.cantidad * primaryAction.precioUnitario;
+      const subtotalTools = toolsToUse.reduce((acc, t) => acc + (t.cantidad * t.precioUnitario), 0);
+      const totalEstimado = subtotalPintura + subtotalTools;
+
+      const assistantMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        sender: 'assistant',
+        text: data.reply || `He procesado con éxito la fotografía de tu ${identified}.
+Estimo un área aproximada de ${estimatedM2} m² calculada bajo la norma técnica colombiana NTC 1335 (base oficial de rendimiento: ${isExterior ? 'Koraza 28 m²/gal' : 'Viniltex 32 m²/gal'} a 2 manos + 10% desperdicio).
+
+✨ He activado la simulación visual en tiempo real. Puedes interactuar con la paleta de colores oficiales y alternar con el botón "Ver Antes" para apreciar el cambio.
+
+A continuación te presento la cotización precisa de materiales requeridos y el botón de llamada a la acción para ordenar tu pedido completo:`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        cartActions: actionsToUse,
+        toolsKit: toolsToUse,
+        areaM2: estimatedM2,
+        spaceType: identified,
+        totalCotizacionCOP: totalEstimado,
+      };
+
+      setMessages((prev) => [...prev, assistantMessage]);
+    } catch (err) {
+      console.warn('Fallback en procesamiento de imagen:', err);
+      const isExterior = false;
+      const estimatedM2 = 24;
+      const identified = 'sala interior';
+      setDetectedSurface(identified);
+      setSqm(estimatedM2);
+      setChatStep('SIMULATION');
+
+      const dual = generateDualRecommendations(estimatedM2, identified);
+      setSimulatedProduct(dual[0]);
+
+      const subtotalPintura = dual[0].cantidad * dual[0].precioUnitario;
+      const subtotalTools = DEFAULT_TOOLS_KIT.reduce((acc, t) => acc + (t.cantidad * t.precioUnitario), 0);
+      const totalEstimado = subtotalPintura + subtotalTools;
+
+      const assistantMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        sender: 'assistant',
+        text: `He procesado tu fotografía. Identifico un/a ${identified} con un área estimada estándar de ${estimatedM2} m² bajo norma NTC 1335.
+A continuación tienes la simulación visual interactiva antes/después y el desglose de cotización con pintura y herramientas oficiales Pintuco:`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        cartActions: dual,
+        toolsKit: DEFAULT_TOOLS_KIT,
+        areaM2: estimatedM2,
+        spaceType: identified,
+        totalCotizacionCOP: totalEstimado,
+      };
+
+      setMessages((prev) => [...prev, assistantMessage]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Manejo de Selección de Ciudad para Sedes y Horarios
+  const handleSelectCity = (cityName: string) => {
+    setIsAwaitingCityForSedes(false);
+    const userMsg: Message = {
+      id: Date.now().toString(),
+      sender: 'user',
+      text: cityName,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    };
+
+    const { cityName: resolvedCity, hubs, notaRegional } = getSedesForCity(cityName);
+
+    const hubsFormattedText = hubs.map((h) => 
+      `• **${h.nombre}** (${h.tipo}):\n  📍 Dirección: ${h.direccion}\n  🕒 Horario: ${h.horario}\n  📞 Teléfono: ${h.telefono}\n  🚚 Tiempo de Entrega: ${h.tiempoEntrega}${h.asesorRegional ? `\n  👤 Asesor Regional: ${h.asesorRegional}` : ''}`
+    ).join('\n\n');
+
+    const assistantMsg: Message = {
+      id: (Date.now() + 1).toString(),
+      sender: 'assistant',
+      text: `📍 **Sede Oficial Pintuco / ColorLink en ${resolvedCity}**:
+
+${hubsFormattedText}
+
+${notaRegional ? `\n💡 ${notaRegional}\n` : ''}
+📞 **Línea Gratuita Nacional**: 01 8000 111 247 | WhatsApp SAC: +57 310 450 8890`,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      sedeInfo: true,
+      storeHubs: hubs,
+      selectedCity: resolvedCity,
+    };
+
+    setMessages((prev) => [...prev, userMsg, assistantMsg]);
+  };
+
+  // Manejo de los 5 Chips Interactivos
+  const handleQuickAction = (chipId: QuickChipItem['id']) => {
+    if (chipId === 'cotizar') {
+      const userMsg: Message = {
+        id: Date.now().toString(),
+        sender: 'user',
+        text: 'Cotizar',
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      };
+      const assistantMsg: Message = {
+        id: (Date.now() + 1).toString(),
+        sender: 'assistant',
+        text: `¡Perfecto! Vamos a cotizar tu proyecto de pintura bajo la norma técnica oficial colombiana NTC 1335 (rendimiento Viniltex hasta 32 m²/gal a 2 manos + 10% desperdicio).
+
+¿Qué superficie deseas pintar (sala interior, fachada, habitación, techos o rejas metálicas) y cuántos m² aproximados tiene?
+
+💡 También puedes pulsar **"Subir imagen para cotización"** para estimar el área automáticamente, o abrir directamente el Cotizador Inteligente:`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      };
+      setMessages((prev) => [...prev, userMsg, assistantMsg]);
+    } else if (chipId === 'rastrear') {
+      const userMsg: Message = {
+        id: Date.now().toString(),
+        sender: 'user',
+        text: 'Rastrear pedido',
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      };
+
+      // Validación estricta de seguridad: si no ha iniciado sesión, redirigir al módulo de autenticación
+      if (!isUserAuthenticated) {
+        const assistantMsg: Message = {
+          id: (Date.now() + 1).toString(),
+          sender: 'assistant',
+          text: `🔒 Validación de Seguridad Requerida:
+Por motivos de protección de datos y confidencialidad comercial, para rastrear pedidos debes iniciar sesión con tu cuenta registrada en Pintuco / ColorLink.
+
+He abierto el módulo de acceso seguro para ti. Una vez ingreses tus credenciales, podrás consultar el estado de fabricación, alistamiento y despacho de tus órdenes en tiempo real.`,
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        };
+        setMessages((prev) => [...prev, userMsg, assistantMsg]);
+        if (onOpenAuth) {
+          onOpenAuth('Rastreo Seguro de Pedido');
+        }
+      } else {
+        // Usuario autenticado: buscar órdenes asociadas
+        const userOrders = (orders && orders.length > 0)
+          ? orders
+          : [];
+
+        const latestOrder = userOrders[0];
+        const assistantMsg: Message = {
+          id: (Date.now() + 1).toString(),
+          sender: 'assistant',
+          text: latestOrder 
+            ? `Hola ${userSession?.nombre || 'estimado cliente'}. Aquí tienes el estado en tiempo real de tu pedido más reciente en Pintuco / ColorLink:`
+            : `Hola ${userSession?.nombre || 'estimado cliente'}. Actualmente no registras pedidos pendientes asociados a tu cuenta (${userSession?.email}).`,
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          orderTrackingData: latestOrder ? [latestOrder] : undefined,
+        };
+        setMessages((prev) => [...prev, userMsg, assistantMsg]);
+      }
+    } else if (chipId === 'sedes') {
+      setIsAwaitingCityForSedes(true);
+      const userMsg: Message = {
+        id: Date.now().toString(),
+        sender: 'user',
+        text: 'Sedes y horarios',
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      };
+      const assistantMsg: Message = {
+        id: (Date.now() + 1).toString(),
+        sender: 'assistant',
+        text: '¿En qué ciudad te encuentras para buscar la sede más cercana? 📍',
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        isCitySelectionPrompt: true,
+      };
+      setMessages((prev) => [...prev, userMsg, assistantMsg]);
+    } else if (chipId === 'subir_imagen') {
+      fileUploadInputRef.current?.click();
+    } else if (chipId === 'simulador') {
+      if (uploadedImage) {
+        setChatStep('SIMULATION');
+        setTimeout(() => {
+          messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        }, 100);
+      } else {
+        // Cargar simulación inmediata con sala de estar de muestra y cotización
+        handleSimulatePresetSpace('sala');
+      }
+    }
+  };
+
+  const handleSimulatePresetSpace = (preset: 'sala' | 'fachada') => {
+    const isFachada = preset === 'fachada';
+    const imageToUse = isFachada ? facadeWallImg : sampleWallImg;
+    const surf = isFachada ? 'fachada exterior' : 'sala interior';
+    const area = isFachada ? 60 : 24;
+
+    setUploadedImage(imageToUse);
+    setDetectedSurface(surf);
+    setSqm(area);
+    setChatStep('SIMULATION');
+
+    const recommendedAction: CartAction = isFachada ? {
+      tipo: 'recomendada',
+      badge: '⭐ Opción Recomendada / Fachadas (NTC 1335)',
+      productName: 'Koraza Doble Vida Protección Clima Extremo',
+      descripcion: 'Máxima durabilidad en intemperie, hidrófuga y barrera contra rayos UV y hongos.',
+      sku: 'PIN-KOR-02',
+      cantidad: 3,
+      presentacion: 'Galón',
+      precioUnitario: 98900,
+      precioGalon: 98900,
+      precioCunete: 429000,
+      imagenUrl: '/src/assets/images/koraza_bucket_studio_1790894419359.jpg',
+    } : {
+      tipo: 'recomendada',
+      badge: '⭐ Opción Recomendada / Interiores (NTC 1335)',
+      productName: 'Viniltex Avanzado Máxima Lavabilidad',
+      descripcion: 'Rinde hasta 32 m²/gal a 2 manos. Ultra lavable +20.000 ciclos y bajo olor.',
+      sku: 'PIN-VTX-01',
+      cantidad: 1,
+      presentacion: 'Galón',
+      precioUnitario: 79900,
+      precioGalon: 79900,
+      precioCunete: 349000,
+      imagenUrl: '/src/assets/images/viniltex_can_studio_1790894409491.jpg',
+    };
+
+    setSimulatedProduct(recommendedAction);
+
+    const userMsg: Message = {
+      id: Date.now().toString(),
+      sender: 'user',
+      text: isFachada ? 'Simulador de Color en Fachada Exterior' : 'Simulador de Color en Sala de Estar',
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    };
+
+    const subtotalPintura = recommendedAction.cantidad * recommendedAction.precioUnitario;
+    const subtotalTools = DEFAULT_TOOLS_KIT.reduce((acc, t) => acc + (t.cantidad * t.precioUnitario), 0);
+    const totalEstimado = subtotalPintura + subtotalTools;
+
+    const assistantMsg: Message = {
+      id: (Date.now() + 1).toString(),
+      sender: 'assistant',
+      text: `🎨 **Simulador Visual de Color Pintuco / ColorLink**:
+He cargado la simulación para tu ${surf} (estimado ${area} m² bajo norma NTC 1335). Puedes interactuar con la paleta de colores oficiales y alternar entre el antes y el después con el botón "Ver Antes".
+
+A continuación tienes el desglose detallado de la cotización precisa con la pintura oficial y el kit de herramientas reglamentario para tu compra:`,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      cartActions: [recommendedAction],
+      toolsKit: DEFAULT_TOOLS_KIT,
+      areaM2: area,
+      spaceType: surf,
+      totalCotizacionCOP: totalEstimado,
+    };
+
+    setMessages((prev) => [...prev, userMsg, assistantMsg]);
+  };
+
   const handleSendMessage = async (textToSend?: string) => {
     const query = (textToSend || input).trim();
     const imageToSend = attachedImage;
 
-    // Si no hay texto ni foto, no enviar
     if (!query && !imageToSend) return;
     if (isLoading) return;
 
-    // Registrar foto subida en la memoria del asistente
     if (imageToSend) {
-      setUploadedImage(imageToSend);
+      handleProcessUploadedImageDirectly(imageToSend);
+      if (!textToSend) setInput('');
+      return;
     }
 
-    const currentUploadedImage = imageToSend || uploadedImage;
+    const currentUploadedImage = uploadedImage;
     const parsedM2 = parseSquareMeters(query);
 
     const userMessage: Message = {
       id: Date.now().toString(),
       sender: 'user',
-      text: query || '📷 [Foto adjuntada de mi pared/espacio para diagnóstico]',
-      imageUrl: imageToSend || undefined,
+      text: query,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
 
     setMessages((prev) => [...prev, userMessage]);
     if (!textToSend) setInput('');
-    setAttachedImage(null);
-    setIsLoading(true);
 
-    // =========================================================================
-    // ESTADO 1: SUBIDA DE FOTO / IDENTIFICACIÓN DE SUPERFICIE
-    // Al subir foto, la IA SOLO identifica objeto/espacio y pregunta por m².
-    // ESTRICTAMENTE PROHIBIDO: No disparar simulación visual ni filtros.
-    // Transiciona a chatStep = 'AWAITING_SQM'.
-    // =========================================================================
-    if (imageToSend && !parsedM2) {
-      let surf = 'muro interior';
-      const qLower = query.toLowerCase();
-      if (/exterior|fachada|terraza|patio/i.test(qLower)) surf = 'fachada exterior';
-      else if (/cielo|techo|drywall/i.test(qLower)) surf = 'cielo raso';
-      else if (/baño|cocina|humedad/i.test(qLower)) surf = 'área de baño o cocina';
-      else if (/cerca|reja|madera|metal/i.test(qLower)) surf = 'cerca / reja perimetral';
+    // Detección directa de respuesta sobre ciudad / sedes y horarios
+    if (isAwaitingCityForSedes || isCityOrSedeQuery(query)) {
+      setIsAwaitingCityForSedes(false);
+      const { cityName: resolvedCity, hubs, notaRegional } = getSedesForCity(query);
+      const hubsFormattedText = hubs.map((h) => 
+        `• **${h.nombre}** (${h.tipo}):\n  📍 Dirección: ${h.direccion}\n  🕒 Horario: ${h.horario}\n  📞 Teléfono: ${h.telefono}\n  🚚 Tiempo de Entrega: ${h.tiempoEntrega}${h.asesorRegional ? `\n  👤 Asesor Regional: ${h.asesorRegional}` : ''}`
+      ).join('\n\n');
 
-      setDetectedSurface(surf);
-      setChatStep('AWAITING_SQM');
-      setChatState((prev) => ({ ...prev, tipoEspacio: surf, metrosCuadrados: null }));
+      const assistantMsg: Message = {
+        id: (Date.now() + 1).toString(),
+        sender: 'assistant',
+        text: `📍 **Sede Oficial Pintuco / ColorLink en ${resolvedCity}**:
 
-      try {
-        const response = await fetch('/api/ai/chat-advisor', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            message: query,
-            imageUrl: imageToSend,
-            history: messages.slice(-10).map((m) => ({
-              role: m.sender === 'user' ? 'user' : 'model',
-              text: m.text,
-            })),
-            userSession,
-          }),
-        });
-        const data = await response.json();
-        const identified = data.superficieIdentificada || surf;
-        setDetectedSurface(identified);
-        setChatState((prev) => ({ ...prev, tipoEspacio: identified, metrosCuadrados: null }));
+${hubsFormattedText}
 
-        const replyText = data.reply || `Identifico un/a ${identified}. ¿Cuántos metros cuadrados (m²) o qué medidas aproximadas tiene esta superficie?`;
-        const assistantMessage: Message = {
-          id: (Date.now() + 1).toString(),
-          sender: 'assistant',
-          text: replyText,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        };
-        setMessages((prev) => [...prev, assistantMessage]);
-      } catch {
-        const assistantMessage: Message = {
-          id: (Date.now() + 1).toString(),
-          sender: 'assistant',
-          text: `Identifico un/a ${surf}. ¿Cuántos metros cuadrados (m²) o qué medidas aproximadas tiene esta superficie?`,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        };
-        setMessages((prev) => [...prev, assistantMessage]);
-      } finally {
-        setIsLoading(false);
-      }
+${notaRegional ? `\n💡 ${notaRegional}\n` : ''}
+📞 **Línea Gratuita Nacional**: 01 8000 111 247 | WhatsApp SAC: +57 310 450 8890`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        sedeInfo: true,
+        storeHubs: hubs,
+        selectedCity: resolvedCity,
+      };
+
+      setMessages((prev) => [...prev, assistantMsg]);
       return;
     }
 
-    // =========================================================================
-    // ESTADO 2: PROCESAMIENTO DE METROS CUADRADOS (Reconocimiento numérico)
-    // Cuando se envía un número o medida (ej. "25", "25m2", "5x5", "unos 25 metros")
-    // CAPTURAR EL VALOR INMEDIATAMENTE: setSqm(25)
-    // NUNCA REPETIR LA PREGUNTA DE M²
-    // TRANSICIONAR INMEDIATAMENTE A chatStep = 'SHOW_RECOMMENDATIONS'
-    // =========================================================================
+    setIsLoading(true);
+
     if (parsedM2 !== null) {
       const confirmedM2 = parsedM2;
       setSqm(confirmedM2);
@@ -851,8 +1316,8 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             message: query,
-            imageUrl: imageToSend || currentUploadedImage || undefined,
-            history: messages.slice(-10).map((m) => ({
+            imageUrl: currentUploadedImage || undefined,
+            history: messages.slice(-8).map((m) => ({
               role: m.sender === 'user' ? 'user' : 'model',
               text: m.text,
             })),
@@ -864,21 +1329,39 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
           ? data.cartActions
           : dualActions;
 
+        const toolsToUse = (Array.isArray(data.toolsKit) && data.toolsKit.length > 0)
+          ? data.toolsKit
+          : DEFAULT_TOOLS_KIT;
+
+        const subtotalP = actionsToUse[0].cantidad * actionsToUse[0].precioUnitario;
+        const subtotalT = toolsToUse.reduce((acc: number, t: ToolItem) => acc + (t.cantidad * t.precioUnitario), 0);
+
         const assistantMessage: Message = {
           id: (Date.now() + 1).toString(),
           sender: 'assistant',
-          text: data.reply || `Entendido, ${confirmedM2} m². Calculado con la norma técnica NTC 1335 (2 manos + 10% desperdicio). A continuación te presento las 2 opciones recomendadas del catálogo Pintuco:`,
+          text: data.reply || `Entendido, ${confirmedM2} m². Calculado con la norma técnica colombiana NTC 1335 (2 manos + 10% desperdicio). A continuación te presento la cotización precisa de materiales:`,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           cartActions: actionsToUse,
+          toolsKit: toolsToUse,
+          areaM2: confirmedM2,
+          spaceType: surfaceToUse,
+          totalCotizacionCOP: subtotalP + subtotalT,
         };
         setMessages((prev) => [...prev, assistantMessage]);
       } catch {
+        const subtotalP = dualActions[0].cantidad * dualActions[0].precioUnitario;
+        const subtotalT = DEFAULT_TOOLS_KIT.reduce((acc, t) => acc + (t.cantidad * t.precioUnitario), 0);
+
         const assistantMessage: Message = {
           id: (Date.now() + 1).toString(),
           sender: 'assistant',
-          text: `Entendido, ${confirmedM2} m². Calculado con la norma técnica NTC 1335 (2 manos + 10% desperdicio). A continuación te presento las 2 mejores alternativas de Pintuco para tu proyecto:`,
+          text: `Entendido, ${confirmedM2} m². Calculado con la norma técnica colombiana NTC 1335 (2 manos + 10% desperdicio). A continuación te presento las alternativas recomendadas de Pintuco:`,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           cartActions: dualActions,
+          toolsKit: DEFAULT_TOOLS_KIT,
+          areaM2: confirmedM2,
+          spaceType: surfaceToUse,
+          totalCotizacionCOP: subtotalP + subtotalT,
         };
         setMessages((prev) => [...prev, assistantMessage]);
       } finally {
@@ -887,17 +1370,15 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
       return;
     }
 
-    // =========================================================================
-    // CASO 3: CONSULTAS TÉCNICAS O PREGUNTAS GENERALES
-    // =========================================================================
+    // Consultas generales con filtro de restricción de alcance
     try {
       const response = await fetch('/api/ai/chat-advisor', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: query,
-          imageUrl: imageToSend || currentUploadedImage || undefined,
-          history: messages.slice(-10).map((m) => ({
+          imageUrl: currentUploadedImage || undefined,
+          history: messages.slice(-8).map((m) => ({
             role: m.sender === 'user' ? 'user' : 'model',
             text: m.text,
           })),
@@ -905,9 +1386,9 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
         }),
       });
       const data = await response.json();
+
       if (data.chatState?.metrosCuadrados) {
         setSqm(data.chatState.metrosCuadrados);
-        setChatStep('SHOW_RECOMMENDATIONS');
       }
       if (data.chatState?.tipoEspacio) {
         setDetectedSurface(data.chatState.tipoEspacio);
@@ -916,10 +1397,12 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         sender: 'assistant',
-        text: data.reply || '¿Podrías indicarme qué área específica deseas pintar o cuántos m² aproximados tiene?',
+        text: data.reply || '¿Podrías indicarme qué área específica deseas pintar o cuántos m² aproximados tiene tu espacio?',
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         cartAction: data.cartAction || undefined,
         cartActions: Array.isArray(data.cartActions) && data.cartActions.length > 0 ? data.cartActions : undefined,
+        toolsKit: Array.isArray(data.toolsKit) && data.toolsKit.length > 0 ? data.toolsKit : undefined,
+        totalCotizacionCOP: data.toolsKit && data.cartAction ? (data.cartAction.cantidad * data.cartAction.precioUnitario) + 60000 : undefined,
       };
       setMessages((prev) => [...prev, assistantMessage]);
     } catch {
@@ -928,7 +1411,7 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
         {
           id: (Date.now() + 1).toString(),
           sender: 'assistant',
-          text: 'Tuvimos un inconveniente momentáneo conectando con el Asesor Técnico. Por favor formula tu consulta nuevamente.',
+          text: 'Tuvimos un inconveniente momentáneo conectando con el Asesor Técnico. Como Asistente Oficial de Pintuco / ColorLink, te invito a formular tu consulta sobre pinturas o preparación de superficies bajo norma NTC 1335.',
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         },
       ]);
@@ -973,7 +1456,7 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
             <p className="text-[11px] text-slate-500 truncate">
               {isUserAuthenticated && userSession?.nombre 
                 ? `Asesorando a: ${userSession.nombre}` 
-                : 'Asesoría Técnica y Comercial Especializada'}
+                : 'Asesoría Oficial Pintuco / ColorLink'}
             </p>
           </div>
         </div>
@@ -991,7 +1474,7 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
               title="Hablar con asesor humano / Radicar PQR oficial"
             >
               <HeadphonesIcon className="w-3.5 h-3.5 text-emerald-600" />
-              <span className="hidden sm:inline">Asesor SAC</span>
+              <span className="hidden sm:inline">SAC</span>
             </button>
           )}
 
@@ -1002,7 +1485,7 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
             title="Limpiar y reiniciar el historial de conversación"
           >
             <Trash2 className="w-3.5 h-3.5 text-rose-500" />
-            <span className="hidden sm:inline">Limpiar Historial</span>
+            <span className="hidden sm:inline">Limpiar</span>
           </button>
 
           <button
@@ -1016,7 +1499,7 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
         </div>
       </div>
 
-      {/* Notificación Toast de Descarga de Ficha Técnica y Simulación */}
+      {/* Toast Notification */}
       {downloadToast && (
         <div className="absolute top-16 left-3 right-3 z-50 p-3 rounded-2xl bg-slate-900/95 text-white backdrop-blur-md shadow-2xl border border-sky-400/40 flex items-center justify-between gap-3 animate-slideDown">
           <div className="flex items-center gap-2.5 min-w-0">
@@ -1037,18 +1520,17 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
         </div>
       )}
 
-      {/* Mini info bar: Proyecto y Estado de Memoria Conversacional (Sin asumir m² por defecto) */}
+      {/* Mini info bar */}
       <div className="px-4 py-2 bg-slate-50 border-b border-slate-200 text-xs text-slate-600 flex items-center justify-between">
         <div className="flex items-center gap-2 truncate">
           <Layers className="w-3.5 h-3.5 text-blue-900 shrink-0" />
           <span className="truncate">
             {detectedSurface || chatState.tipoEspacio || formData.nombre_razon_social || 'Diagnóstico de Superficie'}
             {sqm ? ` • ${sqm} m²` : ''}
-            {chatState.estadoPared ? ` • ${chatState.estadoPared}` : ''}
           </span>
         </div>
         <span className="text-[11px] font-mono font-bold text-teal-800 bg-teal-50 px-2 py-0.5 rounded border border-teal-200 shrink-0">
-          NTC 1335
+          Norma NTC 1335
         </span>
       </div>
 
@@ -1069,7 +1551,6 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
               key={msg.id}
               className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start items-start gap-2.5'}`}
             >
-              {/* Avatar Oficial Pintuco para mensajes del Asistente */}
               {msg.sender === 'assistant' && (
                 <div className="w-8 h-8 rounded-full overflow-hidden border border-sky-300 shadow-xs shrink-0 bg-[#002244] mt-0.5 flex items-center justify-center p-0.5">
                   <img
@@ -1080,13 +1561,13 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
                 </div>
               )}
               <div
-                className={`max-w-[88%] rounded-2xl p-4 text-xs sm:text-sm leading-relaxed shadow-xs ${
+                className={`max-w-[90%] rounded-2xl p-4 text-xs sm:text-sm leading-relaxed shadow-xs ${
                   msg.sender === 'user'
-                    ? 'bg-blue-900 text-white rounded-br-none'
+                    ? 'bg-[#002244] text-white rounded-br-none'
                     : 'bg-white text-slate-800 border border-slate-200/90 rounded-tl-none'
                 }`}
               >
-                {/* FOTO ADJUNTADA POR EL USUARIO (Paso 1: limpia, sin simulación prematura) */}
+                {/* Foto adjuntada por el usuario */}
                 {msg.imageUrl && (
                   <div className="mb-2.5 rounded-xl overflow-hidden border border-white/20 shadow-xs max-w-sm">
                     <img
@@ -1099,20 +1580,220 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
 
                 <div className="whitespace-pre-wrap">{msg.text}</div>
 
-                {/* RECOMENDACIÓN DUAL DE PRODUCTOS (Paso 3: Solo con m² confirmados) */}
+                {/* BOTONES DE RESPUESTA RÁPIDA (CHIPS INLINE DENTRO DEL PRIMER MENSAJE DE BIENVENIDA) */}
+                {(msg.showQuickChips || msg.id === 'welcome-1') && (
+                  <div className="mt-3 pt-2.5 border-t border-slate-100 flex flex-wrap gap-2">
+                    {QUICK_ACTION_CHIPS.map((chip) => {
+                      const Icon = chip.icon;
+                      return (
+                        <button
+                          key={chip.id}
+                          type="button"
+                          onClick={() => handleQuickAction(chip.id)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-50 hover:bg-sky-50 text-slate-800 hover:text-blue-900 border border-slate-200 hover:border-sky-300 transition-all shadow-2xs hover:shadow-xs active:scale-95 cursor-pointer"
+                        >
+                          <Icon className="w-3.5 h-3.5 text-blue-900 shrink-0" />
+                          <span>{chip.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Botón de acceso directo al módulo de autenticación para rastreo de pedidos */}
+                {msg.text.includes('Validación de Seguridad Requerida') && !isUserAuthenticated && onOpenAuth && (
+                  <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-end">
+                    <button
+                      type="button"
+                      onClick={() => onOpenAuth('Rastreo Seguro de Pedido')}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-900 hover:bg-blue-950 text-white text-xs font-bold transition-all shadow-xs cursor-pointer active:scale-95"
+                    >
+                      <ShieldCheck className="w-4 h-4 text-teal-400 shrink-0" />
+                      <span>Iniciar Sesión para Rastrear Pedido →</span>
+                    </button>
+                  </div>
+                )}
+
+                {/* TARJETA DE RASTREO DE PEDIDO (Si el usuario consultó rastreo y está autenticado) */}
+                {msg.orderTrackingData && msg.orderTrackingData.length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-slate-200 space-y-2">
+                    {msg.orderTrackingData.map((order: any) => (
+                      <div
+                        key={order.id}
+                        className="p-3 rounded-2xl bg-gradient-to-br from-teal-50/70 to-sky-50/50 border border-teal-200 text-slate-800 shadow-2xs"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-black text-slate-900 font-mono">
+                            {order.numeroOrden || order.id}
+                          </span>
+                          <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-teal-800 text-white">
+                            {order.estado || 'En Alistamiento'}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-600 mt-1">
+                          Destino: <strong>{order.ciudad || order.form?.ciudad || 'Bogotá D.C.'}</strong> • Fecha: {order.fecha || 'Hoy'}
+                        </p>
+                        {order.calculo?.costoEstimadoCOP && (
+                          <p className="text-[11px] font-bold text-blue-950 mt-0.5">
+                            Total: ${Number(order.calculo.costoEstimadoCOP).toLocaleString('es-CO')} COP
+                          </p>
+                        )}
+                        <div className="mt-2 pt-2 border-t border-teal-200/60 flex items-center justify-end">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (onNavigateTab) onNavigateTab('tracking');
+                              onClose();
+                            }}
+                            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-teal-800 hover:bg-teal-900 text-white text-xs font-bold transition-all shadow-xs cursor-pointer"
+                          >
+                            <Package className="w-3.5 h-3.5" />
+                            <span>Ver Seguimiento en Vivo →</span>
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* SELECTOR INTERACTIVO DE CIUDADES PARA SEDES Y HORARIOS (Single Source of Truth del Mapa) */}
+                {msg.isCitySelectionPrompt && (
+                  <div className="mt-3 pt-2.5 border-t border-slate-100">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-[11px] font-bold text-slate-700">
+                        Selecciona tu ciudad (12 sedes del mapa interactivo):
+                      </p>
+                      <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-blue-100 text-blue-900 border border-blue-200">
+                        12 Nodos Activos
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {QUICK_CITIES.map((c) => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => handleSelectCity(c.name)}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold bg-sky-50 hover:bg-sky-100 text-blue-900 border border-sky-200 hover:border-sky-300 transition-all cursor-pointer active:scale-95 shadow-2xs"
+                        >
+                          <MapPin className="w-3 h-3 text-sky-600 shrink-0" />
+                          <span>{c.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* TARJETAS DETALLADAS DE SEDES Y HORARIOS POR CIUDAD */}
+                {msg.storeHubs && msg.storeHubs.length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-slate-200 space-y-2.5">
+                    <div className="text-[11px] font-black uppercase tracking-wider text-slate-700 flex items-center justify-between">
+                      <span className="flex items-center gap-1.5">
+                        <MapPin className="w-3.5 h-3.5 text-blue-900" />
+                        <span>Sedes Oficiales Pintuco ({msg.selectedCity || 'Sedes'})</span>
+                      </span>
+                      <span className="text-[10px] text-emerald-800 font-bold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                        Atención Presencial
+                      </span>
+                    </div>
+
+                    <div className="space-y-2">
+                      {msg.storeHubs.map((hub) => (
+                        <div
+                          key={hub.id}
+                          className="p-3 rounded-2xl bg-gradient-to-br from-slate-50 to-blue-50/40 border border-slate-200 text-slate-800 shadow-2xs hover:border-sky-300 transition-all"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-blue-900 text-white">
+                                {hub.tipo}
+                              </span>
+                              <h4 className="text-xs sm:text-sm font-black text-slate-900 mt-1">
+                                {hub.nombre}
+                              </h4>
+                            </div>
+                            <span className="text-[10px] font-bold text-slate-600 bg-white px-2 py-0.5 rounded-md border border-slate-200 shrink-0">
+                              {hub.ciudad}
+                            </span>
+                          </div>
+
+                          <div className="mt-2.5 space-y-1.5 text-xs text-slate-700">
+                            <div className="flex items-start gap-2">
+                              <MapPin className="w-3.5 h-3.5 text-rose-500 shrink-0 mt-0.5" />
+                              <span className="font-semibold text-slate-800">{hub.direccion}</span>
+                            </div>
+                            <div className="flex items-start gap-2">
+                              <Clock className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+                              <span className="text-slate-600">{hub.horario}</span>
+                            </div>
+                            <div className="flex items-start gap-2">
+                              <Phone className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
+                              <a
+                                href={`tel:${hub.telefono.replace(/[^\d+]/g, '')}`}
+                                className="text-blue-900 font-bold hover:underline font-mono text-[11px]"
+                              >
+                                {hub.telefono}
+                              </a>
+                            </div>
+                            {hub.tiempoEntrega && (
+                              <div className="flex items-start gap-2">
+                                <Truck className="w-3.5 h-3.5 text-sky-600 shrink-0 mt-0.5" />
+                                <span className="text-slate-700 font-medium">Entrega estimada: <strong>{hub.tiempoEntrega}</strong></span>
+                              </div>
+                            )}
+                            {hub.asesorRegional && (
+                              <div className="text-[11px] text-slate-600 pt-1.5 border-t border-slate-200/60 flex items-center gap-1.5">
+                                <span className="font-bold text-slate-700">Asesor:</span>
+                                <span>{hub.asesorRegional}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {onOpenCoverageMap && (
+                      <div className="pt-1 flex items-center justify-end">
+                        <button
+                          type="button"
+                          onClick={() => onOpenCoverageMap()}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-blue-900 to-indigo-900 hover:from-blue-950 hover:to-indigo-950 text-white text-xs font-bold transition-all shadow-xs cursor-pointer active:scale-95"
+                        >
+                          <MapPin className="w-3.5 h-3.5 text-amber-300" />
+                          <span>Ver Mapa Interactivo de Sedes →</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* BOTÓN DE MAPA DE SEDES (Si se consultó sedes y horarios sin tarjetas individuales) */}
+                {msg.sedeInfo && (!msg.storeHubs || msg.storeHubs.length === 0) && onOpenCoverageMap && (
+                  <div className="mt-3 pt-2 border-t border-slate-100 flex items-center justify-end">
+                    <button
+                      type="button"
+                      onClick={() => onOpenCoverageMap()}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-blue-900 to-indigo-900 hover:from-blue-950 hover:to-indigo-950 text-white text-xs font-bold transition-all shadow-xs cursor-pointer active:scale-95"
+                    >
+                      <MapPin className="w-3.5 h-3.5 text-amber-300" />
+                      <span>Ver Mapa Interactivo de Sedes →</span>
+                    </button>
+                  </div>
+                )}
+
+                {/* RECOMENDACIÓN DE PINTURA (Paso 3) */}
                 {((msg.cartActions && msg.cartActions.length > 0) || msg.cartAction) && (
                   <div className="mt-3.5 pt-3 border-t border-slate-200 space-y-2.5">
                     <div className="text-[11px] font-black uppercase tracking-wider text-slate-700 flex items-center justify-between">
                       <span className="flex items-center gap-1.5">
                         <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                        <span>Opciones Técnicas Recomendadas (NTC 1335)</span>
+                        <span>Pinturas Oficiales Pintuco (NTC 1335)</span>
                       </span>
                       <span className="text-[10px] text-blue-900 font-bold bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
-                        Catálogo Pintuco
+                        Garantía de Fábrica
                       </span>
                     </div>
 
-                    <div className="space-y-2.5">
+                    <div className="space-y-2">
                       {(msg.cartActions || [msg.cartAction!]).map((action, actionIdx) => {
                         const isPremium = action.tipo === 'recomendada' || actionIdx === 0;
                         const isSelectedInSim = simulatedProduct?.sku === action.sku;
@@ -1138,7 +1819,7 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
                                         : 'bg-emerald-800 text-white'
                                     }`}
                                   >
-                                    {action.badge || (isPremium ? '⭐ Opción Recomendada / Premium' : '💡 Opción Económica / Eficiente')}
+                                    {action.badge || (isPremium ? '⭐ Opción Recomendada / Premium' : '💡 Opción Alternativa')}
                                   </span>
                                   <span className="text-[10px] text-slate-500 font-mono">
                                     SKU: {action.sku}
@@ -1169,32 +1850,27 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
                               </div>
                             </div>
 
-                            {/* Botón para Elegir Color y Probar Simulación (Paso 3 -> Paso 4) */}
                             <div className="mt-2.5 pt-2 border-t border-slate-200/60 flex items-center justify-between gap-2 flex-wrap">
                               <button
                                 type="button"
                                 onClick={() => handleStartSimulation(action, msg.id)}
-                                className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-black transition-all shadow-xs active:scale-95 cursor-pointer ${
+                                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black transition-all shadow-xs active:scale-95 cursor-pointer ${
                                   isSelectedInSim
                                     ? 'bg-amber-500 text-slate-950 ring-2 ring-amber-400'
-                                    : isPremium
-                                    ? 'bg-amber-500 hover:bg-amber-400 text-slate-950'
                                     : 'bg-blue-900 hover:bg-blue-800 text-white'
                                 }`}
                               >
                                 <Palette className="w-3.5 h-3.5" />
-                                <span>🎨 Elegir Color y Probar Simulación</span>
+                                <span>🎨 Probar Simulación de Color</span>
                               </button>
 
                               <button
                                 type="button"
-                                onClick={() => handleDownloadTechnicalSheet(msg, action)}
-                                disabled={isDownloadingSheet}
-                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-sky-50 text-slate-700 hover:text-blue-900 text-[11px] font-bold transition-colors cursor-pointer shadow-2xs"
-                                title="Descargar Ficha Técnica Oficial para mostrador"
+                                onClick={() => handleConfirmAddToCartDirect(action, activeSimulationColor)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-emerald-50 text-slate-800 hover:text-emerald-900 text-[11px] font-bold transition-colors cursor-pointer shadow-2xs"
                               >
-                                <Download className="w-3.5 h-3.5 text-blue-900" />
-                                <span>Ficha PDF / PNG</span>
+                                <ShoppingCart className="w-3.5 h-3.5 text-emerald-600" />
+                                <span>Agregar Pintura</span>
                               </button>
                             </div>
                           </div>
@@ -1202,10 +1878,9 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
                       })}
                     </div>
 
-                    {/* TARJETA DE SIMULACIÓN VISUAL SEGMENTADA (Paso 4: Únicamente tras elegir color) */}
+                    {/* TARJETA DE SIMULACIÓN VISUAL DEL ESPACIO (Antes y Después con paleta Pintuco) */}
                     {isMsgActiveForSimulation && simulatedProduct && (
                       <div className="mt-3 rounded-2xl border-2 border-amber-400/80 bg-white overflow-hidden shadow-lg text-slate-800 animate-fadeIn">
-                        {/* Cabecera de la simulación */}
                         <div className="px-3.5 py-2.5 bg-gradient-to-r from-[#002244] via-[#003366] to-[#004080] text-white flex items-center justify-between">
                           <div className="flex items-center gap-2 min-w-0">
                             <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
@@ -1230,8 +1905,7 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
                           </button>
                         </div>
 
-                        {/* Visor de Imagen con Segmentación Arquitectónica: 
-                            Afecta los muros preservando intactos puertas de madera, ventanas, marcos, tejados, suelo y vegetación */}
+                        {/* Visor Inpainting con segmentación de muros */}
                         <div className="relative overflow-hidden w-full bg-slate-900 rounded-b-none">
                           <ImageVisualizer
                             imageUrl={uploadedImage || msg.imageUrl || sampleWallImg}
@@ -1249,15 +1923,15 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
                           />
                         </div>
 
-                        {/* Selector de Paleta Colorlink en Vivo */}
+                        {/* Paleta Oficial Colorlink */}
                         <div className="p-3 bg-slate-50 border-t border-slate-100">
                           <div className="flex items-center justify-between gap-1 mb-2">
                             <span className="text-[10px] font-black uppercase tracking-wider text-slate-600 flex items-center gap-1">
                               <Palette className="w-3 h-3 text-blue-900" />
-                              <span>Paleta Oficial Colorlink:</span>
+                              <span>Paleta de Color Pintuco:</span>
                             </span>
-                            <span className="text-[10px] text-slate-400 font-mono">
-                              #{activeSimulationColor.code}
+                            <span className="text-[10px] text-slate-500 font-mono font-bold">
+                              {activeSimulationColor.name} (#{activeSimulationColor.code})
                             </span>
                           </div>
 
@@ -1289,94 +1963,144 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
                           </div>
                         </div>
 
-                        {/* Botones de Acción de la Simulación: Descargar Ficha y Agregar al Carrito */}
-                        <div className="p-3 bg-white border-t border-slate-200 flex flex-col sm:flex-row items-center gap-2">
+                        {/* Descargar ficha */}
+                        <div className="px-3 py-2 bg-white border-t border-slate-100 flex items-center justify-end">
                           <button
                             type="button"
                             disabled={isDownloadingSheet}
                             onClick={() => handleDownloadTechnicalSheet(msg, simulatedProduct)}
-                            className="w-full sm:flex-1 py-2 px-3 rounded-xl border border-slate-200 bg-slate-50 hover:bg-sky-50 text-slate-800 hover:text-blue-900 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs disabled:opacity-50"
-                            title="Descargar Ficha Técnica Oficial en PNG"
+                            className="inline-flex items-center gap-1.5 text-xs text-blue-900 hover:text-blue-950 font-bold hover:underline cursor-pointer"
                           >
-                            <Download className="w-3.5 h-3.5 text-blue-900 shrink-0" />
-                            <span>📥 Descargar Ficha PNG</span>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => handleConfirmAddToCartDirect(simulatedProduct, activeSimulationColor)}
-                            className="w-full sm:flex-1 py-2 px-3 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 text-xs font-black shadow-md transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-98"
-                            title="Agregar este producto y color simulado al carrito"
-                          >
-                            <ShoppingCart className="w-3.5 h-3.5 shrink-0" />
-                            <span>🛒 Agregar al Carrito</span>
+                            <Download className="w-3.5 h-3.5" />
+                            <span>Descargar Ficha Técnica con Simulación (PNG)</span>
                           </button>
                         </div>
                       </div>
                     )}
 
-                    {addedToCartMap[simulatedProduct?.sku || ''] && onOpenCart && (
-                      <div className="pt-2 flex items-center justify-between">
-                        <span className="text-xs font-bold text-emerald-700 flex items-center gap-1">
-                          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                          <span>¡Producto agregado con éxito al carrito!</span>
-                        </span>
-                        <button
-                          type="button"
-                          onClick={onOpenCart}
-                          className="px-2.5 py-1 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold transition-colors cursor-pointer"
-                        >
-                          Ver Carrito →
-                        </button>
+                    {/* DESGLOSE PRECISO DE COTIZACIÓN (PINTURA + KIT DE HERRAMIENTAS) */}
+                    {simulatedProduct && (
+                      <div className="mt-3 p-3.5 rounded-2xl bg-white border-2 border-blue-900/30 shadow-md">
+                        <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                          <div className="flex items-center gap-2">
+                            <FileText className="w-4 h-4 text-blue-900" />
+                            <h4 className="text-xs sm:text-sm font-black text-slate-900">
+                              Cotización Oficial Estimada (Norma NTC 1335)
+                            </h4>
+                          </div>
+                          <span className="text-[11px] font-bold text-teal-800 bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200">
+                            {sqm || msg.areaM2 || 24} m²
+                          </span>
+                        </div>
+
+                        {/* Ítem 1: Pintura recomendada */}
+                        <div className="mt-3 space-y-1.5 text-xs">
+                          <div className="flex items-center justify-between text-slate-800 font-bold">
+                            <span className="flex items-center gap-1.5 truncate">
+                              <span className="w-2 h-2 rounded-full bg-blue-900 shrink-0" />
+                              <span className="truncate">{simulatedProduct.productName} ({simulatedProduct.cantidad} {simulatedProduct.presentacion})</span>
+                            </span>
+                            <span className="font-black text-slate-900 shrink-0">
+                              ${(simulatedProduct.cantidad * simulatedProduct.precioUnitario).toLocaleString('es-CO')} COP
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-500 pl-3.5">
+                            Color: <strong>{activeSimulationColor.name}</strong> (#{activeSimulationColor.code}) • Rendimiento certificado a 2 manos
+                          </p>
+                        </div>
+
+                        {/* Ítem 2: Kit de herramientas Pintuco */}
+                        <div className="mt-3 pt-2.5 border-t border-slate-100">
+                          <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 block mb-1.5">
+                            🛠️ Kit Profesional de Preparación y Aplicación:
+                          </span>
+                          <div className="space-y-1 text-xs">
+                            {(msg.toolsKit || DEFAULT_TOOLS_KIT).map((tool, tIdx) => (
+                              <div key={tIdx} className="flex items-center justify-between text-slate-700 text-[11px]">
+                                <span className="truncate">• {tool.cantidad}x {tool.nombre}</span>
+                                <span className="font-semibold text-slate-900 shrink-0">
+                                  ${(tool.cantidad * tool.precioUnitario).toLocaleString('es-CO')} COP
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Total Estimado en COP */}
+                        <div className="mt-3.5 pt-2.5 border-t-2 border-slate-200 flex items-center justify-between">
+                          <div>
+                            <span className="text-xs font-black uppercase text-slate-500 block">Total Estimado Obra:</span>
+                            <span className="text-[10px] text-slate-400">IVA 19% incluido en COP</span>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-base sm:text-lg font-black text-blue-950 block">
+                              ${(
+                                (simulatedProduct.cantidad * simulatedProduct.precioUnitario) +
+                                (msg.toolsKit || DEFAULT_TOOLS_KIT).reduce((acc, t) => acc + (t.cantidad * t.precioUnitario), 0)
+                              ).toLocaleString('es-CO')} COP
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* BOTÓN DE LLAMADA A LA ACCIÓN (CTA PRINCIPAL) */}
+                        <div className="mt-3.5 pt-2 flex flex-col gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleProceedFullQuotationPurchase(
+                              simulatedProduct,
+                              msg.toolsKit || DEFAULT_TOOLS_KIT,
+                              activeSimulationColor
+                            )}
+                            className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-amber-500 via-amber-600 to-amber-500 hover:from-amber-600 hover:to-amber-700 text-slate-950 text-xs sm:text-sm font-black shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-98"
+                          >
+                            <ShoppingCart className="w-4 h-4 shrink-0 text-slate-950" />
+                            <span>Proceder con la Compra / Agregar al Pedido</span>
+                          </button>
+
+                          <div className="flex items-center justify-between gap-2 text-xs">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (onApplyCalculation) {
+                                  onApplyCalculation(sqm || msg.areaM2 || 24, simulatedProduct.productName);
+                                } else if (onNavigateTab) {
+                                  onNavigateTab('cotizador');
+                                }
+                                onClose();
+                              }}
+                              className="text-blue-900 hover:underline font-bold text-[11px] flex items-center gap-1 cursor-pointer"
+                            >
+                              <FileText className="w-3 h-3" />
+                              <span>Ver en Cotizador Inteligente (BOM)</span>
+                            </button>
+
+                            {onOpenCart && (
+                              <button
+                                type="button"
+                                onClick={onOpenCart}
+                                className="text-slate-600 hover:text-slate-900 font-bold text-[11px] flex items-center gap-1 cursor-pointer"
+                              >
+                                <span>Ver Carrito ({addedToCartMap.fullOrder ? '1 paquete' : '0'}) →</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
                       </div>
                     )}
                   </div>
                 )}
 
-              {/* Saved to Supabase Badge */}
-              {msg.savedSupabaseId && (
-                <div className="mt-3 p-2 rounded-xl bg-teal-50 border border-teal-200 text-teal-800 text-xs font-bold flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-teal-600 shrink-0" />
-                  <span>Cotización registrada en Supabase (ID: {msg.savedSupabaseId.slice(0, 8)}...)</span>
+                <div
+                  className={`text-[10px] mt-2 text-right ${
+                    msg.sender === 'user' ? 'text-blue-200' : 'text-slate-400'
+                  }`}
+                >
+                  {msg.timestamp}
                 </div>
-              )}
-
-              {/* Enlace de Redirección Rápida al Cotizador Inteligente si hay recomendación o m² */}
-              {msg.sender === 'assistant' && ((msg.cartActions && msg.cartActions.length > 0) || msg.cartAction || sqm) && onNavigateTab && (
-                <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between gap-2 flex-wrap">
-                  <span className="text-[10px] text-slate-500 font-medium">
-                    Norma NTC 1335 • Base Viniltex 32 m²/gal a 2 manos
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (sqm && onApplyCalculation) {
-                        const recommendedProduct = msg.cartActions?.[0]?.productName || 'Viniltex Avanzado Máxima Lavabilidad';
-                        onApplyCalculation(sqm, recommendedProduct);
-                      } else {
-                        onNavigateTab('cotizador');
-                      }
-                    }}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-blue-50 to-sky-50 hover:from-blue-100 hover:to-sky-100 text-[#002244] border border-sky-200 text-xs font-black transition-all cursor-pointer shadow-2xs hover:shadow-xs active:scale-95"
-                    title="Cargar cálculo en el Cotizador Inteligente y ver desglose BOM"
-                  >
-                    <Sparkles className="w-3.5 h-3.5 text-blue-900 shrink-0" />
-                    <span>Ir al Cotizador ({sqm ? `${sqm} m²` : 'Calculador'}) →</span>
-                  </button>
-                </div>
-              )}
-
-              <div
-                className={`text-[10px] mt-2 text-right ${
-                  msg.sender === 'user' ? 'text-blue-200' : 'text-slate-400'
-                }`}
-              >
-                {msg.timestamp}
               </div>
             </div>
-          </div>
-        );
-      })}
+          );
+        })}
 
         {isLoading && (
           <div className="flex items-start gap-2.5">
@@ -1389,7 +2113,7 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
             </div>
             <div className="flex items-center gap-2.5 text-xs text-slate-600 bg-white p-3.5 rounded-2xl rounded-tl-none border border-slate-200 shadow-xs animate-pulse">
               <Loader2 className="w-4 h-4 animate-spin text-teal-600" />
-              <span>Consultando especificaciones técnicas oficiales Pintuco...</span>
+              <span>Procesando espacio, aplicando norma NTC 1335 y calculando cotización oficial...</span>
             </div>
           </div>
         )}
@@ -1413,8 +2137,8 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
               </span>
             </div>
             <div className="min-w-0">
-              <span className="text-xs font-bold text-slate-800 block truncate">Foto de tu espacio / pared adjuntada</span>
-              <span className="text-[10px] text-teal-700 font-medium block truncate">Lista para análisis multimodal con Asesor IA</span>
+              <span className="text-xs font-bold text-slate-800 block truncate">Fotografía de tu espacio adjuntada</span>
+              <span className="text-[10px] text-teal-700 font-medium block truncate">Lista para simulación visual y cálculo de cotización</span>
             </div>
           </div>
           <button
@@ -1428,7 +2152,7 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
         </div>
       )}
 
-      {/* Área de Entrada Limpia con botón '+' y menú desplegable para adjuntar o tomar foto */}
+      {/* Área de Entrada con Menú '+' */}
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -1436,7 +2160,6 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
         }}
         className="p-3 bg-white border-t border-slate-200 flex items-center gap-2 relative"
       >
-        {/* Input 1: Adjuntar foto o archivo desde la galería / explorador del dispositivo */}
         <input
           type="file"
           ref={fileUploadInputRef}
@@ -1446,7 +2169,6 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
           onChange={handleFileUpload}
         />
 
-        {/* Input 2: Tomar foto directamente con la cámara del dispositivo */}
         <input
           type="file"
           ref={cameraUploadInputRef}
@@ -1457,7 +2179,7 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
           onChange={handleCameraUpload}
         />
 
-        {/* Botón Principal Redondo '+' con Menú Desplegable */}
+        {/* Botón '+' con popover */}
         <div ref={attachMenuRef} className="relative shrink-0">
           <button
             type="button"
@@ -1473,7 +2195,6 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
             <Plus className="w-5 h-5 transition-transform duration-200" />
           </button>
 
-          {/* Menú Emergente (Popover/Dropdown) */}
           {isAttachMenuOpen && (
             <div 
               className="absolute left-0 bottom-full mb-2.5 z-50 w-56 sm:w-60 bg-white rounded-2xl shadow-xl border border-slate-200 p-1.5 animate-scaleUp text-slate-800"
@@ -1484,7 +2205,6 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
                 Adjuntar a la consulta
               </div>
 
-              {/* Opción 1: Adjuntar foto o archivo */}
               <button
                 type="button"
                 onClick={() => {
@@ -1501,12 +2221,11 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
                     📎 Adjuntar foto o archivo
                   </span>
                   <span className="block text-[10px] text-slate-500 font-normal truncate">
-                    Desde tu galería o explorador
+                    Para simulación y cotización
                   </span>
                 </div>
               </button>
 
-              {/* Opción 2: Tomar foto */}
               <button
                 type="button"
                 onClick={() => {
@@ -1523,7 +2242,7 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
                     📷 Tomar foto
                   </span>
                   <span className="block text-[10px] text-slate-500 font-normal truncate">
-                    Abrir cámara en vivo
+                    Cámara en vivo de tu espacio
                   </span>
                 </div>
               </button>
@@ -1535,7 +2254,7 @@ Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos 
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder={attachedImage ? "Añade un comentario sobre tu foto (opcional)..." : "Escribe tu consulta..."}
+          placeholder={attachedImage ? "Añade un comentario sobre tu foto (opcional)..." : "¿Qué proyecto de pintura deseas cotizar?"}
           className="flex-1 px-4 py-2.5 text-xs sm:text-sm rounded-xl bg-slate-50 text-slate-900 border border-slate-200 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-900"
         />
 

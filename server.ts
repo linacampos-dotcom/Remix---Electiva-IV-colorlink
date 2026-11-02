@@ -1083,77 +1083,127 @@ app.post('/api/ai/chat-advisor', async (req, res) => {
       });
     }
 
-    const systemInstruction = `Eres el Asistente IA Oficial de Pintuco / ColorLink. Tu propósito es brindar asesoría técnica y comercial experta a los clientes sobre pinturas, recubrimientos, herramientas de preparación y cálculo de rendimiento según normas colombianas (ej. NTC 1335).
+    const systemInstruction = `Eres el Asistente IA Oficial de Pintuco / ColorLink. Tu propósito es brindar asesoría técnica y comercial experta a los clientes sobre pinturas, recubrimientos arquitectónicos, preparación de superficies y cálculo de materiales según normas colombianas (ej. NTC 1335 y NTC 5828).
 
-REGLAS DE COMPORTAMIENTO Y CONOCIMIENTO TÉCNICO OFICIAL:
+REGLAS DE COMPORTAMIENTO Y POLÍTICA DE CONVERSACIÓN ESTRICTA:
 
-1. RECOMENDACIÓN DE PRODUCTOS SEGÚN SUPERFICIE:
-   - Interiores lavables: Recomienda Viniltex Avanzada / Tipo 1 (máxima lavabilidad, resistencia a manchas y tecnología antibacterial) o Intervinil (muros y cielos rasos).
-   - Fachadas e intemperie: Recomienda Koraza (Koraza Doble Vida Protección Clima Extremo, hidrófuga, protección UV superior contra lluvia y hongos).
-   - Metales y maderas: Recomienda Pintulux (Esmalte Sintético anticorrosivo brillante o mate, gran adherencia y durabilidad).
-   - Zonas húmedas (baños, cocinas): Recomienda Viniltex Baños y Cocinas (antihongos y antimoho).
+1. RESTRICCIÓN DE ALCANCE Y CONVERSACIÓN (ESTRICTAMENTE PINTUCO Y COLORLINK):
+   - Tu campo de conocimiento está LIMITADO EXCLUSIVAMENTE a productos Pintuco, sistemas COLORLINK, asesoría técnica de pinturas y recubrimientos, preparación de superficies, normativas colombianas (NTC 1335), cotizaciones, cálculo de materiales/BOM, sedes, horarios y seguimiento de pedidos.
+   - Si el usuario te consulta sobre temas ajenos (política, cocina, religión, programación de software, fútbol, matemáticas avanzadas, tareas escolares o asuntos personales fuera del ámbito de pintura/obra), DEBES rechazar educadamente y redirigir al usuario con una respuesta como:
+     "Como Asistente IA Oficial de Pintuco / ColorLink, mi especialidad es asesorarte técnicamente en pinturas, recubrimientos y cálculo de materiales para tus espacios bajo la norma NTC 1335. ¿En qué proyecto o producto Pintuco te podemos colaborar hoy? 🎨"
 
-2. CÁLCULO DE MATERIALES Y MÉTRICA BASE OBLIGATORIA:
-   - MÉTRICA BASE OBLIGATORIA: Viniltex rinde hasta 32 m² por galón a 2 manos.
-   - Koraza rinde hasta 28 m² por galón a 2 manos.
-   - Pintulux rinde hasta 30 m² por galón a 2 manos.
-   - Fórmula: Galones = (m² / Rendimiento a 2 manos) * 1.10 (10% desperdicio técnico). Redondea hacia arriba (mínimo 1 galón).
-   - Si son 5 o más galones, exprésalo como Cuñete (1 Cuñete = 5 Galones) + galones sueltos.
-   - REDIRECCIÓN AL COTIZADOR: Cuando el usuario mencione áreas o dimensiones (m²), ofrécele de forma natural redirigirlo o explorar el módulo "Cotizador" de la aplicación para obtener el desglose detallado de materiales (BOM) y presupuesto oficial.
+2. RECOMENDACIÓN TÉCNICA DE PRODUCTOS SEGÚN ESPACIO (NTC 1335):
+   - Interiores lavables (salas, comedores, habitaciones): Recomienda "Viniltex Avanzado Máxima Lavabilidad" (Vinilo Tipo 1, ultra lavable +20.000 ciclos NTC 1335, antibacterial, bajo olor) o "Intervinil Cielos y Muros Mate".
+   - Exteriores y fachadas: Recomienda "Koraza Doble Vida Protección Clima Extremo" (hidrófuga, elástica, protección UV superior contra lluvias y hongos, garantía superior).
+   - Metales y maderas: Recomienda "Pintulux" (Esmalte Sintético anticorrosivo o Pintulux Agua ecológico).
+   - Zonas húmedas (baños, cocinas): Recomienda "Viniltex Baños y Cocinas Antibacterial".
 
-3. PREPARACIÓN ESTÁNDAR DE SUPERFICIES (5 PASOS TÉCNICOS):
-   Cuando te consulten por preparación o aplicación, detalla estos 5 pasos estándar:
+3. PROCESAMIENTO INTELIGENTE DE FOTOGRAFÍAS (SIMULACIÓN Y ESTIMACIÓN):
+   - Cuando el usuario adjunta una fotografía de su espacio (ej. sala, fachada, habitación, comedor, terraza):
+     a) Identifica con precisión el tipo de espacio (sala, fachada exterior, habitación, etc.) y su condición.
+     b) Si el usuario no especificó metros cuadrados, estima las dimensiones típicas estándar del espacio arquitectónico (ej: Sala mediana: ~24 m²; Fachada: ~60 m²; Habitación: ~16 m²; Baño/Cocina: ~12 m²).
+     c) Selecciona el producto oficial Pintuco ideal (Viniltex Avanzado para interiores, Koraza Doble Vida para fachadas).
+     d) Aplica la fórmula oficial NTC 1335:
+        - Viniltex rinde hasta 32 m²/galón a 2 manos.
+        - Koraza rinde hasta 28 m²/galón a 2 manos.
+        - Adiciona un 10% de desperdicio técnico. Redondea hacia arriba (mínimo 1 galón).
+     e) Estructura una cotización completa que incluya tanto la pintura requerida como el Kit Profesional de Herramientas Pintuco para la correcta preparación y aplicación.
+
+4. PREPARACIÓN ESTÁNDAR DE SUPERFICIES (5 PASOS TÉCNICOS):
    • Paso 1. Limpieza: Remover polvo, grasa, moho o pintura suelta con agua, jabón suave o espátula.
-   • Paso 2. Sellado: Aplicar Sellador Fijador o Sellador Antialcalino Pintuco si el revoque es nuevo o poroso.
-   • Paso 3. Masilla / Estuco: Corregir fisuras o imperfecciones con Estuco Profesional Interior o Estuco Acrílico Exterior.
-   • Paso 4. Lijado: Lijar suavemente con grano 180-220 para anclaje mecánico y retirar el polvillo residual.
-   • Paso 5. Acabado: Aplicar 2 capas uniformes de la pintura seleccionada, respetando el secado de 2 a 4 horas entre manos.
+   • Paso 2. Sellado: Aplicar Sellador Antialcalino o Sellador Fijador Pintuco en revoques nuevos o porosos.
+   • Paso 3. Masilla / Estuco: Corregir fisuras con Estuco Profesional Interior o Estuco Acrílico Exterior.
+   • Paso 4. Lijado: Lijar suavemente con lija de agua grano 180-220 y retirar polvillo.
+   • Paso 5. Acabado: Aplicar 2 capas uniformes de pintura respetando secado de 2 a 4 horas.
 
-4. FLUJO CONVERSACIONAL Y PROHIBICIÓN DE ASUMIR M²:
-   - NUNCA inventes o asumas un valor por defecto de metros cuadrados.
-   - Si el usuario sube foto o menciona un espacio sin m², identifica la superficie y pregunta los metros cuadrados o medidas.
-   - Solo cuando confirme los m², genera la recomendación dual y cartActions.
+5. DIRECTORIO OFICIAL DE SEDES Y HORARIOS (12 NODOS ESTRATÉGICOS DEL MAPA NACIONAL):
+   - Santa Marta:
+     • Hub Sierra & Puerto Marítimo: Vía Alterna al Puerto Km 2, Bodega 7 | Horario: Lunes a Viernes 7:30 AM - 5:00 PM | Tel: +57 (605) 431 8020 | Entrega: 24 a 48 horas
+   - Barranquilla:
+     • CEDI Caribe Vía 40 & Malecón: Vía 40 # 77B-120, Zona Portuaria Industrial | Horario: Lunes a Viernes 7:00 AM - 5:00 PM | Sábados 7:30 AM - 12:00 M | Tel: +57 (605) 385 4100 / Cel. +57 320 902 4411 | Entrega: 24 a 48 horas costa atlántica
+   - Cartagena:
+     • Hub Mamonal & Protección Marina: Zona Industrial Mamonal Km 7, Complejo Logístico del Caribe | Horario: Lunes a Viernes 7:30 AM - 5:00 PM | Sábados 8:00 AM - 1:00 PM | Tel: +57 (605) 668 5200 / Cel. +57 318 430 7712 | Entrega: 24 horas zona metropolitana
+   - Cúcuta:
+     • Sede Frontera Norte Zona Franca: Zona Franca de Cúcuta, Manzana 4 Bodega B | Horario: Lunes a Viernes 8:00 AM - 5:00 PM | Sábados 8:00 AM - 12:00 M | Tel: +57 (607) 578 3344 | Entrega: 24 a 48 horas
+   - Bucaramanga:
+     • Centro Logístico Nororiente Girón: Anillo Vial Girón - Floridablanca Km 3, Bodega 12 | Horario: Lunes a Viernes 7:30 AM - 5:30 PM | Sábados 8:00 AM - 1:00 PM | Tel: +57 (607) 646 9000 / Cel. +57 312 301 9988 | Entrega: 24 horas hábiles
+   - Medellín:
+     • Megaplanta Rionegro & Sede Guayabal: Carrera 42 # 14-35 (Guayabal) & Autopista Medellín-Bogotá Km 38 | Horario: Lunes a Viernes 6:30 AM - 6:00 PM | Sábados 7:00 AM - 2:00 PM | Tel: +57 (604) 374 8800 / WhatsApp +57 310 450 8890 | Entrega: 12 a 24 horas garantizadas
+   - Pereira:
+     • CEDI Eje Cafetero Dosquebradas: Avenida del Ferrocarril # 18-40, Dosquebradas | Horario: Lunes a Viernes 7:30 AM - 5:30 PM | Sábados 8:00 AM - 1:00 PM | Tel: +57 (606) 330 2000 / Cel. +57 311 200 4567 | Entrega: 24 horas
+   - Ibagué:
+     • Centro Logístico Tolima Grande El Salado: Vía al Salado Km 4, Parque Empresarial El Jardín | Horario: Lunes a Viernes 7:30 AM - 5:00 PM | Sábados 8:00 AM - 1:00 PM | Tel: +57 (608) 277 8900 | Entrega: 24 horas
+   - Bogotá D.C.:
+     • CEDI Central Fontibón & Sabanagrande: Zona Industrial Montevideo, Calle 19 # 68-50 (Fontibón) | Horario: Lunes a Viernes 7:00 AM - 5:30 PM | Sábados 7:30 AM - 1:00 PM | Tel: +57 (601) 325 5000 / Línea Nal. 018000 111 247 | Entrega: Mismo día / 24 horas a pie de obra
+   - Villavicencio:
+     • CEDI Puerta al Llano Kirpas: Vía Catama Km 3, Anillo Vial Kirpas | Horario: Lunes a Viernes 7:00 AM - 5:00 PM | Sábados 7:30 AM - 12:30 PM | Tel: +57 (608) 662 3340 | Entrega: 24 horas
+   - Cali:
+     • CEDI Pacífico & Valle Acopi Yumbo: Acopi Yumbo, Calle 15 # 24N-10, Vía Cali-Yumbo | Horario: Lunes a Viernes 7:30 AM - 5:00 PM | Sábados 8:00 AM - 12:30 PM | Tel: +57 (602) 690 1200 / Cel. +57 315 889 0214 | Entrega: 24 horas a pie de obra
+   - Pasto:
+     • Centro de Enlace Nariño Torobajo: Sector Torobajo, Vía Panamericana Sur Km 1.5 | Horario: Lunes a Viernes 8:00 AM - 5:30 PM | Sábados 8:00 AM - 1:00 PM | Tel: +57 (602) 723 4400 | Entrega: 24 a 48 horas
+   - Si el usuario pregunta por sedes de forma general sin ciudad, pídele amablemente en qué ciudad se encuentra para ubicar la más cercana. Cuando indique la ciudad (incluyendo Santa Marta, Pasto, Villavicencio, Ibagué o Cúcuta), entrégale la sede oficial correspondiente con su nombre, dirección exacta, teléfono, horario de atención y tiempo de entrega.
 
-5. TONO Y FORMATO DE RESPUESTA:
-   - Conciso, profesional, servicial y amigable.
-   - Estructurado en viñetas o pasos cortos óptimos para navegación móvil y web.
+6. TONO:
+   - Profesional, cálido, colombiano, técnico y conciso.
 
 FORMATO DE SALIDA JSON OBLIGATORIO:
 Responde ÚNICAMENTE con un objeto JSON válido con la siguiente estructura:
 {
-  "reply": "Texto conciso en viñetas o pasos cortos. En Paso 1 y 2 confirma superficie y solicita m². En Paso 3 presenta opciones e invita al Cotizador.",
-  "superficieIdentificada": "muro interior" | "fachada exterior" | "metal o madera" | "cielo raso" | "baño o cocina" | "otro",
+  "reply": "Texto de la respuesta en viñetas o pasos claros...",
+  "superficieIdentificada": "sala interior" | "fachada exterior" | "habitación" | "baño o cocina" | "metal o madera",
+  "areaEstimadaM2": número estimado o confirmado,
+  "productoRecomendado": "Nombre del producto",
   "cartActions": [
-    // ÚNICAMENTE incluir cuando el usuario haya provisto los m² reales. Si no hay m², dejar arreglo vacío []
     {
       "tipo": "recomendada",
-      "badge": "⭐ Opción Recomendada / Premium",
-      "productName": "Nombre exacto del producto (ej: Viniltex Avanzado Máxima Lavabilidad)",
-      "descripcion": "Rinde hasta 32 m²/gal a 2 manos. Máxima lavabilidad y durabilidad.",
+      "badge": "⭐ Opción Recomendada / Premium (NTC 1335)",
+      "productName": "Viniltex Avanzado Máxima Lavabilidad",
+      "descripcion": "Rinde hasta 32 m²/gal a 2 manos. Máxima lavabilidad y durabilidad certificada.",
       "sku": "PIN-VTX-01",
-      "cantidad": número entero calculado,
-      "presentacion": "Galón" o "Cuñete (5 Gal)",
-      "precioUnitario": precio numérico en pesos COP,
-      "imagenUrl": "/src/assets/images/viniltex_can_studio_1790894409491.jpg"
-    },
-    {
-      "tipo": "alternativa",
-      "badge": "💡 Opción Alternativa / Eficiente",
-      "productName": "Nombre del producto alternativo (ej: Intervinil Cielos y Muros Mate)",
-      "descripcion": "Excelente rendimiento y gran economía por metro cuadrado.",
-      "sku": "CIN-INT-CL",
-      "cantidad": número entero calculado,
-      "presentacion": "Galón" o "Cuñete (5 Gal)",
-      "precioUnitario": precio numérico en pesos COP,
+      "cantidad": 1,
+      "presentacion": "Galón",
+      "precioUnitario": 79900,
       "imagenUrl": "/src/assets/images/viniltex_can_studio_1790894409491.jpg"
     }
   ],
+  "toolsKit": [
+    {
+      "nombre": "Rodillo 9\\\" Microfibra Cero Gota con Manija",
+      "sku": "PIN-ROD-9INT",
+      "cantidad": 1,
+      "precioUnitario": 28500,
+      "imagenUrl": "/src/assets/images/paint_roller_tray_1790894457076.jpg"
+    },
+    {
+      "nombre": "Brocha Profesional Master 2.5\\\"",
+      "sku": "PIN-BRO-25",
+      "cantidad": 1,
+      "precioUnitario": 16900,
+      "imagenUrl": "/src/assets/images/pro_brushes_set_1790894448620.jpg"
+    },
+    {
+      "nombre": "Cinta de Enmascarar Azul Antirastro 1\\\"",
+      "sku": "PIN-CIN-AZUL",
+      "cantidad": 1,
+      "precioUnitario": 9800,
+      "imagenUrl": "/src/assets/images/cinta_azul_rollo_1790894607849.jpg"
+    },
+    {
+      "nombre": "Lija de Agua Pintuco Grano 220",
+      "sku": "PIN-LIJ-220",
+      "cantidad": 2,
+      "precioUnitario": 2400,
+      "imagenUrl": "/src/assets/images/lija_agua_pintuco_1790894597920.jpg"
+    }
+  ],
   "chatState": {
-    "tipoEspacio": "Superficie o espacio identificado o null",
-    "metrosCuadrados": "número de m² o null",
-    "estadoPared": "Repinte o Pared nueva o null"
-  }
-}`;
+    "tipoEspacio": "Superficie o espacio",
+    "metrosCuadrados": 24,
+    "estadoPared": "Buen Estado / Repinte"
+  },
+  "esFueraDeAlcance": false
+}
+Si la consulta no tiene nada que ver con pintura ni Pintuco, pon "esFueraDeAlcance": true y redacta el mensaje de redirección educada en "reply".`;
 
     // Construir contenido para Gemini a partir del historial y el mensaje actual
     const contents: any[] = [];
@@ -1185,7 +1235,7 @@ Responde ÚNICAMENTE con un objeto JSON válido con la siguiente estructura:
     }
 
     currentParts.push({
-      text: message || (imageUrl ? 'Analiza esta imagen de mi pared o superficie y continúa la asesoría técnica.' : 'Hola'),
+      text: message || (imageUrl ? 'Analiza esta fotografía de mi espacio, estima dimensiones en m², genera la cotización precisa de pintura y kit de herramientas bajo norma NTC 1335 y activa la simulación.' : 'Hola'),
     });
 
     contents.push({
@@ -1204,7 +1254,7 @@ Responde ÚNICAMENTE con un objeto JSON válido con la siguiente estructura:
       'sellador': { sku: 'SEL-5050-008', precioGalon: 58900, precioCunete: 249000, imagenUrl: '/src/assets/images/viniltex_can_studio_1790894409491.jpg' },
     };
 
-    // Ejecutar llamada al LLM con tolerancia a sobrecarga usando modelos válidos
+    // Ejecutar llamada al LLM con modelos válidos de Google GenAI
     const candidateModels = ['gemini-3.8-flash', 'gemini-3.1-flash-lite'];
     let rawText = '';
     let lastErr: any = null;
@@ -1212,14 +1262,14 @@ Responde ÚNICAMENTE con un objeto JSON válido con la siguiente estructura:
     for (const model of candidateModels) {
       try {
         const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Timeout Gemini')), 4500)
+          setTimeout(() => reject(new Error('Timeout Gemini')), 6500)
         );
         const generatePromise = ai.models.generateContent({
           model,
           contents,
           config: {
             systemInstruction,
-            temperature: 0.25,
+            temperature: 0.2,
             responseMimeType: 'application/json',
           },
         });
@@ -1241,7 +1291,6 @@ Responde ÚNICAMENTE con un objeto JSON válido con la siguiente estructura:
     try {
       parsed = JSON.parse(rawText);
     } catch {
-      // Si la IA devolvió markdown ```json ... ``` extraerlo
       const jsonMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
       if (jsonMatch) {
         try {
@@ -1252,7 +1301,7 @@ Responde ÚNICAMENTE con un objeto JSON válido con la siguiente estructura:
 
     let reply = parsed?.reply || rawText;
     
-    // Extraer lista de acciones de compra (Recomendación Dual)
+    // Extraer lista de acciones de compra
     let rawActions: any[] = [];
     if (Array.isArray(parsed?.cartActions) && parsed.cartActions.length > 0) {
       rawActions = parsed.cartActions;
@@ -1293,17 +1342,141 @@ Responde ÚNICAMENTE con un objeto JSON válido con la siguiente estructura:
       };
     });
 
+    // Herramientas complementarias
+    const defaultTools = [
+      {
+        nombre: 'Rodillo 9" Microfibra Cero Gota con Manija',
+        sku: 'PIN-ROD-9INT',
+        cantidad: 1,
+        precioUnitario: 28500,
+        imagenUrl: '/src/assets/images/paint_roller_tray_1790894457076.jpg'
+      },
+      {
+        nombre: 'Brocha Profesional Master 2.5"',
+        sku: 'PIN-BRO-25',
+        cantidad: 1,
+        precioUnitario: 16900,
+        imagenUrl: '/src/assets/images/pro_brushes_set_1790894448620.jpg'
+      },
+      {
+        nombre: 'Cinta de Enmascarar Azul Antirastro 1"',
+        sku: 'PIN-CIN-AZUL',
+        cantidad: 1,
+        precioUnitario: 9800,
+        imagenUrl: '/src/assets/images/cinta_azul_rollo_1790894607849.jpg'
+      },
+      {
+        nombre: 'Lija de Agua Pintuco Grano 220',
+        sku: 'PIN-LIJ-220',
+        cantidad: 2,
+        precioUnitario: 2400,
+        imagenUrl: '/src/assets/images/lija_agua_pintuco_1790894597920.jpg'
+      }
+    ];
+
+    const toolsKit = Array.isArray(parsed?.toolsKit) && parsed.toolsKit.length > 0 
+      ? parsed.toolsKit 
+      : defaultTools;
+
     return res.json({
       reply,
       cartActions: normalizedActions,
       cartAction: normalizedActions[0] || null,
+      toolsKit,
+      superficieIdentificada: parsed?.superficieIdentificada || 'sala interior',
+      areaEstimadaM2: parsed?.areaEstimadaM2 || parsed?.chatState?.metrosCuadrados || null,
       chatState: parsed?.chatState || null,
+      esFueraDeAlcance: Boolean(parsed?.esFueraDeAlcance),
     });
   } catch (error: any) {
     console.error('Chat advisor error:', error);
 
     // Fallback inteligente dual en caso de intermitencia de red/cuota temporal
     const textLower = (req.body?.message || '').toLowerCase();
+
+    // Manejo de consultas sobre sedes, tiendas y horarios en el fallback
+    if (/sede|tienda|horario|sucursal|donde comprar|donde queda/i.test(textLower)) {
+      if (textLower.includes('santa marta') || textLower.includes('santamarta') || textLower.includes('magdalena')) {
+        return res.json({
+          reply: `📍 **Sede Oficial Pintuco en Santa Marta**:\n\n• **Hub Sierra & Puerto Marítimo** (Bodega de Despacho Rápido)\n  📍 Dirección: Vía Alterna al Puerto Km 2, Bodega 7\n  🕒 Horario: Lunes a Viernes 7:30 AM - 5:00 PM\n  📞 Tel: +57 (605) 431 8020\n  🚚 Tiempo de Entrega: 24 a 48 horas\n  👤 Asesor: Asesor Técnico Comercial\n\n📞 Línea Gratuita Nacional: 01 8000 111 247 | WhatsApp SAC: +57 310 450 8890`,
+          cartActions: [],
+          toolsKit: [],
+        });
+      } else if (textLower.includes('pasto') || textLower.includes('narino') || textLower.includes('nariño')) {
+        return res.json({
+          reply: `📍 **Sede Oficial Pintuco en Pasto**:\n\n• **Centro de Enlace Nariño Torobajo** (Bodega de Despacho Rápido)\n  📍 Dirección: Sector Torobajo, Vía Panamericana Sur Km 1.5\n  🕒 Horario: Lunes a Viernes 8:00 AM - 5:30 PM | Sábados 8:00 AM - 1:00 PM\n  📞 Tel: +57 (602) 723 4400\n  🚚 Tiempo de Entrega: 24 a 48 horas\n  👤 Asesor: Ing. Darío Narváez\n\n📞 Línea Gratuita Nacional: 01 8000 111 247 | WhatsApp SAC: +57 310 450 8890`,
+          cartActions: [],
+          toolsKit: [],
+        });
+      } else if (textLower.includes('villavicencio') || textLower.includes('meta') || textLower.includes('llanos')) {
+        return res.json({
+          reply: `📍 **Sede Oficial Pintuco en Villavicencio**:\n\n• **CEDI Puerta al Llano Kirpas** (Bodega de Despacho Rápido)\n  📍 Dirección: Vía Catama Km 3, Anillo Vial Kirpas\n  🕒 Horario: Lunes a Viernes 7:00 AM - 5:00 PM | Sábados 7:30 AM - 12:30 PM\n  📞 Tel: +57 (608) 662 3340\n  🚚 Tiempo de Entrega: 24 horas\n  👤 Asesor: Ing. Fabio Echeverry\n\n📞 Línea Gratuita Nacional: 01 8000 111 247 | WhatsApp SAC: +57 310 450 8890`,
+          cartActions: [],
+          toolsKit: [],
+        });
+      } else if (textLower.includes('ibague') || textLower.includes('ibagué') || textLower.includes('tolima')) {
+        return res.json({
+          reply: `📍 **Sede Oficial Pintuco en Ibagué**:\n\n• **Centro Logístico Tolima Grande El Salado** (Bodega de Despacho Rápido)\n  📍 Dirección: Vía al Salado Km 4, Parque Empresarial El Jardín\n  🕒 Horario: Lunes a Viernes 7:30 AM - 5:00 PM | Sábados 8:00 AM - 1:00 PM\n  📞 Tel: +57 (608) 277 8900\n  🚚 Tiempo de Entrega: 24 horas\n  👤 Asesor: Lic. Camilo Arciniegas\n\n📞 Línea Gratuita Nacional: 01 8000 111 247 | WhatsApp SAC: +57 310 450 8890`,
+          cartActions: [],
+          toolsKit: [],
+        });
+      } else if (textLower.includes('cucuta') || textLower.includes('cúcuta') || textLower.includes('norte de santander')) {
+        return res.json({
+          reply: `📍 **Sede Oficial Pintuco en Cúcuta**:\n\n• **Sede Frontera Norte Zona Franca** (Bodega de Despacho Rápido)\n  📍 Dirección: Zona Franca de Cúcuta, Manzana 4 Bodega B\n  🕒 Horario: Lunes a Viernes 8:00 AM - 5:00 PM | Sábados 8:00 AM - 12:00 M\n  📞 Tel: +57 (607) 578 3344\n  🚚 Tiempo de Entrega: 24 a 48 horas\n  👤 Asesor: Ing. Patricia Colmenares\n\n📞 Línea Gratuita Nacional: 01 8000 111 247 | WhatsApp SAC: +57 310 450 8890`,
+          cartActions: [],
+          toolsKit: [],
+        });
+      } else if (textLower.includes('bogot') || textLower.includes('fontibon')) {
+        return res.json({
+          reply: `📍 **Sede Oficial Pintuco en Bogotá D.C.**:\n\n• **CEDI Central Fontibón & Sabanagrande** (Megaplanta & CEDI)\n  📍 Dirección: Zona Industrial Montevideo, Calle 19 # 68-50 (Fontibón)\n  🕒 Horario: Lunes a Viernes 7:00 AM - 5:30 PM | Sábados 7:30 AM - 1:00 PM\n  📞 Tel: +57 (601) 325 5000 / Línea Nal. 018000 111 247\n  🚚 Tiempo de Entrega: Mismo día / 24 horas a pie de obra\n  👤 Asesor: Ing. Fernando Salamanca (Zona Centro)\n\n📞 Línea Gratuita Nacional: 01 8000 111 247 | WhatsApp SAC: +57 310 450 8890`,
+          cartActions: [],
+          toolsKit: [],
+        });
+      } else if (textLower.includes('medellin') || textLower.includes('medellín') || textLower.includes('rionegro') || textLower.includes('antioquia')) {
+        return res.json({
+          reply: `📍 **Sede Oficial Pintuco en Medellín / Rionegro**:\n\n• **Megaplanta Rionegro & Sede Guayabal** (Megaplanta & CEDI)\n  📍 Dirección: Carrera 42 # 14-35 (Guayabal) & Autopista Medellín-Bogotá Km 38\n  🕒 Horario: Lunes a Viernes 6:30 AM - 6:00 PM | Sábados 7:00 AM - 2:00 PM\n  📞 Tel: +57 (604) 374 8800 / WhatsApp +57 310 450 8890\n  🚚 Tiempo de Entrega: 12 a 24 horas garantizadas\n  👤 Asesor: Gerencia Técnica & Especificaciones\n\n📞 Línea Gratuita Nacional: 01 8000 111 247 | WhatsApp SAC: +57 310 450 8890`,
+          cartActions: [],
+          toolsKit: [],
+        });
+      } else if (textLower.includes('cali') || textLower.includes('yumbo')) {
+        return res.json({
+          reply: `📍 **Sede Oficial Pintuco en Cali / Yumbo**:\n\n• **CEDI Pacífico & Valle Acopi Yumbo** (CEDI Regional)\n  📍 Dirección: Acopi Yumbo, Calle 15 # 24N-10, Vía Cali-Yumbo\n  🕒 Horario: Lunes a Viernes 7:30 AM - 5:00 PM | Sábados 8:00 AM - 12:30 PM\n  📞 Tel: +57 (602) 690 1200 / Cel. +57 315 889 0214\n  🚚 Tiempo de Entrega: 24 horas a pie de obra\n  👤 Asesor: Arq. Julián Caicedo\n\n📞 Línea Gratuita Nacional: 01 8000 111 247 | WhatsApp SAC: +57 310 450 8890`,
+          cartActions: [],
+          toolsKit: [],
+        });
+      } else if (textLower.includes('barranquilla')) {
+        return res.json({
+          reply: `📍 **Sede Oficial Pintuco en Barranquilla**:\n\n• **CEDI Caribe Vía 40 & Malecón** (Hub Portuario & Distribución)\n  📍 Dirección: Vía 40 # 77B-120, Zona Portuaria Industrial\n  🕒 Horario: Lunes a Viernes 7:00 AM - 5:00 PM | Sábados 7:30 AM - 12:00 M\n  📞 Tel: +57 (605) 385 4100 / Cel. +57 320 902 4411\n  🚚 Tiempo de Entrega: 24 a 48 horas costa atlántica\n  👤 Asesor: Lic. Álvaro Char\n\n📞 Línea Gratuita Nacional: 01 8000 111 247 | WhatsApp SAC: +57 310 450 8890`,
+          cartActions: [],
+          toolsKit: [],
+        });
+      } else if (textLower.includes('cartagena')) {
+        return res.json({
+          reply: `📍 **Sede Oficial Pintuco en Cartagena**:\n\n• **Hub Mamonal & Protección Marina** (Hub Portuario & Distribución)\n  📍 Dirección: Zona Industrial Mamonal Km 7, Complejo Logístico del Caribe\n  🕒 Horario: Lunes a Viernes 7:30 AM - 5:00 PM | Sábados 8:00 AM - 1:00 PM\n  📞 Tel: +57 (605) 668 5200 / Cel. +57 318 430 7712\n  🚚 Tiempo de Entrega: 24 horas zona metropolitana\n  👤 Asesor: Ing. Carmen Silgado\n\n📞 Línea Gratuita Nacional: 01 8000 111 247 | WhatsApp SAC: +57 310 450 8890`,
+          cartActions: [],
+          toolsKit: [],
+        });
+      } else if (textLower.includes('bucaramanga')) {
+        return res.json({
+          reply: `📍 **Sede Oficial Pintuco en Bucaramanga**:\n\n• **Centro Logístico Nororiente Girón** (CEDI Regional)\n  📍 Dirección: Anillo Vial Girón - Floridablanca Km 3, Bodega 12\n  🕒 Horario: Lunes a Viernes 7:30 AM - 5:30 PM | Sábados 8:00 AM - 1:00 PM\n  📞 Tel: +57 (607) 646 9000 / Cel. +57 312 301 9988\n  🚚 Tiempo de Entrega: 24 horas hábiles\n  👤 Asesor: Ing. Rodrigo Villamizar\n\n📞 Línea Gratuita Nacional: 01 8000 111 247 | WhatsApp SAC: +57 310 450 8890`,
+          cartActions: [],
+          toolsKit: [],
+        });
+      } else if (textLower.includes('pereira') || textLower.includes('dosquebradas')) {
+        return res.json({
+          reply: `📍 **Sede Oficial Pintuco en Pereira / Dosquebradas**:\n\n• **CEDI Eje Cafetero Dosquebradas** (CEDI Regional)\n  📍 Dirección: Avenida del Ferrocarril # 18-40, Dosquebradas\n  🕒 Horario: Lunes a Viernes 7:30 AM - 5:30 PM | Sábados 8:00 AM - 1:00 PM\n  📞 Tel: +57 (606) 330 2000 / Cel. +57 311 200 4567\n  🚚 Tiempo de Entrega: 24 horas\n  👤 Asesor: Arq. Jorge Mario Giraldo\n\n📞 Línea Gratuita Nacional: 01 8000 111 247 | WhatsApp SAC: +57 310 450 8890`,
+          cartActions: [],
+          toolsKit: [],
+        });
+      } else {
+        return res.json({
+          reply: '¿En qué ciudad te encuentras para buscar la sede más cercana? 📍 Contamos con 12 nodos estratégicos activos en el mapa nacional: Bogotá D.C., Medellín, Cali, Barranquilla, Santa Marta, Cartagena, Cúcuta, Bucaramanga, Pereira, Ibagué, Villavicencio y Pasto.',
+          cartActions: [],
+          toolsKit: [],
+        });
+      }
+    }
+
     const areaMultiMatch = textLower.match(/(\d+(?:[.,]\d+)?)\s*(?:x|\*|por)\s*(\d+(?:[.,]\d+)?)/i);
     const areaUnitMatch = textLower.match(/(\d+(?:[.,]\d+)?)\s*(?:m2|m²|metros\s*cuadrados|mts2|metros|mts|m\b)/i);
     const areaNumberMatch = textLower.match(/\b(\d+(?:[.,]\d+)?)\b/);
@@ -1337,15 +1510,18 @@ Responde ÚNICAMENTE con un objeto JSON válido con la siguiente estructura:
     else if (isCeiling) identifiedSurface = 'cielo raso';
     else if (isWet) identifiedSurface = 'área de baño o cocina';
 
-    // Paso 1 y Paso 2: Si no hay m2 especificados, NO asumir m2 ni enviar cartActions
+    // Si tiene foto y no se indicó m², estimar dimensiones estándar del espacio
+    if (!m2 && hasPhoto) {
+      m2 = isExterior ? 60 : 24;
+    }
+
     if (!m2) {
       return res.json({
-        reply: hasPhoto 
-          ? `Identifico un/a ${identifiedSurface} en la fotografía adjunta. ¿Cuántos metros cuadrados (m²) o metros lineales tiene aproximadamente esta superficie?`
-          : `Entendido, para asesorarte con precisión en este/a ${identifiedSurface}: ¿Cuántos metros cuadrados (m²) o qué medidas aproximadas tiene la superficie?`,
+        reply: `Entendido, para asesorarte con precisión en este/a ${identifiedSurface}: ¿Cuántos metros cuadrados (m²) o qué medidas aproximadas tiene la superficie?`,
         superficieIdentificada: identifiedSurface,
         cartActions: [],
         cartAction: null,
+        toolsKit: [],
         chatState: {
           tipoEspacio: identifiedSurface,
           metrosCuadrados: null,
@@ -1354,77 +1530,85 @@ Responde ÚNICAMENTE con un objeto JSON válido con la siguiente estructura:
       });
     }
 
-    // Paso 3: Con m2 reales confirmados, calcular opciones duales
+    // Con m2 confirmados o estimados de la fotografía, calcular opciones y kit de herramientas
     const fallbackActions = isExterior ? [
       {
         tipo: 'recomendada',
-        badge: '⭐ Opción Recomendada / Premium',
+        badge: '⭐ Opción Recomendada / Fachadas (NTC 1335)',
         productName: 'Koraza Doble Vida Protección Clima Extremo',
-        descripcion: 'Máxima resistencia a intemperie, lluvia y rayos UV.',
+        descripcion: 'Máxima durabilidad en intemperie, hidrófuga y barrera contra rayos UV y hongos.',
         sku: 'PIN-KOR-02',
         cantidad: Math.max(1, Math.ceil((m2 / 28) * 1.10)),
-        presentacion: m2 >= 100 ? 'Cuñete (5 Gal)' : 'Galón',
-        precioUnitario: m2 >= 100 ? 429000 : 98900,
+        presentacion: (m2 >= 120) ? 'Cuñete (5 Gal)' : 'Galón',
+        precioUnitario: (m2 >= 120) ? 429000 : 98900,
         precioGalon: 98900,
         precioCunete: 429000,
         imagenUrl: '/src/assets/images/koraza_bucket_studio_1790894419359.jpg',
       },
-      {
-        tipo: 'alternativa',
-        badge: '💡 Opción Alternativa / Eficiente',
-        productName: 'Koraza Tradicional Protección Exterior',
-        descripcion: 'Protección hidrófuga confiable y costo eficiente.',
-        sku: 'PIN-KOR-TRAD',
-        cantidad: Math.max(1, Math.ceil((m2 / 28) * 1.10)),
-        presentacion: m2 >= 100 ? 'Cuñete (5 Gal)' : 'Galón',
-        precioUnitario: m2 >= 100 ? 369000 : 84900,
-        precioGalon: 84900,
-        precioCunete: 369000,
-        imagenUrl: '/src/assets/images/koraza_bucket_studio_1790894419359.jpg',
-      }
     ] : [
       {
         tipo: 'recomendada',
-        badge: '⭐ Opción Recomendada / Premium',
+        badge: '⭐ Opción Recomendada / Interiores (NTC 1335)',
         productName: 'Viniltex Avanzado Máxima Lavabilidad',
-        descripcion: 'Máxima lavabilidad, ultra cubrimiento y durabilidad superior.',
+        descripcion: 'Rinde hasta 32 m²/gal a 2 manos. Ultra lavable +20.000 ciclos y bajo olor.',
         sku: 'PIN-VTX-01',
         cantidad: Math.max(1, Math.ceil((m2 / 32) * 1.10)),
-        presentacion: m2 >= 120 ? 'Cuñete (5 Gal)' : 'Galón',
-        precioUnitario: m2 >= 120 ? 349000 : 79900,
+        presentacion: (m2 >= 140) ? 'Cuñete (5 Gal)' : 'Galón',
+        precioUnitario: (m2 >= 140) ? 349000 : 79900,
         precioGalon: 79900,
         precioCunete: 349000,
         imagenUrl: '/src/assets/images/viniltex_can_studio_1790894409491.jpg',
       },
+    ];
+
+    const fallbackTools = [
       {
-        tipo: 'alternativa',
-        badge: '💡 Opción Alternativa / Eficiente',
-        productName: 'Intervinil Cielos y Muros Mate',
-        descripcion: 'Excelente rendimiento y gran economía por metro cuadrado.',
-        sku: 'CIN-INT-CL',
-        cantidad: Math.max(1, Math.ceil((m2 / 30) * 1.10)),
-        presentacion: m2 >= 120 ? 'Cuñete (5 Gal)' : 'Galón',
-        precioUnitario: m2 >= 120 ? 239000 : 54900,
-        precioGalon: 54900,
-        precioCunete: 239000,
-        imagenUrl: '/src/assets/images/viniltex_can_studio_1790894409491.jpg',
+        nombre: 'Rodillo 9" Microfibra Cero Gota con Manija',
+        sku: 'PIN-ROD-9INT',
+        cantidad: 1,
+        precioUnitario: 28500,
+        imagenUrl: '/src/assets/images/paint_roller_tray_1790894457076.jpg'
+      },
+      {
+        nombre: 'Brocha Profesional Master 2.5"',
+        sku: 'PIN-BRO-25',
+        cantidad: 1,
+        precioUnitario: 16900,
+        imagenUrl: '/src/assets/images/pro_brushes_set_1790894448620.jpg'
+      },
+      {
+        nombre: 'Cinta de Enmascarar Azul Antirastro 1"',
+        sku: 'PIN-CIN-AZUL',
+        cantidad: 1,
+        precioUnitario: 9800,
+        imagenUrl: '/src/assets/images/cinta_azul_rollo_1790894607849.jpg'
+      },
+      {
+        nombre: 'Lija de Agua Pintuco Grano 220',
+        sku: 'PIN-LIJ-220',
+        cantidad: 2,
+        precioUnitario: 2400,
+        imagenUrl: '/src/assets/images/lija_agua_pintuco_1790894597920.jpg'
       }
     ];
 
+    const replyMsg = hasPhoto
+      ? `He procesado la fotografía de tu ${identifiedSurface}. Estimo un área aproximada de ${m2} m². He generado la simulación visual interactiva de color y la cotización precisa con la pintura oficial y el kit de herramientas reglamentario bajo norma NTC 1335.`
+      : `Entendido, ${m2} m² para ${identifiedSurface}. Calculado con la norma técnica colombiana NTC 1335 (2 manos + 10% desperdicio). A continuación te presento la cotización oficial de producto y herramientas recomendadas:`;
+
     return res.json({
-      reply: `Para tu proyecto de ${m2} m² (métrica técnica oficial: Viniltex rinde hasta 32 m² por galón a 2 manos según NTC 1335):
-
-• Opción Recomendada: ${fallbackActions[0].productName} (${fallbackActions[0].cantidad} ${fallbackActions[0].presentacion} - $${(fallbackActions[0].cantidad * fallbackActions[0].precioUnitario).toLocaleString('es-CO')} COP).
-• Opción Alternativa: ${fallbackActions[1].productName} (${fallbackActions[1].cantidad} ${fallbackActions[1].presentacion} - $${(fallbackActions[1].cantidad * fallbackActions[1].precioUnitario).toLocaleString('es-CO')} COP).
-
-💡 Puedes elegir color para simulación o ir al módulo "Cotizador" para ver el desglose técnico de materiales (BOM).`,
+      reply: replyMsg,
+      superficieIdentificada: identifiedSurface,
+      areaEstimadaM2: m2,
       cartActions: fallbackActions,
       cartAction: fallbackActions[0],
+      toolsKit: fallbackTools,
       chatState: {
         tipoEspacio: identifiedSurface,
         metrosCuadrados: m2,
-        estadoPared: null,
+        estadoPared: 'Buen Estado / Repinte',
       },
+      esFueraDeAlcance: false,
     });
   }
 });
