@@ -27,7 +27,15 @@ if (process.env.VITE_SUPABASE_URL) {
 }
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
+
+// Catch unhandled errors gracefully so process does not terminate prematurely
+process.on('uncaughtException', (err) => {
+  console.error('[Server] Uncaught Exception:', err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[Server] Unhandled Rejection:', reason);
+});
 
 // Health check endpoint for Cloud Run and monitoring
 app.get(['/health', '/api/health', '/_health', '/ping'], (req, res) => {
@@ -2735,26 +2743,31 @@ app.post('/api/payment/send-receipt', async (req, res) => {
   }
 });
 
-// Start Server with Vite
+// Start Server with Vite or static build
 async function startServer() {
   app.use(express.static(path.join(process.cwd(), 'public')));
 
-  if (process.env.NODE_ENV !== 'production') {
+  const distPath = path.join(process.cwd(), 'dist');
+  const hasDistIndex = fs.existsSync(path.join(distPath, 'index.html'));
+  const isProduction = process.env.NODE_ENV === 'production' || (hasDistIndex && process.env.NODE_ENV !== 'development');
+
+  if (isProduction && hasDistIndex) {
+    console.log('[Server] Serving production build from dist/');
+    app.use(express.static(distPath));
+    app.get('*', (req, res) => {
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
+  } else {
+    console.log('[Server] Initializing Vite middleware in development mode...');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
     });
     app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`COLORLINK Pintuco Server running on http://0.0.0.0:${PORT}`);
+    console.log(`COLORLINK Pintuco Server running on http://0.0.0.0:${PORT} (NODE_ENV: ${process.env.NODE_ENV || 'development'})`);
   });
 }
 
