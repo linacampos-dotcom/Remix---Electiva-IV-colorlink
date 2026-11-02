@@ -5,10 +5,10 @@ export function calculateMaterials(form: FMVFormData): CalculationResult {
   const area = Math.max(0, Number(form.area_m2) || 0);
   const manos = Math.max(1, Number(form.manos_capas) || 2);
   
-  // 1. Rendimiento Teórico Base: 30 m² por galón a 2 manos (o 60 m² a 1 mano)
-  // Por lo tanto, para N manos: Rendimiento = 60 / N m²/galón
-  // O en fórmula equivalente: consumoPinturaNeto = (area * (manos / 2) / 30) * factorCorreccion
-  const rendimientoBase = 30; // base a 2 manos estándar NTC 1335
+  // 1. Rendimiento Teórico Base: 32 m² por galón a 2 manos (Viniltex norma NTC 1335)
+  // Por lo tanto, para N manos: Rendimiento = (32 * 2) / N m²/galón
+  // O en fórmula equivalente: consumoPinturaNeto = (area * (manos / 2) / 32) * factorCorreccion
+  const rendimientoBase = 32; // base a 2 manos estándar NTC 1335 (Viniltex hasta 32 m²/gal)
   const factorManos = manos / 2;
 
   // 2. Factor de Corrección por Superficie:
@@ -171,7 +171,7 @@ export function calculateMaterials(form: FMVFormData): CalculationResult {
   }
 
   // 5. Fórmulas de Cálculo con Desperdicio:
-  // Consumo Pintura Neto = (Área m² / 30) * Factor de Superficie * Factor de Manos
+  // Consumo Pintura Neto = (Área m² / 32) * Factor de Superficie * Factor de Manos
   // Galones Pintura = Math.ceil(Consumo Pintura Neto * Factor de Desperdicio)
   // Galones Sellador = Math.ceil((Área m² / 40) * Factor de Desperdicio)
   const consumoPinturaNeto = area > 0 ? (area / rendimientoBase) * factorCorreccion * factorManos : 0;

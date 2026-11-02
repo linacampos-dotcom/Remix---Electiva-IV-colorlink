@@ -2,7 +2,6 @@ import React, { useState, useRef, useEffect } from 'react';
 import { AppRole, CatalogProduct, UserSession, ClientNavigationTab } from '../types';
 import { PINTUCO_CATALOG } from '../data/pintucoData';
 import { openWhatsAppDirect, DEFAULT_WHATSAPP_PHONE, DEFAULT_WHATSAPP_MESSAGE } from '../utils/whatsappConfig';
-import { BankInstallmentsModal } from './BankInstallmentsModal';
 import { UserProfileDropdown, SectorPaintAvatar } from './UserProfileDropdown';
 import { 
   Search, 
@@ -104,7 +103,6 @@ export const Header: React.FC<HeaderProps> = ({
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isFavoritesOpen, setIsFavoritesOpen] = useState(false);
   const [isTopUserMenuOpen, setIsTopUserMenuOpen] = useState(false);
-  const [isInstallmentsModalOpen, setIsInstallmentsModalOpen] = useState(false);
   const [favoritesList, setFavoritesList] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem('colorlink_favorites');
@@ -114,28 +112,7 @@ export const Header: React.FC<HeaderProps> = ({
     }
   });
 
-  // Top banner rotating messages
-  const [bannerIndex, setBannerIndex] = useState(0);
-  const bannerMessages = [
-    {
-      icon: CreditCard,
-      text: '3 CUOTAS SIN INTERÉS con bancos seleccionados',
-      sub: 'En compras con tarjetas Visa y Mastercard',
-    },
-    {
-      icon: Truck,
-      text: 'AHORA ENVÍOS a nivel nacional',
-      sub: 'Cobertura a los 32 departamentos y 1.103 municipios',
-    },
-  ];
 
-  // Rotate banner every 4 seconds
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setBannerIndex((prev) => (prev + 1) % bannerMessages.length);
-    }, 4000);
-    return () => clearInterval(timer);
-  }, [bannerMessages.length]);
 
   const searchRef = useRef<HTMLDivElement>(null);
   const favoritesRef = useRef<HTMLDivElement>(null);
@@ -288,9 +265,6 @@ export const Header: React.FC<HeaderProps> = ({
 
   const showCorporatePortalOption = isCorporateOrAdminUser(userSession);
 
-  const currentBanner = bannerMessages[bannerIndex];
-  const BannerIcon = currentBanner.icon;
-
   const isAnyDropdownOpen = isSearchOpen || isFavoritesOpen || isTopUserMenuOpen || isMobileMenuOpen;
 
   return (
@@ -301,7 +275,7 @@ export const Header: React.FC<HeaderProps> = ({
       {/* =========================================================================
           1. FRANJA SUPERIOR DE INFORMACIÓN (TOP BAR) - AZUL MARINO PROFUNDO #001224
           Avisos de servicio: Línea Nal. 01 8000 111 247, Pinturas Certificadas NTC 1335,
-          3 cuotas sin interés y accesos a Conversemos y Sedes.
+          y accesos a Conversemos y Sedes.
       ========================================================================= */}
       <div className="w-full bg-[#001224] text-sky-100 py-1 sm:py-1.5 border-b border-blue-950/80 select-none transition-colors">
         <div className="w-full max-w-7xl mx-auto px-4 flex items-center justify-between gap-2 sm:gap-3 min-w-0 text-xs font-semibold">
@@ -318,28 +292,6 @@ export const Header: React.FC<HeaderProps> = ({
               <ShieldCheck className="w-3.5 h-3.5 text-teal-400" />
               <span>Pinturas Certificadas NTC 1335</span>
             </div>
-          </div>
-
-          {/* Centro: 3 Cuotas Sin Interés (Rotativo interactivo) + Ver Bancos */}
-          <div className="flex-1 flex items-center justify-center gap-2 text-center min-w-0 overflow-hidden px-1">
-            <button 
-              type="button"
-              onClick={() => setIsInstallmentsModalOpen(true)}
-              key={bannerIndex}
-              className="inline-flex items-center gap-1.5 sm:gap-2 py-0.5 px-2 sm:px-3 rounded-full hover:bg-white/10 text-sky-100 transition-all duration-200 cursor-pointer group border border-white/10 hover:border-white/25 shadow-2xs max-w-full"
-              title="Ver bancos aliados y condiciones de financiación a 3 cuotas sin interés"
-            >
-              <BannerIcon className="w-3.5 h-3.5 text-amber-400 shrink-0 group-hover:scale-110 transition-transform" />
-              <span className="tracking-tight uppercase font-extrabold text-[10px] sm:text-[11px] text-white truncate max-w-[190px] sm:max-w-xs md:max-w-none group-hover:text-amber-300 transition-colors">
-                {currentBanner.text}
-              </span>
-              <span className="hidden xl:inline text-[10px] font-normal text-sky-200/90 group-hover:text-white truncate">
-                — {currentBanner.sub}
-              </span>
-              <span className="text-[9px] text-slate-950 font-black uppercase px-1.5 py-0.2 bg-amber-400 rounded border border-amber-300 hidden sm:inline-block shadow-2xs group-hover:bg-amber-300 shrink-0">
-                Ver Bancos
-              </span>
-            </button>
           </div>
 
           {/* Derecha: Accesos directos a Conversemos y Sedes */}
@@ -1192,19 +1144,7 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         )}
 
-      {/* Modal Interactivo: 3 Cuotas Sin Interés con Bancos Seleccionados */}
-      <BankInstallmentsModal
-        isOpen={isInstallmentsModalOpen}
-        onClose={() => setIsInstallmentsModalOpen(false)}
-        onExploreCatalog={() => {
-          if (onSelectClientTab) {
-            onSelectClientTab('catalog');
-          } else {
-            onOpenCatalog();
-          }
-        }}
-        currentCartTotal={cartCount > 0 ? 350000 : 0}
-      />
+
 
     </header>
   );

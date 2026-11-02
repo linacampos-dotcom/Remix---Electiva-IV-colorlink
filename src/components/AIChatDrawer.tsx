@@ -27,6 +27,8 @@ import { downloadQuotationSheet } from '../utils/quotationSheetGenerator';
 import { ImageVisualizer } from './ImageVisualizer';
 import sampleWallImg from '../assets/images/living_room_wall_1789834592467.jpg';
 
+export const PINTUCO_AI_AVATAR_URL = '/images/pintuco_character_clean.png';
+
 export type ChatStep = 'IDLE' | 'AWAITING_SQM' | 'SHOW_RECOMMENDATIONS' | 'SIMULATION';
 
 export interface ChatState {
@@ -207,12 +209,25 @@ export const AIChatDrawer: React.FC<AIChatDrawerProps> = ({
   const chatStorageKey = `colorlink_chat_${activeUserEmail}`;
   const chatStateKey = `colorlink_chat_state_${activeUserEmail}`;
 
-  // Mensaje de bienvenida inicial técnico: 2 alternativas claras (Foto vs Preguntas de rutina)
+  // Mensaje de bienvenida inicial técnico con identidad oficial Pintuco / ColorLink
   const getInitialMessages = (): Message[] => [
     {
       id: 'welcome-1',
       sender: 'assistant',
-      text: `¡Hola! Soy tu Asesor Técnico Virtual de Pinturas Pintuco / COLORLINK.\n\nPara asesorarte con precisión tienes dos alternativas rápidas:\n• **Opción 1**: Toma o adjunta una foto de tu pared con el botón de cámara 📷 para diagnosticar la superficie y simular el color en tiempo real.\n• **Opción 2**: Cuéntame: ¿Qué tipo de espacio deseas pintar (interior, exterior, baño) y cuántos m² aproximados tiene?`,
+      text: `¡Hola! Soy el Asistente IA Oficial de Pintuco / ColorLink. ¿Puedo ayudarte con tu proyecto?
+
+Brindo asesoría técnica y comercial especializada en pinturas, recubrimientos y cálculo de materiales según normas colombianas (ej. NTC 1335):
+
+• Líneas Oficiales Pintuco:
+  - Interiores lavables: Viniltex Avanzada / Tipo 1
+  - Fachadas e intemperie: Koraza Doble Vida Protección Clima Extremo
+  - Metales y maderas: Pintulux Esmalte Sintético Anticorrosivo
+  - Zonas húmedas: Viniltex Baños y Cocinas Antihongos
+
+• Rendimiento Oficial: Viniltex rinde hasta 32 m² por galón a 2 manos.
+• Preparación de Superficies: Te oriento en el paso a paso estándar (limpieza, sellado, masilla/estuco, lijado y acabado).
+
+¿Qué superficie deseas pintar y cuántos m² aproximados tiene tu espacio? También puedes adjuntar una fotografía con la cámara 📷.`,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     },
   ];
@@ -934,26 +949,31 @@ export const AIChatDrawer: React.FC<AIChatDrawerProps> = ({
       }}
     >
       
-      {/* Header Corporativo con botón de Limpiar Historial */}
-      <div className="p-4 bg-white text-slate-900 flex items-center justify-between border-b border-slate-100">
+      {/* Header Corporativo con Avatar Oficial Pintuco */}
+      <div className="p-4 bg-white text-slate-900 flex items-center justify-between border-b border-slate-100 shadow-2xs">
         <div className="flex items-center gap-3 min-w-0">
-          <div className="p-2.5 rounded-2xl bg-blue-50 text-blue-900 border border-blue-100 shadow-2xs shrink-0">
-            <Bot className="w-5 h-5 text-blue-900" />
+          <div className="relative w-11 h-11 rounded-full overflow-hidden border-2 border-sky-400 shadow-md bg-[#002244] shrink-0 p-0.5 flex items-center justify-center">
+            <img 
+              src={PINTUCO_AI_AVATAR_URL} 
+              alt="Asesor Técnico IA ColorLink" 
+              className="w-full h-full object-contain" 
+            />
+            <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-emerald-500 border-2 border-white shadow-xs"></span>
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <h3 className="text-sm sm:text-base font-black tracking-tight text-slate-900 truncate">
-                Asesor Técnico Virtual IA
+                Asesor Técnico IA • ColorLink
               </h3>
               <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-50 text-teal-800 border border-teal-200 shrink-0">
                 <span className="w-1.5 h-1.5 rounded-full bg-teal-500 animate-pulse" />
-                <span>Supabase Live</span>
+                <span>NTC 1335</span>
               </span>
             </div>
             <p className="text-[11px] text-slate-500 truncate">
               {isUserAuthenticated && userSession?.nombre 
-                ? `Usuario: ${userSession.nombre}` 
-                : 'Asesor Técnico en Vivo • Modo Visitante'}
+                ? `Asesorando a: ${userSession.nombre}` 
+                : 'Asesoría Técnica y Comercial Especializada'}
             </p>
           </div>
         </div>
@@ -1047,13 +1067,23 @@ export const AIChatDrawer: React.FC<AIChatDrawerProps> = ({
           return (
             <div
               key={msg.id}
-              className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}
+              className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start items-start gap-2.5'}`}
             >
+              {/* Avatar Oficial Pintuco para mensajes del Asistente */}
+              {msg.sender === 'assistant' && (
+                <div className="w-8 h-8 rounded-full overflow-hidden border border-sky-300 shadow-xs shrink-0 bg-[#002244] mt-0.5 flex items-center justify-center p-0.5">
+                  <img
+                    src={PINTUCO_AI_AVATAR_URL}
+                    alt="Asesor Técnico IA"
+                    className="w-full h-full object-contain"
+                  />
+                </div>
+              )}
               <div
-                className={`max-w-[90%] rounded-2xl p-4 text-xs sm:text-sm leading-relaxed shadow-xs ${
+                className={`max-w-[88%] rounded-2xl p-4 text-xs sm:text-sm leading-relaxed shadow-xs ${
                   msg.sender === 'user'
                     ? 'bg-blue-900 text-white rounded-br-none'
-                    : 'bg-white text-slate-800 border border-slate-200/90 rounded-bl-none'
+                    : 'bg-white text-slate-800 border border-slate-200/90 rounded-tl-none'
                 }`}
               >
                 {/* FOTO ADJUNTADA POR EL USUARIO (Paso 1: limpia, sin simulación prematura) */}
@@ -1311,6 +1341,31 @@ export const AIChatDrawer: React.FC<AIChatDrawerProps> = ({
                 </div>
               )}
 
+              {/* Enlace de Redirección Rápida al Cotizador Inteligente si hay recomendación o m² */}
+              {msg.sender === 'assistant' && ((msg.cartActions && msg.cartActions.length > 0) || msg.cartAction || sqm) && onNavigateTab && (
+                <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between gap-2 flex-wrap">
+                  <span className="text-[10px] text-slate-500 font-medium">
+                    Norma NTC 1335 • Base Viniltex 32 m²/gal a 2 manos
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (sqm && onApplyCalculation) {
+                        const recommendedProduct = msg.cartActions?.[0]?.productName || 'Viniltex Avanzado Máxima Lavabilidad';
+                        onApplyCalculation(sqm, recommendedProduct);
+                      } else {
+                        onNavigateTab('cotizador');
+                      }
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-blue-50 to-sky-50 hover:from-blue-100 hover:to-sky-100 text-[#002244] border border-sky-200 text-xs font-black transition-all cursor-pointer shadow-2xs hover:shadow-xs active:scale-95"
+                    title="Cargar cálculo en el Cotizador Inteligente y ver desglose BOM"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-blue-900 shrink-0" />
+                    <span>Ir al Cotizador ({sqm ? `${sqm} m²` : 'Calculador'}) →</span>
+                  </button>
+                </div>
+              )}
+
               <div
                 className={`text-[10px] mt-2 text-right ${
                   msg.sender === 'user' ? 'text-blue-200' : 'text-slate-400'
@@ -1324,9 +1379,18 @@ export const AIChatDrawer: React.FC<AIChatDrawerProps> = ({
       })}
 
         {isLoading && (
-          <div className="flex items-center gap-2.5 text-xs text-slate-600 bg-white p-3.5 rounded-2xl border border-slate-200 w-fit shadow-xs animate-pulse">
-            <Loader2 className="w-4 h-4 animate-spin text-teal-600" />
-            <span>Consultando catálogo técnico oficial Pintuco...</span>
+          <div className="flex items-start gap-2.5">
+            <div className="w-8 h-8 rounded-full overflow-hidden border border-sky-300 shadow-xs shrink-0 bg-[#002244] mt-0.5 animate-pulse flex items-center justify-center p-0.5">
+              <img
+                src={PINTUCO_AI_AVATAR_URL}
+                alt="Asesor Técnico IA"
+                className="w-full h-full object-contain"
+              />
+            </div>
+            <div className="flex items-center gap-2.5 text-xs text-slate-600 bg-white p-3.5 rounded-2xl rounded-tl-none border border-slate-200 shadow-xs animate-pulse">
+              <Loader2 className="w-4 h-4 animate-spin text-teal-600" />
+              <span>Consultando especificaciones técnicas oficiales Pintuco...</span>
+            </div>
           </div>
         )}
 

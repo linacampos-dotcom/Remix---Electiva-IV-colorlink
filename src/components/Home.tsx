@@ -21,12 +21,14 @@ export interface HomeProps {
   onNavigateTab: (tab: ClientNavigationTab, category?: string) => void;
   onOpenChat: () => void;
   onSelectSede?: (sede: SedePintuco) => void;
+  onOpenInstallmentCalculator?: () => void;
 }
 
 export const Home: React.FC<HomeProps> = ({
   onNavigateTab,
   onOpenChat,
   onSelectSede,
+  onOpenInstallmentCalculator,
 }) => {
   // Estado para controlar la visibilidad de la sección de Sedes y Mapa (oculto por defecto)
   const [showSedes, setShowSedes] = useState<boolean>(false);
@@ -53,7 +55,10 @@ export const Home: React.FC<HomeProps> = ({
           - Autoplay cada 5 segundos con pausa en hover
           - Flechas (< y >) y puntos/barras de posición en bg-blue-900
       ===================================================================== */}
-      <HeroCarousel onNavigateTab={onNavigateTab} />
+      <HeroCarousel 
+        onNavigateTab={onNavigateTab} 
+        onOpenInstallmentCalculator={onOpenInstallmentCalculator} 
+      />
 
       {/* =====================================================================
           2. ACCESOS DIRECTOS Y HERRAMIENTAS CORPORATIVAS PINTUCO

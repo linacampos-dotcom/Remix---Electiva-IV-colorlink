@@ -41,6 +41,7 @@ import { CompanyHistoryModal } from './components/CompanyHistoryModal';
 import { CoverageModal } from './components/CoverageModal';
 import { descontarInventarioPorPedido } from './services/corporateService';
 import { CustomerInquiryModal } from './components/CustomerInquiryModal';
+import { BankInstallmentsModal } from './components/BankInstallmentsModal';
 import { ProductDetailModal } from './components/ProductDetailModal';
 import { DraggableAIChatButton } from './components/DraggableAIChatButton';
 import { checkIsIntranetRoute } from './utils/safeNavigation';

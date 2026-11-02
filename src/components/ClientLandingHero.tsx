@@ -7,6 +7,7 @@ export interface ClientLandingHeroProps {
   onNavigateTab: (tab: ClientNavigationTab, category?: string) => void;
   onOpenChat: () => void;
   onSelectSede?: (sede: SedePintuco) => void;
+  onOpenInstallmentCalculator?: () => void;
 }
 
 export const ClientLandingHero: React.FC<ClientLandingHeroProps> = (props) => {

@@ -8,13 +8,78 @@ import {
   ArrowRight, 
   Tag, 
   CheckCircle2, 
-  Layers 
+  Layers,
+  CreditCard,
+  Building2,
+  Calculator,
+  Percent
 } from 'lucide-react';
 import { ClientNavigationTab } from '../types';
 
 export interface HeroCarouselProps {
   onNavigateTab: (tab: ClientNavigationTab, category?: string) => void;
+  onOpenInstallmentCalculator?: () => void;
 }
+
+interface BankAllyLogo {
+  id: string;
+  name: string;
+  bgColor: string;
+  textColor: string;
+  tag: string;
+  franchises: string;
+}
+
+const ALLIED_BANKS_CAROUSEL: BankAllyLogo[] = [
+  {
+    id: 'bancolombia',
+    name: 'Bancolombia',
+    bgColor: 'bg-[#FDDA24]',
+    textColor: 'text-slate-950 font-black',
+    tag: '3 cuotas 0%',
+    franchises: 'Visa · Mastercard · Amex'
+  },
+  {
+    id: 'davivienda',
+    name: 'Davivienda',
+    bgColor: 'bg-[#ED1C24]',
+    textColor: 'text-white font-black',
+    tag: '3 cuotas 0%',
+    franchises: 'Visa · Mastercard · Diners'
+  },
+  {
+    id: 'banco-bogota',
+    name: 'Banco de Bogotá',
+    bgColor: 'bg-[#002A86]',
+    textColor: 'text-white font-black',
+    tag: 'Grupo Aval · 0%',
+    franchises: 'Visa · Mastercard'
+  },
+  {
+    id: 'bbva',
+    name: 'BBVA',
+    bgColor: 'bg-[#004481]',
+    textColor: 'text-white font-black',
+    tag: '3 cuotas 0%',
+    franchises: 'Visa · Mastercard'
+  },
+  {
+    id: 'scotiabank',
+    name: 'Scotiabank Colpatria',
+    bgColor: 'bg-[#ED0722]',
+    textColor: 'text-white font-black',
+    tag: '3 cuotas 0%',
+    franchises: 'Visa · Mastercard'
+  },
+  {
+    id: 'occidente-popular',
+    name: 'Banco de Occidente',
+    bgColor: 'bg-[#0072CE]',
+    textColor: 'text-white font-black',
+    tag: 'Grupo Aval · 0%',
+    franchises: 'Visa · Mastercard'
+  }
+];
 
 interface SlideData {
   id: string;
@@ -66,6 +131,33 @@ const SLIDES: SlideData[] = [
     productAlt: 'Caneca oficial Viniltex Advanced Pintuco',
     backdropImage: '/src/assets/images/living_room_wall_1789834592467.jpg',
     brandTag: 'PINTUCO • INTERIORES'
+  },
+
+  // =========================================================================
+  // SLIDE 2: BANCOS ALIADOS - 0% DE INTERÉS EN 3 CUOTAS
+  // =========================================================================
+  {
+    id: 'slide-bancos-aliados',
+    tag: 'Financiación Directa • Convenio Oficial',
+    tagIcon: <CreditCard className="w-3.5 h-3.5 text-amber-300" />,
+    badge: '0% INTERÉS',
+    badgeColor: 'bg-emerald-600 text-white shadow-emerald-600/30',
+    titlePrefix: '',
+    titleHighlight: 'Paga sin interés con nuestros bancos aliados',
+    titleSuffix: '0% de interés pagando a 3 cuotas',
+    description: 'Difiere tus compras de pinturas, recubrimientos y herramientas Pintuco en 3 cuotas mensuales sin ningún costo ni tasa de interés con tarjetas de crédito autorizadas.',
+    features: [
+      '0% de interés corriente diferido a 3 cuotas',
+      'Sin cobro de comisiones de financiamiento',
+      'Aplica en compras digitales y pedidos de obra'
+    ],
+    buttonText: 'Calcular cuotas de pago',
+    targetTab: 'catalog',
+    bgGradient: 'from-[#001020] via-[#001A38] to-[#0A2E5C] text-white',
+    accentColor: '#003366',
+    productImage: '',
+    productAlt: 'Bancos Aliados Oficiales ColorLink Pintuco',
+    brandTag: 'PINTUCO • CONVENIOS BANCARIOS'
   },
 
   // =========================================================================
@@ -127,7 +219,10 @@ const SLIDES: SlideData[] = [
   }
 ];
 
-export const HeroCarousel: React.FC<HeroCarouselProps> = ({ onNavigateTab }) => {
+export const HeroCarousel: React.FC<HeroCarouselProps> = ({ 
+  onNavigateTab,
+  onOpenInstallmentCalculator
+}) => {
   const [currentSlide, setCurrentSlide] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
   const [touchStart, setTouchStart] = useState<number | null>(null);
@@ -147,6 +242,14 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({ onNavigateTab }) => 
   const goToSlide = (index: number) => {
     setCurrentSlide(index);
   };
+
+  const handleOpenInstallments = useCallback(() => {
+    if (onOpenInstallmentCalculator) {
+      onOpenInstallmentCalculator();
+    } else {
+      window.dispatchEvent(new CustomEvent('colorlink_open_installments_calculator'));
+    }
+  }, [onOpenInstallmentCalculator]);
 
   // Autoplay effect every 5 seconds, pauses on hover
   useEffect(() => {
@@ -204,6 +307,7 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({ onNavigateTab }) => 
       <div className="relative min-h-[420px] sm:min-h-[450px] lg:min-h-[470px] w-full flex items-stretch overflow-hidden">
         {SLIDES.map((slide, index) => {
           const isActive = index === currentSlide;
+          const isBankSlide = slide.id === 'slide-bancos-aliados';
 
           return (
             <div
@@ -231,91 +335,207 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({ onNavigateTab }) => 
                 <div className="absolute -top-24 -left-24 w-80 h-80 bg-blue-500/15 rounded-full blur-3xl pointer-events-none" />
                 <div className="absolute -bottom-24 right-1/4 w-96 h-96 bg-cyan-400/10 rounded-full blur-3xl pointer-events-none" />
 
-                <div className="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-center max-w-6xl mx-auto w-full">
-                  
-                  {/* =========================================================
-                      COLUMNA IZQUIERDA: INFORMACIÓN Y PROMOCIÓN EDITORIAL
-                  ========================================================= */}
-                  <div className="hero-text-container lg:col-span-7 space-y-3.5 text-left relative top-0 mt-0">
+                {isBankSlide ? (
+                  /* =========================================================
+                      DIAPOSITIVA DEDICADA: BANCOS ALIADOS COLORLINK
+                      - Título: Paga sin interés con nuestros bancos aliados
+                      - Subtítulo: 0% de interés pagando a 3 cuotas
+                      - Fila horizontal limpia con los logos de los bancos aliados
+                      - Clic abre la calculadora de cuotas de pago
+                  ========================================================= */
+                  <div 
+                    onClick={handleOpenInstallments}
+                    className="relative z-10 max-w-6xl mx-auto w-full flex flex-col justify-between py-1 cursor-pointer select-none group/bankbanner"
+                    title="Haz clic para abrir la calculadora de cuotas sin interés"
+                  >
+                    {/* Eyebrow & Badges */}
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 text-xs font-bold tracking-widest uppercase text-cyan-400">
+                        <CreditCard className="w-4 h-4 text-amber-400" />
+                        <span>COLORLINK & PINTUCO</span>
+                        <span className="text-cyan-700" aria-hidden="true">·</span>
+                        <span className="text-slate-300 font-medium normal-case tracking-normal">Alianzas Financieras</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 flex items-center gap-1 shadow-2xs">
+                          <Percent className="w-3 h-3 text-emerald-400" />
+                          0% Interés Corriente
+                        </span>
+                        <span className="hidden sm:inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-white/10 text-sky-200 border border-white/15">
+                          Diferido a 3 Cuotas
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Títulos Principales Requeridos */}
+                    <div className="space-y-1 sm:space-y-1.5 text-left mt-2.5 sm:mt-3">
+                      <h2 className="text-2xl sm:text-4xl lg:text-[38px] font-black text-white leading-[1.1] tracking-tight group-hover/bankbanner:text-sky-100 transition-colors">
+                        Paga sin interés con nuestros bancos aliados
+                      </h2>
+                      <p className="text-lg sm:text-2xl lg:text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-yellow-200 to-amber-400">
+                        0% de interés pagando a 3 cuotas
+                      </p>
+                      <p className="text-xs sm:text-sm text-slate-200 leading-relaxed font-normal max-w-2xl pt-0.5 hidden sm:block">
+                        Financia tus compras de pinturas, impermeabilizantes y herramientas sin costos financieros adicionales con tarjetas de crédito de nuestros bancos aliados en Colombia.
+                      </p>
+                    </div>
+
+                    {/* Fila Horizontal Limpia y Ordenada con los Logos de los Bancos Aliados */}
+                    <div className="w-full my-3 sm:my-4 p-3 sm:p-4 rounded-2xl bg-[#001428]/85 backdrop-blur-md border border-white/15 shadow-2xl">
+                      <div className="flex items-center justify-between mb-2.5 px-0.5">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-sky-300 flex items-center gap-1.5">
+                          <Building2 className="w-3.5 h-3.5 text-cyan-400" />
+                          Bancos Aliados Oficiales
+                        </span>
+                        <span className="text-[10px] text-amber-300 font-mono font-semibold hidden md:inline">
+                          Tarjetas Visa, Mastercard y Amex • Exención Total de Intereses
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-2.5 items-stretch">
+                        {ALLIED_BANKS_CAROUSEL.map((bank) => (
+                          <div
+                            key={bank.id}
+                            className="rounded-xl bg-white p-2.5 sm:p-3 flex flex-col justify-between border border-slate-200/90 shadow-sm transition-all duration-200 hover:scale-[1.03] hover:shadow-lg hover:border-amber-400 text-left group/card"
+                          >
+                            <div className="flex items-center justify-between gap-1 mb-2">
+                              <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-black tracking-tight ${bank.bgColor} ${bank.textColor}`}>
+                                {bank.name}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="block text-xs font-black text-slate-900 group-hover/card:text-blue-900 transition-colors">
+                                {bank.tag}
+                              </span>
+                              <span className="block text-[9px] text-slate-500 font-medium tracking-tight mt-0.5">
+                                {bank.franchises}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Botones de Acción y Llamado Interactivo */}
+                    <div className="pt-1 flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex flex-wrap items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenInstallments();
+                          }}
+                          className="bg-gradient-to-r from-amber-400 via-amber-500 to-yellow-500 hover:from-amber-300 hover:to-yellow-400 text-slate-950 font-black shadow-lg shadow-amber-950/40 rounded-xl px-5 sm:px-6 py-2.5 sm:py-3 transition-all duration-300 transform hover:-translate-y-0.5 active:scale-95 cursor-pointer inline-flex items-center gap-2 text-xs sm:text-sm group/btn"
+                        >
+                          <Calculator className="w-4 h-4 text-slate-950" />
+                          <span>Abrir calculadora de cuotas</span>
+                          <ArrowRight className="w-4 h-4 text-slate-950 group-hover/btn:translate-x-1 transition-transform" />
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onNavigateTab('catalog');
+                          }}
+                          className="px-4 py-2.5 sm:py-3 rounded-xl bg-white/10 hover:bg-white/20 border border-white/15 text-xs sm:text-sm font-semibold text-sky-200 hover:text-white transition-all cursor-pointer flex items-center gap-1.5"
+                        >
+                          <span>Explorar catálogo</span>
+                        </button>
+                      </div>
+
+                      <div className="flex items-center gap-2 text-xs text-sky-200/90 font-medium">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse inline-block" />
+                        <span>Haz clic en este banner para calcular tus cuotas</span>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  /* =========================================================
+                      DIAPOSITIVA ESTÁNDAR: PRODUCTO PINTUCO
+                  ========================================================= */
+                  <div className="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-center max-w-6xl mx-auto w-full">
                     
-                    {/* Eyebrow kicker: editorial y limpio */}
-                    <div className="flex items-center gap-2 text-xs font-bold tracking-widest uppercase text-cyan-400">
-                      <span>{slide.brandTag}</span>
-                      <span className="text-cyan-700" aria-hidden="true">·</span>
-                      <span className="text-slate-300 font-medium normal-case tracking-normal">{slide.tag}</span>
+                    {/* COLUMNA IZQUIERDA: INFORMACIÓN Y PROMOCIÓN EDITORIAL */}
+                    <div className="hero-text-container lg:col-span-7 space-y-3.5 text-left relative top-0 mt-0">
+                      
+                      {/* Eyebrow kicker: editorial y limpio */}
+                      <div className="flex items-center gap-2 text-xs font-bold tracking-widest uppercase text-cyan-400">
+                        <span>{slide.brandTag}</span>
+                        <span className="text-cyan-700" aria-hidden="true">·</span>
+                        <span className="text-slate-300 font-medium normal-case tracking-normal">{slide.tag}</span>
+                      </div>
+
+                      {/* Main Title con Jerarquía arquitectónica moderna */}
+                      <h2 className="hero-title text-2xl sm:text-4xl lg:text-[40px] font-black text-white leading-[1.1] tracking-tight text-balance relative top-0 mt-0">
+                        <span>{slide.titleHighlight}</span>
+                        <span className="block text-sky-300 font-bold text-lg sm:text-2xl lg:text-3xl mt-1">
+                          {slide.titleSuffix.replace(/^[,\.\s]+/, '')}
+                        </span>
+                      </h2>
+
+                      {/* Description legible y precisa */}
+                      <p className="hero-subtitle text-xs sm:text-sm text-slate-200 leading-relaxed font-normal max-w-xl relative top-0 mt-0">
+                        {slide.description}
+                      </p>
+
+                      {/* Technical Features Highlights */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-0.5">
+                        {slide.features.map((feature, fIndex) => (
+                          <div key={fIndex} className="flex items-center gap-2 text-xs sm:text-sm text-slate-100 font-medium">
+                            <CheckCircle2 className="w-4 h-4 text-cyan-400 shrink-0" />
+                            <span>{feature}</span>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Action Buttons */}
+                      <div className="pt-2 flex flex-wrap items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => onNavigateTab(slide.targetTab, slide.targetCategory)}
+                          className="bg-gradient-to-r from-blue-600 via-blue-500 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-black shadow-lg shadow-blue-950/60 rounded-xl px-5 sm:px-6 py-2.5 sm:py-3 transition-all duration-300 transform hover:-translate-y-0.5 active:scale-95 cursor-pointer inline-flex items-center gap-2 text-xs sm:text-sm group/btn"
+                        >
+                          <span>{slide.buttonText}</span>
+                          <ArrowRight className="w-4 h-4 text-white group-hover/btn:translate-x-1 transition-transform" />
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => onNavigateTab('cotizador')}
+                          className="px-4 py-2.5 sm:py-3 rounded-xl bg-white/10 hover:bg-white/20 border border-white/15 text-xs sm:text-sm font-semibold text-sky-200 hover:text-white transition-all cursor-pointer flex items-center gap-1.5 group/sec"
+                        >
+                          <span>Calcular m² exactos</span>
+                          <ArrowRight className="w-3.5 h-3.5 text-sky-400 group-hover/sec:translate-x-1 transition-transform" />
+                        </button>
+                      </div>
+
                     </div>
 
-                    {/* Main Title con Jerarquía arquitectónica moderna */}
-                    <h2 className="hero-title text-2xl sm:text-4xl lg:text-[40px] font-black text-white leading-[1.1] tracking-tight text-balance relative top-0 mt-0">
-                      <span>{slide.titleHighlight}</span>
-                      <span className="block text-sky-300 font-bold text-lg sm:text-2xl lg:text-3xl mt-1">
-                        {slide.titleSuffix.replace(/^[,\.\s]+/, '')}
-                      </span>
-                    </h2>
+                    {/* COLUMNA DERECHA: IMAGEN DE PRODUCTO HEROICA */}
+                    <div className="lg:col-span-5 flex flex-col items-center justify-center relative">
+                      
+                      {/* Ethereal Ambient Radial Glow */}
+                      <div className="absolute w-64 h-64 sm:w-80 sm:h-80 bg-[radial-gradient(ellipse_at_center,rgba(56,189,248,0.25)_0%,transparent_70%)] pointer-events-none" />
 
-                    {/* Description legible y precisa */}
-                    <p className="hero-subtitle text-xs sm:text-sm text-slate-200 leading-relaxed font-normal max-w-xl relative top-0 mt-0">
-                      {slide.description}
-                    </p>
+                      {/* Product Image con sombra de apoyo realista */}
+                      <img
+                        src={slide.productImage}
+                        alt={slide.productAlt}
+                        referrerPolicy="no-referrer"
+                        className="w-auto max-w-full h-auto max-h-[240px] sm:max-h-[280px] lg:max-h-[320px] object-contain drop-shadow-[0_20px_25px_rgba(0,0,0,0.8)] transition-transform duration-700 group-hover/carousel:scale-105 relative z-10"
+                        loading="eager"
+                      />
 
-                    {/* Technical Features Highlights */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-0.5">
-                      {slide.features.map((feature, fIndex) => (
-                        <div key={fIndex} className="flex items-center gap-2 text-xs sm:text-sm text-slate-100 font-medium">
-                          <CheckCircle2 className="w-4 h-4 text-cyan-400 shrink-0" />
-                          <span>{feature}</span>
-                        </div>
-                      ))}
-                    </div>
+                      {/* Indicador sutil de certificación */}
+                      <div className="mt-2.5 text-center text-[11px] font-mono tracking-wide text-sky-200/90 bg-black/40 backdrop-blur-md px-3.5 py-1 rounded-full border border-white/15 shadow-xs relative z-10">
+                        <span>Norma Técnica NTC 1335 · Grupo AkzoNobel</span>
+                      </div>
 
-                    {/* Action Buttons: Principal destacado y secundario discreto */}
-                    <div className="pt-2 flex flex-wrap items-center gap-3">
-                      <button
-                        type="button"
-                        onClick={() => onNavigateTab(slide.targetTab, slide.targetCategory)}
-                        className="bg-gradient-to-r from-blue-600 via-blue-500 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-black shadow-lg shadow-blue-950/60 rounded-xl px-5 sm:px-6 py-2.5 sm:py-3 transition-all duration-300 transform hover:-translate-y-0.5 active:scale-95 cursor-pointer inline-flex items-center gap-2 text-xs sm:text-sm group/btn"
-                      >
-                        <span>{slide.buttonText}</span>
-                        <ArrowRight className="w-4 h-4 text-white group-hover/btn:translate-x-1 transition-transform" />
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => onNavigateTab('cotizador')}
-                        className="px-4 py-2.5 sm:py-3 rounded-xl bg-white/10 hover:bg-white/20 border border-white/15 text-xs sm:text-sm font-semibold text-sky-200 hover:text-white transition-all cursor-pointer flex items-center gap-1.5 group/sec"
-                      >
-                        <span>Calcular m² exactos</span>
-                        <ArrowRight className="w-3.5 h-3.5 text-sky-400 group-hover/sec:translate-x-1 transition-transform" />
-                      </button>
                     </div>
 
                   </div>
-
-                  {/* =========================================================
-                      COLUMNA DERECHA: IMAGEN DE PRODUCTO HEROICA
-                  ========================================================= */}
-                  <div className="lg:col-span-5 flex flex-col items-center justify-center relative">
-                    
-                    {/* Ethereal Ambient Radial Glow */}
-                    <div className="absolute w-64 h-64 sm:w-80 sm:h-80 bg-[radial-gradient(ellipse_at_center,rgba(56,189,248,0.25)_0%,transparent_70%)] pointer-events-none" />
-
-                    {/* Product Image con sombra de apoyo realista */}
-                    <img
-                      src={slide.productImage}
-                      alt={slide.productAlt}
-                      referrerPolicy="no-referrer"
-                      className="w-auto max-w-full h-auto max-h-[240px] sm:max-h-[280px] lg:max-h-[320px] object-contain drop-shadow-[0_20px_25px_rgba(0,0,0,0.8)] transition-transform duration-700 group-hover/carousel:scale-105 relative z-10"
-                      loading="eager"
-                    />
-
-                    {/* Indicador sutil de certificación */}
-                    <div className="mt-2.5 text-center text-[11px] font-mono tracking-wide text-sky-200/90 bg-black/40 backdrop-blur-md px-3.5 py-1 rounded-full border border-white/15 shadow-xs relative z-10">
-                      <span>Norma Técnica NTC 1335 · Grupo AkzoNobel</span>
-                    </div>
-
-                  </div>
-
-                </div>
+                )}
 
               </div>
             </div>

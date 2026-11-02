@@ -77,6 +77,7 @@ interface ClientViewProps {
   onSelectCategory?: (category: string) => void;
   favoriteIds?: string[];
   onToggleFavorite?: (productId: string) => void;
+  onOpenInstallmentCalculator?: () => void;
 }
 
 export const ClientView: React.FC<ClientViewProps> = ({
@@ -108,6 +109,7 @@ export const ClientView: React.FC<ClientViewProps> = ({
   onSelectCategory,
   favoriteIds = [],
   onToggleFavorite = () => {},
+  onOpenInstallmentCalculator,
 }) => {
   const [copiedId, setCopiedId] = useState(false);
   const [addedCartNotice, setAddedCartNotice] = useState(false);
@@ -345,6 +347,7 @@ export const ClientView: React.FC<ClientViewProps> = ({
             }
           }}
           onOpenChat={onOpenChat}
+          onOpenInstallmentCalculator={onOpenInstallmentCalculator}
           onSelectSede={(sede) => {
             onChange('ciudad', sede.ciudad);
             onChange('departamento', sede.departamento);
