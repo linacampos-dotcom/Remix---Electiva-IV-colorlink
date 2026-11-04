@@ -1,0 +1,9 @@
+{
+  "provider": "smtp",
+  "smtpHost": "smtp.gmail.com",
+  "smtpPort": 587,
+  "smtpUser": "linajazmincamposaboya@gmail.com",
+  "smtpPass": "wotpozgudrnruxmk",
+  "smtpSecure": false,
+  "emailFrom": "linajazmincamposaboya@gmail.com"
+}

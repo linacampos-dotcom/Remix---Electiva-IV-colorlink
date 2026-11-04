@@ -197,6 +197,17 @@ export const ProductCard: React.FC<ProductCardProps> = ({
             referrerPolicy="no-referrer"
             className="object-contain w-full h-full max-h-[125px] drop-shadow-md transition-transform duration-300 group-hover:scale-105"
             loading="lazy"
+            onError={(e) => {
+              const target = e.currentTarget;
+              if (target.dataset.fallbackTried) return;
+              target.dataset.fallbackTried = 'true';
+              const currentSrc = target.getAttribute('src') || '';
+              if (currentSrc.includes('/src/assets/images/')) {
+                target.src = currentSrc.replace('/src/assets/images/', '/images/');
+              } else if (currentSrc.includes('/images/')) {
+                target.src = currentSrc.replace('/images/', '/src/assets/images/');
+              }
+            }}
           />
         </div>
 

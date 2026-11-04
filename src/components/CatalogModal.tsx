@@ -197,6 +197,15 @@ export const CatalogModal: React.FC<CatalogModalProps> = ({
                       alt={product.nombre}
                       className="w-full h-full object-contain drop-shadow-sm group-hover:scale-105 transition-transform duration-300"
                       loading="lazy"
+                      onError={(e) => {
+                        const target = e.currentTarget;
+                        const currentSrc = target.getAttribute('src') || '';
+                        if (currentSrc.includes('/src/assets/images/')) {
+                          target.src = currentSrc.replace('/src/assets/images/', '/images/');
+                        } else if (currentSrc.includes('/images/')) {
+                          target.src = currentSrc.replace('/images/', '/src/assets/images/');
+                        }
+                      }}
                     />
                     <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5 flex-wrap">
                       <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${

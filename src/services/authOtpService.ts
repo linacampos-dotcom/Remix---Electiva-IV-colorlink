@@ -287,4 +287,29 @@ export const authOtpService = {
       return { success: false, error: err.message || 'Error de conexión.' };
     }
   },
+
+  /**
+   * Obtener lista de correos transaccionales generados recientemente en el servidor.
+   */
+  async getRecentEmails(): Promise<Array<{
+    id: string;
+    to: string;
+    subject: string;
+    previewText: string;
+    sentAt: string;
+    otp?: string;
+    provider: string;
+    isRealDelivery: boolean;
+  }>> {
+    try {
+      const res = await fetch('/api/email/recent');
+      if (res.ok) {
+        const data = await res.json();
+        return data.emails || [];
+      }
+      return [];
+    } catch {
+      return [];
+    }
+  },
 };
