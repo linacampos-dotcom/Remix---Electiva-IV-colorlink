@@ -136,15 +136,6 @@ export const FavoritesSection: React.FC<FavoritesSectionProps> = ({
                         src={p.imagenUrl}
                         alt={p.nombre}
                         className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-500"
-                        onError={(e) => {
-                          const target = e.currentTarget;
-                          const currentSrc = target.getAttribute('src') || '';
-                          if (currentSrc.includes('/src/assets/images/')) {
-                            target.src = currentSrc.replace('/src/assets/images/', '/images/');
-                          } else if (currentSrc.includes('/images/')) {
-                            target.src = currentSrc.replace('/images/', '/src/assets/images/');
-                          }
-                        }}
                       />
 
                       {/* Top Badges */}

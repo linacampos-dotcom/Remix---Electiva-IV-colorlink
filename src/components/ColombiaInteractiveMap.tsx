@@ -948,13 +948,6 @@ export const ColombiaInteractiveMap: React.FC<ColombiaInteractiveMapProps> = ({
                       src={activeSede.imagen} 
                       alt={activeSede.nombre}
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                      onError={(e) => {
-                        const target = e.currentTarget;
-                        if (!target.dataset.fallback) {
-                          target.dataset.fallback = 'true';
-                          target.src = 'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?auto=format&fit=crop&w=600&q=80';
-                        }
-                      }}
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-[#001D3D] via-[#001D3D]/30 to-transparent" />
                     

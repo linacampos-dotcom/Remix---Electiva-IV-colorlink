@@ -160,17 +160,6 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                 alt={product.nombre}
                 referrerPolicy="no-referrer"
                 className="w-full h-full object-contain drop-shadow-md hover:scale-105 transition-transform duration-300"
-                onError={(e) => {
-                  const target = e.currentTarget;
-                  if (target.dataset.fallbackTried) return;
-                  target.dataset.fallbackTried = 'true';
-                  const currentSrc = target.getAttribute('src') || '';
-                  if (currentSrc.includes('/src/assets/images/')) {
-                    target.src = currentSrc.replace('/src/assets/images/', '/images/');
-                  } else if (currentSrc.includes('/images/')) {
-                    target.src = currentSrc.replace('/images/', '/src/assets/images/');
-                  }
-                }}
               />
               <div className="absolute top-3 left-3 bg-white/90 backdrop-blur-xs text-slate-800 px-2.5 py-1 rounded-lg text-[11px] font-bold border border-slate-200 shadow-2xs">
                 {product.linea}

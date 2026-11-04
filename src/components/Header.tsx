@@ -436,15 +436,6 @@ export const Header: React.FC<HeaderProps> = ({
                           src={prod.imagenUrl}
                           alt={prod.nombre}
                           className="w-10 h-10 rounded-lg object-contain border border-slate-200 bg-sky-50/50 p-1 shrink-0"
-                          onError={(e) => {
-                            const target = e.currentTarget;
-                            const currentSrc = target.getAttribute('src') || '';
-                            if (currentSrc.includes('/src/assets/images/')) {
-                              target.src = currentSrc.replace('/src/assets/images/', '/images/');
-                            } else if (currentSrc.includes('/images/')) {
-                              target.src = currentSrc.replace('/images/', '/src/assets/images/');
-                            }
-                          }}
                         />
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5">
@@ -711,15 +702,6 @@ export const Header: React.FC<HeaderProps> = ({
                             src={p.imagenUrl}
                             alt={p.nombre}
                             className="w-10 h-10 object-contain rounded-lg shrink-0 border border-slate-100 bg-sky-50/50 p-1"
-                            onError={(e) => {
-                              const target = e.currentTarget;
-                              const currentSrc = target.getAttribute('src') || '';
-                              if (currentSrc.includes('/src/assets/images/')) {
-                                target.src = currentSrc.replace('/src/assets/images/', '/images/');
-                              } else if (currentSrc.includes('/images/')) {
-                                target.src = currentSrc.replace('/images/', '/src/assets/images/');
-                              }
-                            }}
                           />
                           <div className="flex-1 min-w-0">
                             <h5 className="text-xs font-bold text-slate-900 truncate">

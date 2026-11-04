@@ -2797,15 +2797,6 @@ export const FMVForm: React.FC<FMVFormProps> = ({
                             src={tool.imagenUrl}
                             alt={tool.nombre}
                             className="w-14 h-14 rounded-lg object-cover bg-slate-100 border border-slate-200 shrink-0"
-                            onError={(e) => {
-                              const target = e.currentTarget;
-                              const currentSrc = target.getAttribute('src') || '';
-                              if (currentSrc.includes('/src/assets/images/')) {
-                                target.src = currentSrc.replace('/src/assets/images/', '/images/');
-                              } else if (currentSrc.includes('/images/')) {
-                                target.src = currentSrc.replace('/images/', '/src/assets/images/');
-                              }
-                            }}
                           />
                           <div className="min-w-0 flex-1">
                             <span className="text-[9px] font-bold uppercase text-amber-800 tracking-wider block">
