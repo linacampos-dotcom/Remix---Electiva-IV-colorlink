@@ -99,9 +99,6 @@ export const UnifiedAuthModal: React.FC<UnifiedAuthModalProps> = ({
   const [technicalAlert, setTechnicalAlert] = useState<string | null>(null);
   const [evaluationBanner, setEvaluationBanner] = useState<string | null>(null);
 
-  // Google Chooser State
-  const [isGoogleChooserOpen, setIsGoogleChooserOpen] = useState(false);
-
   // Reset and synchronize state on open
   useEffect(() => {
     if (isOpen) {
@@ -130,7 +127,6 @@ export const UnifiedAuthModal: React.FC<UnifiedAuthModalProps> = ({
       setRecoveryOtpCode('');
       setOtpResendTimer(0);
       setIsLoading(false);
-      setIsGoogleChooserOpen(false);
     }
   }, [isOpen, initialMode]);
 
@@ -690,30 +686,6 @@ export const UnifiedAuthModal: React.FC<UnifiedAuthModalProps> = ({
     }
   };
 
-  // Google OAuth Chooser Selection
-  const handleGoogleAccountSelect = (selectedEmail: string, selectedName: string) => {
-    setIsGoogleChooserOpen(false);
-    setInputEmail(selectedEmail);
-    setErrorMessage(null);
-
-    const usersDb = getPintucoUsersDb();
-    const existing = usersDb.find(u => normalizeEmail(u.email) === normalizeEmail(selectedEmail));
-
-    if (existing) {
-      setAuthMode('login');
-      setInputPassword('');
-      setSuccessMessage(`Cuenta detectada: ${existing.nombre}. Ingresa tu contraseña para autorizar.`);
-    } else {
-      setAuthMode('register');
-      setRegNombre(selectedName);
-      setRegCedula('');
-      setRegTelefono('');
-      setInputPassword('');
-      setConfirmPassword('');
-      setSuccessMessage(`Bienvenido/a ${selectedName}. Ingresa tu Cédula/NIT y contraseña para completar el registro.`);
-    }
-  };
-
   const modalContent = (
     <div 
       className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 bg-slate-900/50 backdrop-blur-xs animate-fadeIn"
@@ -888,37 +860,15 @@ export const UnifiedAuthModal: React.FC<UnifiedAuthModalProps> = ({
           {authMode === 'login' && (
             <div className="space-y-4 animate-fadeIn">
               
-              {/* Botón Estándar de Google OAuth */}
-              <button
-                type="button"
-                onClick={() => setIsGoogleChooserOpen(true)}
-                disabled={isLoading}
-                className="w-full py-3 px-4 rounded-2xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs flex items-center justify-center gap-3 shadow-xs hover:border-slate-400 transition-all cursor-pointer"
-              >
-                <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
-                  <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                  <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                  <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
-                  <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
-                </svg>
-                <span>Continuar con Google</span>
-              </button>
-
-              <div className="relative flex py-1 items-center">
-                <div className="flex-grow border-t border-slate-200"></div>
-                <span className="flex-shrink mx-3 text-slate-400 text-[11px] font-medium">o ingresa con tu correo</span>
-                <div className="flex-grow border-t border-slate-200"></div>
-              </div>
-
               {/* Selector de Método: Contraseña vs Código OTP al Correo */}
-              <div className="flex p-1 bg-slate-100 rounded-xl gap-1 text-xs">
+              <div className="flex p-1 bg-slate-100 rounded-2xl gap-1 text-xs border border-slate-200/60">
                 <button
                   type="button"
                   onClick={() => {
                     setLoginMethod('password');
                     setErrorMessage(null);
                   }}
-                  className={`flex-1 py-1.5 font-bold rounded-lg transition-all cursor-pointer ${
+                  className={`flex-1 py-2 px-3 font-bold rounded-xl transition-all cursor-pointer ${
                     loginMethod === 'password'
                       ? 'bg-white text-blue-900 shadow-xs'
                       : 'text-slate-500 hover:text-slate-800'
@@ -934,7 +884,7 @@ export const UnifiedAuthModal: React.FC<UnifiedAuthModalProps> = ({
                     setLoginOtpCode('');
                     setErrorMessage(null);
                   }}
-                  className={`flex-1 py-1.5 font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                  className={`flex-1 py-2 px-3 font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
                     loginMethod === 'otp'
                       ? 'bg-white text-blue-900 shadow-xs'
                       : 'text-slate-500 hover:text-slate-800'
@@ -1627,72 +1577,6 @@ export const UnifiedAuthModal: React.FC<UnifiedAuthModalProps> = ({
           )}
 
         </div>
-
-        {/* Modal selector de cuentas Google */}
-        {isGoogleChooserOpen && (
-          <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-fadeIn">
-            <div className="bg-white rounded-3xl shadow-xl border border-slate-200 w-full max-w-sm overflow-hidden animate-scaleUp">
-              <div className="p-5 text-center border-b border-slate-100">
-                <svg className="w-7 h-7 mx-auto mb-2" viewBox="0 0 24 24">
-                  <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                  <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                  <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
-                  <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
-                </svg>
-                <h3 className="text-sm font-bold text-slate-800">Elige una cuenta</h3>
-                <p className="text-[11px] text-slate-500">para continuar con COLORLINK Pintuco</p>
-              </div>
-
-              <div className="p-3 divide-y divide-slate-100 max-h-60 overflow-y-auto">
-                <button
-                  type="button"
-                  onClick={() => handleGoogleAccountSelect('linajazmincampossaboya@gmail.com', 'Lina Jazmín Campos Saboya')}
-                  className="w-full p-3 flex items-center gap-3 hover:bg-slate-50 rounded-xl transition-colors text-left cursor-pointer"
-                >
-                  <div className="w-8 h-8 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-xs shrink-0">
-                    LC
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <span className="font-bold text-xs text-slate-900 block truncate">
-                      Lina Jazmín Campos Saboya
-                    </span>
-                    <span className="text-[11px] text-slate-500 block truncate">
-                      linajazmincampossaboya@gmail.com
-                    </span>
-                  </div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleGoogleAccountSelect('cliente.demo@gmail.com', 'Cliente Demo Obra')}
-                  className="w-full p-3 flex items-center gap-3 hover:bg-slate-50 rounded-xl transition-colors text-left cursor-pointer"
-                >
-                  <div className="w-8 h-8 rounded-full bg-slate-700 text-white font-bold flex items-center justify-center text-xs shrink-0">
-                    CD
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <span className="font-bold text-xs text-slate-900 block truncate">
-                      Cliente Demo Obra
-                    </span>
-                    <span className="text-[11px] text-slate-500 block truncate">
-                      cliente.demo@gmail.com
-                    </span>
-                  </div>
-                </button>
-              </div>
-
-              <div className="p-3 bg-slate-50 border-t border-slate-100 flex justify-end">
-                <button
-                  type="button"
-                  onClick={() => setIsGoogleChooserOpen(false)}
-                  className="text-xs font-bold text-slate-600 hover:text-slate-900 px-3 py-1.5 rounded-lg hover:bg-slate-200"
-                >
-                  Cancelar
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* Modal de Configuración de Correo */}
         <EmailConfigModal

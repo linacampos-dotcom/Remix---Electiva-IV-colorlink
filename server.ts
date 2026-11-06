@@ -2849,6 +2849,12 @@ app.post('/api/payment/send-receipt', async (req, res) => {
 
 // Start Server with Vite or static build
 async function startServer() {
+  // Servir assets estáticos tanto en desarrollo como en producción con soporte multidirectorio
+  app.use('/src/assets/images', express.static(path.join(process.cwd(), 'src/assets/images')));
+  app.use('/src/assets', express.static(path.join(process.cwd(), 'src/assets')));
+  app.use('/assets/images', express.static(path.join(process.cwd(), 'src/assets/images')));
+  app.use('/images', express.static(path.join(process.cwd(), 'public/images')));
+  app.use('/images', express.static(path.join(process.cwd(), 'src/assets/images')));
   app.use(express.static(path.join(process.cwd(), 'public')));
 
   const distPath = path.join(process.cwd(), 'dist');

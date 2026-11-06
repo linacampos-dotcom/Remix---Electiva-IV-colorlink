@@ -324,7 +324,7 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
                 {slide.backdropImage && (
                   <div 
                     className="absolute inset-0 bg-cover bg-center opacity-15 pointer-events-none mix-blend-luminosity transition-transform duration-1000 scale-105 overflow-hidden"
-                    style={{ backgroundImage: `url(${slide.backdropImage})` }}
+                    style={{ backgroundImage: `url(${slide.backdropImage}), url(${slide.backdropImage.replace('/src/assets/images/', '/images/')})` }}
                   />
                 )}
 
@@ -516,6 +516,17 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
                         referrerPolicy="no-referrer"
                         className="w-auto max-w-full h-auto max-h-[240px] sm:max-h-[280px] lg:max-h-[320px] object-contain drop-shadow-[0_20px_25px_rgba(0,0,0,0.8)] transition-transform duration-700 group-hover/carousel:scale-105 relative z-10"
                         loading="eager"
+                        onError={(e) => {
+                          const target = e.currentTarget;
+                          if (target.dataset.fallbackTried) return;
+                          target.dataset.fallbackTried = 'true';
+                          const currentSrc = target.getAttribute('src') || '';
+                          if (currentSrc.includes('/src/assets/images/')) {
+                            target.src = currentSrc.replace('/src/assets/images/', '/images/');
+                          } else if (currentSrc.includes('/images/')) {
+                            target.src = currentSrc.replace('/images/', '/src/assets/images/');
+                          }
+                        }}
                       />
 
                       {/* Indicador sutil de certificación */}

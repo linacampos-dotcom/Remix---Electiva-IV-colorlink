@@ -774,6 +774,15 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
                     src={item.imagenUrl}
                     alt={item.nombre}
                     className="w-16 h-16 sm:w-20 sm:h-20 rounded-xl object-cover border border-slate-200 shrink-0"
+                    onError={(e) => {
+                      const target = e.currentTarget;
+                      const currentSrc = target.getAttribute('src') || '';
+                      if (currentSrc.includes('/src/assets/images/')) {
+                        target.src = currentSrc.replace('/src/assets/images/', '/images/');
+                      } else if (currentSrc.includes('/images/')) {
+                        target.src = currentSrc.replace('/images/', '/src/assets/images/');
+                      }
+                    }}
                   />
                 ) : (
                   <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 shrink-0 border border-slate-200">
