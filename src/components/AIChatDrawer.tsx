@@ -36,8 +36,8 @@ import { downloadQuotationSheet } from '../utils/quotationSheetGenerator';
 import { ImageVisualizer } from './ImageVisualizer';
 import { SEDES_PINTUCO, SedePintuco } from './ColombiaInteractiveMap';
 import { DEPARTAMENTOS_COLOMBIA } from '../data/colombiaLogistics';
-import sampleWallImg from '../assets/images/living_room_wall_1789834592467.jpg';
-import facadeWallImg from '../assets/images/facade_wall_1789834604798.jpg';
+const sampleWallImg = '/src/assets/images/living_room_wall_1789834592467.jpg';
+const facadeWallImg = '/src/assets/images/facade_wall_1789834604798.jpg';
 
 export const PINTUCO_AI_AVATAR_URL = '/images/pintuco_character_clean.png';
 

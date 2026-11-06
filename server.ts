@@ -42,42 +42,22 @@ app.get(['/health', '/api/health', '/_health', '/ping'], (req, res) => {
   res.status(200).json({ status: 'ok', uptime: process.uptime(), timestamp: new Date().toISOString() });
 });
 
-// Supabase Server Client Initialization with safe URL check and fallback
-const rawServerUrl = normalizeSupabaseUrl(process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '');
-const rawServerAnonKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '';
-
-const isServerUrlValid = Boolean(
-  rawServerUrl &&
-  rawServerUrl.startsWith('http') &&
-  !rawServerUrl.includes('AQUÍ_TÚ_PROJECT_URL')
+// Supabase Server Client Initialization usando exclusivamente process.env.SUPABASE_URL (o PUBLIC_SUPABASE_URL) y process.env.SUPABASE_ANON_KEY (o PUBLIC_SUPABASE_ANON_KEY)
+const SUPABASE_PROJECT_URL = normalizeSupabaseUrl(
+  process.env.SUPABASE_URL ||
+  process.env.PUBLIC_SUPABASE_URL ||
+  process.env.VITE_SUPABASE_URL ||
+  'https://hyzzdjtckejrcfxptjel.supabase.co'
 );
 
-const isServerKeyValid = Boolean(
-  rawServerAnonKey &&
-  !rawServerAnonKey.includes('AQUÍ_TU_ANON_KEY')
-);
+const SUPABASE_ANON_KEY =
+  process.env.SUPABASE_ANON_KEY ||
+  process.env.PUBLIC_SUPABASE_ANON_KEY ||
+  process.env.VITE_SUPABASE_ANON_KEY ||
+  'sb_publishable_fX0rW_21X7HN_Rbbs3iWfw_uwAKIKyG';
 
-const SUPABASE_PROJECT_URL = isServerUrlValid
-  ? normalizeSupabaseUrl(rawServerUrl)
-  : 'https://hyzzdjtckejrcfxptjel.supabase.co';
-
-const SUPABASE_ANON_KEY = isServerKeyValid
-  ? rawServerAnonKey
-  : 'sb_publishable_fX0rW_21X7HN_Rbbs3iWfw_uwAKIKyG';
-
-let supabase: any;
-try {
-  supabase = createClient(SUPABASE_PROJECT_URL, SUPABASE_ANON_KEY);
-} catch (err) {
-  console.warn('[Server] Supabase client initialization fallback:', err);
-  supabase = {
-    from: () => ({
-      upsert: async () => ({ data: null, error: null }),
-      insert: async () => ({ data: null, error: null }),
-      select: async () => ({ data: [], error: null }),
-    }),
-  };
-}
+const supabase = createClient(SUPABASE_PROJECT_URL, SUPABASE_ANON_KEY);
+const isSupabaseConfigured = Boolean(SUPABASE_PROJECT_URL && SUPABASE_ANON_KEY);
 
 app.use(express.json({ limit: '10mb' }));
 
@@ -436,6 +416,65 @@ app.post('/api/auth/check-email', (req, res) => {
   }
 });
 
+// API / Action: Solicitud de restablecimiento de contraseña vía Supabase nativo
+app.post(['/api/auth/forgot-password', '/api/auth/reset-password-request'], async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email || typeof email !== 'string' || !email.includes('@')) {
+      return res.status(400).json({ success: false, message: 'Correo electrónico válido requerido.' });
+    }
+
+    const cleanEmail = email.toLowerCase().trim();
+
+    // 1. Verificación previa de existencia en base de datos
+    const existingUser = usersDatabase.get(cleanEmail);
+    let exists = Boolean(existingUser);
+    if (!exists && isSupabaseConfigured && supabase) {
+      try {
+        const { data: sbClients } = await supabase
+          .from('clientes')
+          .select('id')
+          .ilike('email', cleanEmail)
+          .limit(1);
+        if (sbClients && sbClients.length > 0) exists = true;
+      } catch (_) {}
+    }
+
+    if (!exists) {
+      console.warn(`[Reset Password] Solicitud rechazada: ${cleanEmail} no existe en BD`);
+      return res.status(404).json({
+        success: false,
+        notFound: true,
+        message: 'El correo ingresado no se encuentra registrado en el sistema.',
+      });
+    }
+
+    // 2. Invocación nativa oficial a Supabase Auth sin intermediarios manuales ni nodemailer
+    const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
+      redirectTo: 'https://remix-electiva-iv-colorlink.vercel.app/reset-password',
+    });
+
+    if (error) {
+      console.error('[AUTH DEBUG]', error);
+      return res.json({
+        success: false,
+        message: error.message,
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: 'Código enviado',
+    });
+  } catch (error: any) {
+    console.error('[AUTH DEBUG]', error);
+    return res.json({
+      success: false,
+      message: error?.message || 'Error al procesar la recuperación de contraseña',
+    });
+  }
+});
+
 // API: Login con contraseña o PIN
 app.post('/api/auth/login-password', (req, res) => {
   try {
@@ -546,6 +585,75 @@ app.post('/api/auth/register', (req, res) => {
   } catch (err: any) {
     console.error('Error in register:', err);
     return res.status(500).json({ success: false, error: 'Error al registrar usuario' });
+  }
+});
+
+// API: Sign Up nativo con Supabase Auth
+app.post('/api/auth/signup', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ success: false, error: 'Correo y contraseña requeridos' });
+    }
+
+    const cleanEmail = email.toLowerCase().trim();
+    const { data, error } = await supabase.auth.signUp({
+      email: cleanEmail,
+      password,
+      options: {
+        emailRedirectTo: 'https://remix-electiva-iv-colorlink.vercel.app/login',
+      },
+    });
+
+    if (error) {
+      console.error('[AUTH DEBUG]', error);
+      return res.status(400).json({ success: false, error: error.message });
+    }
+
+    if (data?.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+      console.error('[AUTH DEBUG] Correo ya registrado (identities empty):', cleanEmail);
+      return res.status(400).json({ success: false, error: 'User already registered. El correo ya se encuentra registrado.' });
+    }
+
+    return res.json({
+      success: true,
+      data,
+      message: '¡Registro exitoso! Hemos enviado un correo de verificación a tu bandeja de entrada.',
+    });
+  } catch (err: any) {
+    console.error('[AUTH DEBUG]', err);
+    return res.status(500).json({ success: false, error: err?.message || 'Error al procesar registro' });
+  }
+});
+
+// API: Verificar OTP de Registro con Supabase Auth
+app.post('/api/auth/verify-signup-otp', async (req, res) => {
+  try {
+    const { email, token } = req.body;
+    if (!email || !token) {
+      return res.status(400).json({ success: false, error: 'Correo y código de verificación requeridos' });
+    }
+
+    const cleanEmail = email.toLowerCase().trim();
+    const { data, error } = await supabase.auth.verifyOtp({
+      email: cleanEmail,
+      token: String(token).trim(),
+      type: 'signup',
+    });
+
+    if (error) {
+      console.error('[AUTH DEBUG]', error);
+      return res.status(400).json({ success: false, error: error.message });
+    }
+
+    return res.json({
+      success: true,
+      data,
+      message: '¡Cuenta activada con éxito!',
+    });
+  } catch (err: any) {
+    console.error('[AUTH DEBUG]', err);
+    return res.status(500).json({ success: false, error: err?.message || 'Error al verificar código' });
   }
 });
 
@@ -2396,6 +2504,81 @@ app.post('/api/auth/send-email-otp', async (req, res) => {
 
     const cleanEmail = email.trim().toLowerCase();
 
+    // 0. Validación de existencia previa para recuperación de contraseña
+    if (purpose === 'forgot_password') {
+      const existingUser = usersDatabase.get(cleanEmail);
+      let exists = Boolean(existingUser);
+
+      if (!exists && isSupabaseConfigured && supabase) {
+        try {
+          const { data: sbClients } = await supabase
+            .from('clientes')
+            .select('id')
+            .ilike('email', cleanEmail)
+            .limit(1);
+          if (sbClients && sbClients.length > 0) {
+            exists = true;
+          }
+        } catch (_) {}
+      }
+
+      if (!exists) {
+        console.warn(`[Seguridad OTP] Solicitud de recuperación bloqueada: ${cleanEmail} no está registrado.`);
+        return res.status(404).json({
+          success: false,
+          notFound: true,
+          message: 'El correo ingresado no se encuentra registrado en el sistema.',
+          error: 'El correo ingresado no se encuentra registrado en el sistema.',
+        });
+      }
+
+      // Invocación directa a Supabase Auth sin intermediarios manuales ni nodemailer
+      try {
+        const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
+          redirectTo: 'https://remix-electiva-iv-colorlink.vercel.app/reset-password',
+        });
+
+        if (error) {
+          console.error('[AUTH DEBUG]', error);
+          return res.json({
+            success: false,
+            message: error.message,
+            error: error.message,
+          });
+        }
+
+        // Generar además el registro OTP en memoria para compatibilidad con el flujo en pantalla
+        const { plainOtp, hashedOtp, salt } = generateSecureOtp();
+        authEmailOtpStore.set(cleanEmail, {
+          email: cleanEmail,
+          hashedOtp,
+          salt,
+          expiresAt: Date.now() + 600 * 1000,
+          attempts: 0,
+          maxAttempts: 3,
+          createdAt: Date.now(),
+          lastRequestedAt: Date.now(),
+          purpose,
+          userData,
+          verified: false,
+        });
+
+        return res.json({
+          success: true,
+          message: 'Código enviado',
+          devOtp: plainOtp,
+          expiresInSeconds: 600,
+        });
+      } catch (error: any) {
+        console.error('[AUTH DEBUG]', error);
+        return res.json({
+          success: false,
+          message: error?.message || 'Error al comunicarse con el servicio de autenticación de Supabase',
+          error: error?.message || 'Error al comunicarse con el servicio de autenticación de Supabase',
+        });
+      }
+    }
+
     // 1. Límites de Frecuencia (Rate Limiting estricto)
     const now = Date.now();
     const existingSession = authEmailOtpStore.get(cleanEmail);
@@ -2649,7 +2832,7 @@ app.post('/api/auth/verify-email-otp', (req, res) => {
 });
 
 // API: Restablecer contraseña con código OTP verificado
-app.post('/api/auth/reset-password-otp', (req, res) => {
+app.post('/api/auth/reset-password-otp', async (req, res) => {
   try {
     const { email, otp, newPassword } = req.body;
     if (!email || !newPassword) {
@@ -2685,7 +2868,29 @@ app.post('/api/auth/reset-password-otp', (req, res) => {
 
     // Actualizar usuario en usersDatabase
     const existing = usersDatabase.get(cleanEmail);
-    if (existing) {
+    if (!existing) {
+      let existsInSupabase = false;
+      if (isSupabaseConfigured && supabase) {
+        try {
+          const { data: sbClient } = await supabase
+            .from('clientes')
+            .select('id')
+            .ilike('email', cleanEmail)
+            .limit(1);
+          if (sbClient && sbClient.length > 0) {
+            existsInSupabase = true;
+          }
+        } catch (_) {}
+      }
+
+      if (!existsInSupabase) {
+        console.error(`[Reset Password Error] Usuario no encontrado en BD para ${cleanEmail}`);
+        return res.status(404).json({
+          success: false,
+          error: 'Usuario no encontrado en la base de datos.',
+        });
+      }
+    } else {
       existing.password = newPassword;
       usersDatabase.set(cleanEmail, existing);
     }
@@ -2849,21 +3054,19 @@ app.post('/api/payment/send-receipt', async (req, res) => {
 
 // Start Server with Vite or static build
 async function startServer() {
-  // Servir assets estáticos tanto en desarrollo como en producción con soporte multidirectorio
-  app.use('/src/assets/images', express.static(path.join(process.cwd(), 'src/assets/images')));
-  app.use('/src/assets', express.static(path.join(process.cwd(), 'src/assets')));
-  app.use('/assets/images', express.static(path.join(process.cwd(), 'src/assets/images')));
-  app.use('/images', express.static(path.join(process.cwd(), 'public/images')));
-  app.use('/images', express.static(path.join(process.cwd(), 'src/assets/images')));
-  app.use(express.static(path.join(process.cwd(), 'public')));
-
   const distPath = path.join(process.cwd(), 'dist');
   const hasDistIndex = fs.existsSync(path.join(distPath, 'index.html'));
-  const isProduction = process.env.NODE_ENV === 'production' || (hasDistIndex && process.env.NODE_ENV !== 'development');
+  const isProduction = process.env.NODE_ENV === 'production';
 
   if (isProduction && hasDistIndex) {
     console.log('[Server] Serving production build from dist/');
+    app.use('/src/assets/images', express.static(path.join(process.cwd(), 'src/assets/images')));
+    app.use('/src/assets', express.static(path.join(process.cwd(), 'src/assets')));
+    app.use('/assets/images', express.static(path.join(process.cwd(), 'src/assets/images')));
+    app.use('/images', express.static(path.join(process.cwd(), 'public/images')));
+    app.use('/images', express.static(path.join(process.cwd(), 'src/assets/images')));
     app.use(express.static(distPath));
+    app.use(express.static(path.join(process.cwd(), 'public')));
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
@@ -2873,7 +3076,16 @@ async function startServer() {
       server: { middlewareMode: true },
       appType: 'spa',
     });
+    // Mount Vite dev middleware first so it handles all module transforms and dev assets
     app.use(vite.middlewares);
+
+    // Fallbacks for direct asset URLs if not handled by Vite
+    app.use('/src/assets/images', express.static(path.join(process.cwd(), 'src/assets/images')));
+    app.use('/src/assets', express.static(path.join(process.cwd(), 'src/assets')));
+    app.use('/assets/images', express.static(path.join(process.cwd(), 'src/assets/images')));
+    app.use('/images', express.static(path.join(process.cwd(), 'public/images')));
+    app.use('/images', express.static(path.join(process.cwd(), 'src/assets/images')));
+    app.use(express.static(path.join(process.cwd(), 'public')));
   }
 
   app.listen(PORT, '0.0.0.0', () => {

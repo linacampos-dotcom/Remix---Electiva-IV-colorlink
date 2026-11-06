@@ -12,13 +12,12 @@ import {
   ArrowLeft, 
   RefreshCw, 
   ShieldCheck,
-  Send,
-  Settings
+  Send
 } from 'lucide-react';
 import { OtpInputBoxes } from './OtpInputBoxes';
 import { authOtpService } from '../services/authOtpService';
-import { resetPintucoUserPassword, normalizeEmail, getPintucoUsersDb } from '../utils/userDatabase';
-import { EmailConfigModal } from './EmailConfigModal';
+import { resetPintucoUserPassword, normalizeEmail, getPintucoUsersDb, findUserByEmail } from '../utils/userDatabase';
+import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 
 interface ForgotPasswordModalProps {
   isOpen: boolean;
@@ -100,27 +99,51 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
     setIsLoading(true);
 
     try {
+      // 1. VALIDACIÓN DE EXISTENCIA PREVIA EN BD / SUPABASE / USUARIOS LOCALES
+      const userCheck = await authOtpService.checkUserExists(cleanEmail);
+      const localUser = findUserByEmail(cleanEmail);
+
+      let exists = userCheck.exists || Boolean(localUser);
+
+      if (!exists && isSupabaseConfigured && supabase) {
+        try {
+          const { data: sbClient } = await supabase
+            .from('clientes')
+            .select('id')
+            .ilike('email', cleanEmail)
+            .limit(1);
+          if (sbClient && sbClient.length > 0) {
+            exists = true;
+          }
+        } catch (sbErr) {
+          console.warn('Error comprobando existencia en Supabase:', sbErr);
+        }
+      }
+
+      // 2. MANEJO DE CORREOS NO REGISTRADOS: BLOQUEAR INMEDIATAMENTE EL AVANCE
+      if (!exists) {
+        setIsLoading(false);
+        setErrorMessage('El correo ingresado no se encuentra registrado en el sistema.');
+        setEvaluationBanner(null);
+        setTechnicalAlert(null);
+        return; // Bloquea el avance, se queda en el paso de ingreso de correo
+      }
+
       const res = await authOtpService.sendEmailOtp(cleanEmail, 'forgot_password');
       setIsLoading(false);
 
-      // MODO FALLBACK EN DESARROLLO Y EVALUACIÓN ACADÉMICA
-      if (res.devOtp) {
-        console.log('%c 🔑 CÓDIGO OTP DEV: ' + res.devOtp, 'color: #00f2fe; font-size: 18px; font-weight: bold;');
+      if (res.notFound) {
+        setErrorMessage(res.message || res.error || 'El correo ingresado no se encuentra registrado en el sistema.');
+        setEvaluationBanner(null);
+        return;
       }
 
       if (res.success) {
-        setIsConfigRequired(false);
         setStep('enter_otp');
         setResendTimer(60);
-        setSuccessMessage(`Código de verificación de 6 dígitos enviado a ${cleanEmail}. Revisa tu bandeja de entrada o spam.`);
-      } else if (res.devOtp) {
-        // Fallback de evaluación si Brevo rechaza o tarda
-        setIsConfigRequired(false);
-        setStep('enter_otp');
-        setResendTimer(60);
-        setEvaluationBanner(`⚠️ CÓDIGO OTP DE EVALUACIÓN: ${res.devOtp}`);
+        setSuccessMessage(res.message || 'Código enviado');
       } else {
-        setErrorMessage(res.error || 'No se pudo enviar el código de verificación.');
+        setErrorMessage(res.message || res.error || 'No se pudo enviar el código de recuperación.');
       }
     } catch (err: any) {
       console.error("Excepción inesperada en envío de correo:", err);
@@ -144,6 +167,12 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
       const res = await authOtpService.sendEmailOtp(cleanEmail, 'forgot_password');
       setIsLoading(false);
 
+      if (res.notFound) {
+        setErrorMessage(res.error || 'El correo ingresado no se encuentra registrado en el sistema.');
+        setEvaluationBanner(null);
+        return;
+      }
+
       if (res.devOtp) {
         console.log('%c 🔑 CÓDIGO OTP DEV: ' + res.devOtp, 'color: #00f2fe; font-size: 18px; font-weight: bold;');
       }
@@ -152,7 +181,7 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
         setIsConfigRequired(false);
         setResendTimer(60);
         setSuccessMessage(`Nuevo código de 6 dígitos enviado a ${cleanEmail}.`);
-      } else if (res.devOtp) {
+      } else if (res.devOtp && !res.notFound) {
         setIsConfigRequired(false);
         setResendTimer(60);
         setEvaluationBanner(`⚠️ CÓDIGO OTP DE EVALUACIÓN: ${res.devOtp}`);
@@ -211,9 +240,33 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
 
     try {
       // 1. Actualizar vía servicio OTP
-      await authOtpService.resetPasswordWithOtp(cleanEmail, otpCode, newPassword);
+      const res = await authOtpService.resetPasswordWithOtp(cleanEmail, otpCode, newPassword);
 
-      // 2. Actualizar en base de datos local de usuarios 'pintuco_users_db'
+      if (!res.success) {
+        setIsLoading(false);
+        setErrorMessage(res.error || 'No se pudo actualizar la contraseña. Verifica el código OTP o intenta nuevamente.');
+        return; // Mantiene al usuario en la pantalla con el error, NO redirige
+      }
+
+      // 2. Intentar actualizar en Supabase Auth si está configurado
+      if (isSupabaseConfigured && supabase) {
+        try {
+          const { error: sbError } = await supabase.auth.updateUser({ password: newPassword });
+          if (sbError) {
+            console.warn('[Supabase Auth Update Warning]:', sbError.message);
+            const lowerMsg = sbError.message.toLowerCase();
+            if (lowerMsg.includes('not found') || lowerMsg.includes('invalid') || lowerMsg.includes('token') || lowerMsg.includes('expired')) {
+              setIsLoading(false);
+              setErrorMessage(`Error en Supabase: ${sbError.message}`);
+              return; // Mantiene al usuario en la pantalla con el error
+            }
+          }
+        } catch (sbEx: any) {
+          console.warn('[Supabase Exception]:', sbEx);
+        }
+      }
+
+      // 3. Actualizar en base de datos local de usuarios 'pintuco_users_db'
       resetPintucoUserPassword(cleanEmail, newPassword);
 
       setIsLoading(false);
@@ -225,7 +278,7 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
       }
     } catch (err: any) {
       setIsLoading(false);
-      setErrorMessage('Error al guardar la nueva contraseña. Inténtalo nuevamente.');
+      setErrorMessage(err.message || 'Error al guardar la nueva contraseña. Inténtalo nuevamente.');
     }
   };
 
@@ -261,14 +314,6 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
           </div>
           <div className="flex items-center gap-1.5">
             <button
-              type="button"
-              onClick={() => setIsConfigModalOpen(true)}
-              className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors cursor-pointer"
-              title="Configuración de Servidor de Correo (SMTP)"
-            >
-              <Settings className="w-4 h-4 text-cyan-300" />
-            </button>
-            <button
               onClick={onClose}
               className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors cursor-pointer"
               aria-label="Cerrar"
@@ -287,19 +332,6 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
                 <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
                 <span className="leading-relaxed">{errorMessage}</span>
               </div>
-              {isConfigRequired && (
-                <div className="mt-3 pt-2.5 border-t border-red-200/80 flex items-center justify-between gap-2 flex-wrap">
-                  <span className="text-[11px] text-red-800 font-semibold">Configuración pendiente en servidor:</span>
-                  <button
-                    type="button"
-                    onClick={() => setIsConfigModalOpen(true)}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-900 text-white font-bold text-xs hover:bg-blue-800 transition-colors cursor-pointer shadow-xs"
-                  >
-                    <Settings className="w-3.5 h-3.5 text-cyan-300" />
-                    <span>Configurar Proveedor de Correo</span>
-                  </button>
-                </div>
-              )}
             </div>
           )}
 
@@ -307,34 +339,6 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
             <div className="mb-5 p-3.5 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-start gap-2.5 text-xs text-emerald-800 animate-fadeIn">
               <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
               <span>{successMessage}</span>
-            </div>
-          )}
-
-          {evaluationBanner && (
-            <div className="mb-5 p-4 bg-amber-500/10 border-2 border-amber-400 rounded-2xl text-xs text-amber-950 shadow-sm animate-fadeIn">
-              <div className="flex items-start gap-2.5">
-                <span className="text-lg shrink-0 mt-0.5">⚠️</span>
-                <div className="flex-1">
-                  <p className="font-bold leading-relaxed text-amber-950 mb-2">
-                    {evaluationBanner}
-                  </p>
-                  {step === 'enter_otp' && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const match = evaluationBanner.match(/\b\d{6}\b/);
-                        if (match) {
-                          setOtpCode(match[0]);
-                          handleVerifyOtp(match[0]);
-                        }
-                      }}
-                      className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs tracking-wide shadow-xs transition-colors cursor-pointer inline-flex items-center gap-1.5"
-                    >
-                      <span>⚡ Auto-rellenar y validar código</span>
-                    </button>
-                  )}
-                </div>
-              </div>
             </div>
           )}
 
@@ -582,16 +586,6 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
             </div>
           )}
         </div>
-
-        {/* Modal de Configuración y Diagnóstico del Servicio de Correo */}
-        <EmailConfigModal
-          isOpen={isConfigModalOpen}
-          onClose={() => setIsConfigModalOpen(false)}
-          onConfigUpdated={() => {
-            setIsConfigRequired(false);
-            setErrorMessage(null);
-          }}
-        />
       </div>
     </div>,
     document.body

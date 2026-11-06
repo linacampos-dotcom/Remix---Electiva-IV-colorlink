@@ -1,5 +1,6 @@
 export interface SendOtpResult {
   success: boolean;
+  notFound?: boolean;
   message?: string;
   error?: string;
   devOtp?: string;
@@ -86,13 +87,24 @@ export const authOtpService = {
         };
       }
 
-      // Si falló el envío de correo pero el servidor generó el OTP de evaluación
+      // Si el correo no existe en la base de datos (404), retornar notFound inmediatamente
+      if (serverData?.notFound || response.status === 404) {
+        return {
+          success: false,
+          notFound: true,
+          error: serverData?.message || serverData?.error || 'El correo ingresado no se encuentra registrado en el sistema.',
+          message: serverData?.message || serverData?.error || 'El correo ingresado no se encuentra registrado en el sistema.',
+          statusCode: 404,
+        };
+      }
+
+      // Si falló el envío de correo pero el servidor generó el OTP de evaluación (solo si el correo existe)
       if (serverData?.devOtp) {
         return {
           success: false,
           deliveryFailed: true,
-          error: serverData.error || 'Fallo en la entrega del correo.',
-          message: serverData.message,
+          error: serverData.message || serverData.error || 'Fallo en la entrega del correo.',
+          message: serverData.message || serverData.error,
           devOtp: serverData.devOtp,
           provider: serverData.provider,
           statusCode: response.status,
@@ -101,12 +113,13 @@ export const authOtpService = {
         };
       }
 
-      const errorMsg = serverData?.error || 'No se pudo generar o enviar el código de verificación al correo.';
-      console.error('❌ [AUTH OTP SERVICE] Error en envío:', errorMsg, serverData);
+      const errorMsg = serverData?.message || serverData?.error || 'No se pudo generar o enviar el código de verificación al correo.';
+      console.error('❌ [AUTH OTP SERVICE] Respuesta de servicio:', errorMsg, serverData);
 
       return {
         success: false,
         error: errorMsg,
+        message: errorMsg,
         devOtp: serverData?.devOtp,
         provider: serverData?.provider,
         statusCode: serverData?.statusCode || response.status,
@@ -117,8 +130,78 @@ export const authOtpService = {
       return {
         success: false,
         error: 'No se pudo conectar con el servidor de autenticación. Verifica tu conexión.',
+        message: 'No se pudo conectar con el servidor de autenticación. Verifica tu conexión.',
       };
     }
+  },
+
+  /**
+   * Solicitar recuperación de contraseña mediante Supabase Auth directamente (sin SMTP manual)
+   */
+  async requestPasswordReset(email: string): Promise<{ success: boolean; message: string; notFound?: boolean }> {
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      return { success: false, message: 'Por favor ingresa un correo electrónico válido.' };
+    }
+
+    try {
+      const response = await fetch('/api/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: cleanEmail }),
+      });
+
+      const data = await response.json().catch(() => null);
+
+      if (data?.success) {
+        return {
+          success: true,
+          message: data.message || 'Se ha enviado un correo con instrucciones para restablecer tu contraseña.',
+        };
+      }
+
+      return {
+        success: false,
+        notFound: Boolean(data?.notFound),
+        message: data?.message || data?.error || 'No se pudo procesar la solicitud de recuperación.',
+      };
+    } catch (err: any) {
+      console.error('[AUTH OTP SERVICE] Error en requestPasswordReset:', err);
+      return {
+        success: false,
+        message: err?.message || 'Error de conexión al solicitar restablecimiento de contraseña.',
+      };
+    }
+  },
+
+  /**
+   * Consulta previa para verificar si un correo electrónico se encuentra registrado en el sistema
+   */
+  async checkUserExists(email: string): Promise<{ exists: boolean; user?: any; error?: string }> {
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      return { exists: false, error: 'Por favor ingresa un correo electrónico válido.' };
+    }
+
+    try {
+      const response = await fetch('/api/auth/check-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: cleanEmail }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        return {
+          exists: Boolean(data?.exists),
+          user: data?.user,
+        };
+      }
+    } catch (err) {
+      console.warn('[AUTH OTP SERVICE] Error consultando existencia de usuario en servidor:', err);
+    }
+
+    return { exists: false };
   },
 
   /**

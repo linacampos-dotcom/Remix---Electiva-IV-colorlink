@@ -19,9 +19,9 @@ import {
   Image as ImageIcon
 } from 'lucide-react';
 
-import livingRoomImg from '../assets/images/living_room_wall_1789834592467.jpg';
-import bedroomImg from '../assets/images/bedroom_wall_1789834625586.jpg';
-import facadeImg from '../assets/images/facade_wall_1789834604798.jpg';
+const livingRoomImg = '/src/assets/images/living_room_wall_1789834592467.jpg';
+const bedroomImg = '/src/assets/images/bedroom_wall_1789834625586.jpg';
+const facadeImg = '/src/assets/images/facade_wall_1789834604798.jpg';
 import { ImageVisualizer } from './ImageVisualizer';
 
 interface ColorPaletteVisualizerProps {

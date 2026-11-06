@@ -6,10 +6,12 @@ import {
   savePintucoUsersDb, 
   registerPintucoUser,
   resetPintucoUserPassword,
+  findUserByEmail,
   normalizeEmail,
   normalizeDocument,
   PintucoUserAccount
 } from '../utils/userDatabase';
+import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 import { 
   X, 
   User, 
@@ -246,8 +248,8 @@ export const UnifiedAuthModal: React.FC<UnifiedAuthModalProps> = ({
     onClose();
   };
 
-  // 2. REGISTRATION HANDLER (VALIDACIÓN ESTRICTA EN 'pintuco_users_db')
-  const handleRegisterSubmit = (e: React.FormEvent) => {
+  // 2. REGISTRATION HANDLER (INVOCACIÓN NATIVA A SUPABASE AUTH)
+  const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
     setSuccessMessage(null);
@@ -278,8 +280,8 @@ export const UnifiedAuthModal: React.FC<UnifiedAuthModalProps> = ({
       return;
     }
 
-    if (!password || password.length < 4) {
-      setErrorMessage('La contraseña debe contener al menos 4 caracteres.');
+    if (!password) {
+      setErrorMessage('Por favor ingresa una contraseña.');
       return;
     }
 
@@ -290,60 +292,65 @@ export const UnifiedAuthModal: React.FC<UnifiedAuthModalProps> = ({
 
     setIsLoading(true);
 
-    // Call user database registration service with duplicate validation
-    const result = registerPintucoUser({
-      nombre,
-      email,
-      cedula,
-      telefono,
-      password,
-      tipoDocumento: regTipoDoc,
-    });
-
-    if (!result.success || !result.user) {
-      setIsLoading(false);
-      // Mensaje de alerta obligatorio según especificación:
-      setErrorMessage(result.error || 'Ya existe una cuenta registrada con este correo o número de cédula.');
-      return;
-    }
-
-    const created = result.user;
-    const isLinaAdmin = Boolean(created.isCorporate);
-
-    const session: UserSession = {
-      nombre: created.nombre,
-      email: created.email,
-      documento: created.cedula,
-      tipoDocumento: (created.tipoDocumento || 'CC') as TipoDocumento,
-      ciudad: created.ciudad || 'Bogotá D.C.',
-      direccion: created.direccion || 'Carrera 15 # 93-60',
-      telefono: created.telefono,
-      userType: isLinaAdmin ? 'funcionario' : 'cliente',
-      isLoggedIn: true,
-      isCorporate: isLinaAdmin,
-      corporateRole: isLinaAdmin ? 'gerencia' : undefined,
-      departamento: created.departamento,
-      cargo: created.cargo,
-      isSuperAdmin: email === 'linajazmincampossaboya@gmail.com',
-      direcciones: created.direcciones || [],
-    };
-
-    setIsLoading(false);
-
-    // Requisito 3: Limpiar carrito para nuevo usuario registrado (0 elementos)
     try {
-      localStorage.removeItem('colorlink_cart');
-      localStorage.setItem('colorlink_cart', '[]');
-    } catch (err) {
-      console.error(err);
-    }
+      // 1. Invocación nativa oficial a Supabase Auth signUp
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo: 'https://remix-electiva-iv-colorlink.vercel.app/login',
+          data: {
+            nombre,
+            cedula,
+            telefono,
+            tipoDocumento: regTipoDoc,
+          },
+        },
+      });
 
-    if (isLinaAdmin) {
-      onLoginCorporate(session, 'gerencia');
-    } else {
-      onLoginClient(session, true);
+      if (error) {
+        console.error('[AUTH DEBUG]', error);
+        setIsLoading(false);
+        setErrorMessage(error.message);
+        return;
+      }
+
+      // Si Supabase devuelve identidades vacías con email_confirm habilitado, el correo ya está registrado
+      if (data?.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+        console.error('[AUTH DEBUG] Correo ya registrado (identities empty):', email);
+        setIsLoading(false);
+        setErrorMessage('User already registered. El correo ingresado ya se encuentra registrado.');
+        return;
+      }
+
+      // 1. Transición de vista al registrarse: Cambia automáticamente el estado a la vista de "Confirmar Correo / Verificación OTP"
+      setIsLoading(false);
+      setRegisterOtpStep('verify_otp');
+      setRegisterOtpCode('');
+      setSuccessMessage('¡Registro exitoso! Hemos enviado un correo de verificación a tu bandeja de entrada.');
+
+      // Registrar también en la base local para precargar perfil del cliente
+      registerPintucoUser({
+        nombre,
+        email,
+        cedula,
+        telefono,
+        password,
+        tipoDocumento: regTipoDoc,
+      });
+
+      // Limpiar carrito para nuevo usuario registrado
+      try {
+        localStorage.removeItem('colorlink_cart');
+        localStorage.setItem('colorlink_cart', '[]');
+      } catch (err) {
+        console.error(err);
+      }
+    } catch (err: any) {
+      console.error('[AUTH DEBUG]', err);
+      setIsLoading(false);
+      setErrorMessage(err?.message || 'Error inesperado durante el registro.');
     }
-    onClose();
   };
 
   // =========================================================================
@@ -515,11 +522,14 @@ export const UnifiedAuthModal: React.FC<UnifiedAuthModalProps> = ({
     }
   };
 
-  // 2.C: VERIFICAR OTP DE REGISTRO Y COMPLETAR ALTA
-  const handleVerifyRegisterOtp = async (codeToVerify?: string) => {
-    const code = (codeToVerify || registerOtpCode).trim();
-    if (!code || code.length !== 6) {
-      setErrorMessage('Por favor ingresa los 6 dígitos del código recibido.');
+  // 2.C: VERIFICAR CÓDIGO OTP DE REGISTRO EN SUPABASE AUTH
+  const handleVerifyRegisterOtp = async (codeToVerify?: string | React.FormEvent) => {
+    if (codeToVerify && typeof codeToVerify === 'object' && 'preventDefault' in codeToVerify) {
+      codeToVerify.preventDefault();
+    }
+    const otpCode = (typeof codeToVerify === 'string' ? codeToVerify : registerOtpCode).trim();
+    if (!otpCode || otpCode.length !== 6) {
+      setErrorMessage('Por favor ingresa los 6 dígitos del código recibido por correo.');
       return;
     }
 
@@ -528,63 +538,67 @@ export const UnifiedAuthModal: React.FC<UnifiedAuthModalProps> = ({
     setIsLoading(true);
 
     const email = normalizeEmail(inputEmail);
-    const res = await authOtpService.verifyEmailOtp(email, code, 'register');
-
-    if (!res.success) {
-      setIsLoading(false);
-      setErrorMessage(res.error || 'El código ingresado es incorrecto o ha expirado.');
-      return;
-    }
-
-    // Registrar en BD local
-    const regResult = registerPintucoUser({
-      nombre: regNombre.trim(),
-      email,
-      cedula: regCedula.trim(),
-      telefono: regTelefono.trim(),
-      password: inputPassword.trim(),
-      tipoDocumento: regTipoDoc,
-    });
-
-    setIsLoading(false);
-
-    if (!regResult.success || !regResult.user) {
-      setErrorMessage(regResult.error || 'Error al completar el registro.');
-      return;
-    }
-
-    const created = regResult.user;
-    const isLinaAdmin = Boolean(created.isCorporate);
-
-    const session: UserSession = {
-      nombre: created.nombre,
-      email: created.email,
-      documento: created.cedula,
-      tipoDocumento: (created.tipoDocumento || 'CC') as TipoDocumento,
-      ciudad: created.ciudad || 'Bogotá D.C.',
-      direccion: created.direccion || 'Carrera 15 # 93-60',
-      telefono: created.telefono,
-      userType: isLinaAdmin ? 'funcionario' : 'cliente',
-      isLoggedIn: true,
-      isCorporate: isLinaAdmin,
-      corporateRole: isLinaAdmin ? 'gerencia' : undefined,
-      departamento: created.departamento,
-      cargo: created.cargo,
-      isSuperAdmin: email === 'linajazmincampossaboya@gmail.com',
-      direcciones: created.direcciones || [],
-    };
 
     try {
-      localStorage.removeItem('colorlink_cart');
-      localStorage.setItem('colorlink_cart', '[]');
-    } catch {}
+      // 3. Validación en Supabase: supabase.auth.verifyOtp
+      const { data, error } = await supabase.auth.verifyOtp({
+        email,
+        token: otpCode,
+        type: 'signup',
+      });
 
-    if (isLinaAdmin) {
-      onLoginCorporate(session, 'gerencia');
-    } else {
-      onLoginClient(session, true);
+      if (error) {
+        console.error('[AUTH DEBUG]', error);
+        setIsLoading(false);
+        setErrorMessage(error.message);
+        return;
+      }
+
+      setIsLoading(false);
+
+      // 4. Resultado: Si el código es correcto, activa la sesión del usuario o redirígelo al inicio de sesión con el mensaje "¡Cuenta activada con éxito!"
+      const usersDb = getPintucoUsersDb();
+      let created = usersDb.find(u => normalizeEmail(u.email) === email);
+      const isLinaAdmin = email === 'linajazmincampossaboya@gmail.com' || Boolean(created?.isCorporate) || email.endsWith('@pintuco.com');
+
+      const session: UserSession = {
+        nombre: regNombre.trim() || created?.nombre || email.split('@')[0],
+        email: email,
+        documento: regCedula.trim() || created?.cedula || (isLinaAdmin ? '1.032.456.789' : '1.020.304.506'),
+        tipoDocumento: regTipoDoc || (created?.tipoDocumento as TipoDocumento) || 'CC',
+        ciudad: created?.ciudad || 'Bogotá D.C.',
+        direccion: created?.direccion || 'Carrera 15 # 93-60',
+        telefono: regTelefono.trim() || created?.telefono || '+57 300 123 4567',
+        userType: isLinaAdmin ? 'funcionario' : 'cliente',
+        isLoggedIn: true,
+        isCorporate: isLinaAdmin,
+        corporateRole: isLinaAdmin ? 'gerencia' : undefined,
+        departamento: created?.departamento,
+        cargo: isLinaAdmin ? (created?.cargo || 'Administrador General') : 'Cliente Registrado',
+        isSuperAdmin: email === 'linajazmincampossaboya@gmail.com',
+        direcciones: created?.direcciones || [],
+      };
+
+      try {
+        localStorage.removeItem('colorlink_cart');
+        localStorage.setItem('colorlink_cart', '[]');
+      } catch {}
+
+      if (isLinaAdmin) {
+        onLoginCorporate(session, 'gerencia');
+      } else {
+        onLoginClient(session, true);
+      }
+
+      setAuthMode('login');
+      setRegisterOtpStep('form');
+      setSuccessMessage('¡Cuenta activada con éxito!');
+      setErrorMessage(null);
+    } catch (err: any) {
+      console.error('[AUTH DEBUG]', err);
+      setIsLoading(false);
+      setErrorMessage(err?.message || 'Error inesperado al validar el código.');
     }
-    onClose();
   };
 
   // 3. RECUPERACIÓN DE CONTRASEÑA CON OTP (FLUJO DE 3 PASOS)
@@ -593,6 +607,7 @@ export const UnifiedAuthModal: React.FC<UnifiedAuthModalProps> = ({
     setErrorMessage(null);
     setSuccessMessage(null);
     setTechnicalAlert(null);
+    setEvaluationBanner(null);
 
     const email = normalizeEmail(recoveryEmail);
     if (!email || !email.includes('@')) {
@@ -601,10 +616,47 @@ export const UnifiedAuthModal: React.FC<UnifiedAuthModalProps> = ({
     }
 
     setIsLoading(true);
-    setTechnicalAlert(null);
-    setEvaluationBanner(null);
+
+    // 1. VALIDACIÓN DE EXISTENCIA PREVIA EN BD / SUPABASE / USUARIOS LOCALES
+    const userCheck = await authOtpService.checkUserExists(email);
+    const localUser = findUserByEmail(email);
+
+    let exists = userCheck.exists || Boolean(localUser);
+
+    // Consulta directa a Supabase si está disponible
+    if (!exists && isSupabaseConfigured && supabase) {
+      try {
+        const { data: sbClient } = await supabase
+          .from('clientes')
+          .select('id')
+          .ilike('email', email)
+          .limit(1);
+        if (sbClient && sbClient.length > 0) {
+          exists = true;
+        }
+      } catch (sbErr) {
+        console.warn('Error comprobando existencia en Supabase:', sbErr);
+      }
+    }
+
+    // 2. MANEJO DE CORREOS NO REGISTRADOS: BLOQUEAR INMEDIATAMENTE EL AVANCE
+    if (!exists) {
+      setIsLoading(false);
+      setErrorMessage('El correo ingresado no se encuentra registrado en el sistema.');
+      setEvaluationBanner(null);
+      setTechnicalAlert(null);
+      return; // Bloquea el avance, se queda en el paso de ingreso de correo
+    }
+
+    // 3. SOLICITUD DE OTP SI EL CORREO SÍ EXISTE
     const res = await authOtpService.sendEmailOtp(email, 'forgot_password');
     setIsLoading(false);
+
+    if (res.notFound) {
+      setErrorMessage(res.message || res.error || 'El correo ingresado no se encuentra registrado en el sistema.');
+      setEvaluationBanner(null);
+      return;
+    }
 
     if (res.devOtp) {
       console.log('%c 🔑 CÓDIGO OTP DEV: ' + res.devOtp, 'color: #00f2fe; font-size: 18px; font-weight: bold;');
@@ -614,15 +666,9 @@ export const UnifiedAuthModal: React.FC<UnifiedAuthModalProps> = ({
       setIsConfigRequired(false);
       setRecoveryOtpStep('verify_otp');
       setOtpResendTimer(60);
-      setSuccessMessage(`Código de seguridad de 6 dígitos enviado a: ${email}.`);
-    } else if (res.devOtp) {
-      // Fallback de evaluación si Brevo rechaza o tarda
-      setIsConfigRequired(false);
-      setRecoveryOtpStep('verify_otp');
-      setOtpResendTimer(60);
-      setEvaluationBanner(`⚠️ CÓDIGO OTP DE EVALUACIÓN: ${res.devOtp}`);
+      setSuccessMessage(res.message || 'Código enviado');
     } else {
-      setErrorMessage(res.error || 'No se pudo enviar el código de recuperación.');
+      setErrorMessage(res.message || res.error || 'No se pudo procesar la solicitud de recuperación.');
     }
   };
 
@@ -668,7 +714,35 @@ export const UnifiedAuthModal: React.FC<UnifiedAuthModalProps> = ({
     const email = normalizeEmail(recoveryEmail);
 
     try {
-      await authOtpService.resetPasswordWithOtp(email, recoveryOtpCode, recoveryNewPassword);
+      // 1. Invocar reseteo en backend con el código OTP
+      const res = await authOtpService.resetPasswordWithOtp(email, recoveryOtpCode, recoveryNewPassword);
+
+      // Si el backend / Supabase devuelve error, MANTENER AL USUARIO EN PANTALLA CON EL ERROR
+      if (!res.success) {
+        setIsLoading(false);
+        setErrorMessage(res.error || 'No se pudo actualizar la contraseña en el sistema. Verifica el código OTP o intenta nuevamente.');
+        return; // IMPORTANTE: NO redirigir a login, mantenerse en la pantalla
+      }
+
+      // 2. Intentar sincronización con Supabase Auth si está configurado
+      if (isSupabaseConfigured && supabase) {
+        try {
+          const { error: sbError } = await supabase.auth.updateUser({ password: recoveryNewPassword });
+          if (sbError) {
+            console.warn('[Supabase Auth Update Warning]:', sbError.message);
+            const lowerMsg = sbError.message.toLowerCase();
+            if (lowerMsg.includes('not found') || lowerMsg.includes('invalid') || lowerMsg.includes('token') || lowerMsg.includes('expired')) {
+              setIsLoading(false);
+              setErrorMessage(`Error en Supabase: ${sbError.message}`);
+              return; // Bloquea y se mantiene en la pantalla con el error
+            }
+          }
+        } catch (sbEx: any) {
+          console.warn('[Supabase Exception]:', sbEx);
+        }
+      }
+
+      // 3. Solo tras confirmación de éxito se actualiza la cuenta local
       resetPintucoUserPassword(email, recoveryNewPassword);
 
       setIsLoading(false);
@@ -682,7 +756,7 @@ export const UnifiedAuthModal: React.FC<UnifiedAuthModalProps> = ({
       setRecoveryConfirmPassword('');
     } catch (err: any) {
       setIsLoading(false);
-      setErrorMessage('Error al actualizar la contraseña.');
+      setErrorMessage(err.message || 'Error al actualizar la contraseña en el sistema.');
     }
   };
 
@@ -743,14 +817,16 @@ export const UnifiedAuthModal: React.FC<UnifiedAuthModalProps> = ({
                 <span className="hidden sm:inline">Cerrar Sesión</span>
               </button>
             )}
-            <button
-              type="button"
-              onClick={() => setIsConfigModalOpen(true)}
-              className="p-2 rounded-xl text-white/80 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
-              title="Configuración de Servidor de Correo (SMTP)"
-            >
-              <Settings className="w-4 h-4 text-cyan-300" />
-            </button>
+            {authMode !== 'forgot_password' && (
+              <button
+                type="button"
+                onClick={() => setIsConfigModalOpen(true)}
+                className="p-2 rounded-xl text-white/80 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                title="Configuración de Servidor de Correo (SMTP)"
+              >
+                <Settings className="w-4 h-4 text-cyan-300" />
+              </button>
+            )}
             <button
               type="button"
               onClick={onClose}
@@ -795,9 +871,9 @@ export const UnifiedAuthModal: React.FC<UnifiedAuthModalProps> = ({
           )}
 
           {successMessage && (
-            <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold flex items-start gap-2 animate-fadeIn">
+            <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold flex items-start gap-2.5 animate-fadeIn shadow-xs">
               <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-600" />
-              <span>{successMessage}</span>
+              <span className="leading-relaxed">{successMessage}</span>
             </div>
           )}
 
@@ -1105,16 +1181,93 @@ export const UnifiedAuthModal: React.FC<UnifiedAuthModalProps> = ({
             </div>
           )}
 
-          {/* 2. MODO: REGISTRO ÚNICO DE USUARIO CON VALIDACIÓN EN 'pintuco_users_db' */}
+          {/* 2. MODO: REGISTRO ÚNICO DE USUARIO CON SUPABASE AUTH */}
           {authMode === 'register' && (
             <div className="space-y-4 animate-fadeIn">
-              {registerOtpStep === 'form' ? (
+              {registerOtpStep === 'verify_otp' ? (
+                /* VISTA: CONFIRMAR CORREO / VERIFICACIÓN OTP */
+                <div className="space-y-4 animate-fadeIn">
+                  <div className="text-center pt-2">
+                    <div className="w-12 h-12 bg-blue-50 text-blue-900 rounded-2xl flex items-center justify-center mx-auto mb-2.5 border border-blue-100 shadow-xs">
+                      <ShieldCheck className="w-6 h-6 text-[#0033A0]" />
+                    </div>
+                    <h3 className="text-sm font-extrabold text-slate-900">
+                      Confirmar Correo / Verificación OTP
+                    </h3>
+                    <p className="text-xs text-slate-600 mt-1 max-w-sm mx-auto leading-relaxed">
+                      Hemos enviado un código de 6 dígitos a <strong>{inputEmail}</strong>. Ingrésalo a continuación para activar tu cuenta.
+                    </p>
+                  </div>
+
+                  <form onSubmit={handleVerifyRegisterOtp} className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                        Código de Verificación (6 dígitos)
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          maxLength={6}
+                          required
+                          autoComplete="one-time-code"
+                          autoFocus
+                          value={registerOtpCode}
+                          onChange={(e) => setRegisterOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                          placeholder="000000"
+                          className="w-full text-center text-xl font-mono font-bold tracking-[0.35em] py-3 px-4 rounded-xl border border-slate-300 focus:border-[#0033A0] focus:ring-2 focus:ring-[#0033A0]/20 text-slate-900 outline-none transition-all shadow-xs"
+                        />
+                        <ShieldCheck className="w-5 h-5 text-slate-400 absolute left-3.5 top-3.5" />
+                      </div>
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={isLoading || registerOtpCode.length < 6}
+                      className="w-full py-3 rounded-xl bg-blue-900 hover:bg-blue-800 text-white font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                    >
+                      {isLoading ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                          <span>Verificando con Supabase...</span>
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 className="w-4 h-4 text-emerald-300" />
+                          <span>Verificar Código y Activar Cuenta</span>
+                        </>
+                      )}
+                    </button>
+
+                    <div className="flex items-center justify-between text-xs pt-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRegisterOtpStep('form');
+                          setErrorMessage(null);
+                          setSuccessMessage(null);
+                        }}
+                        className="text-blue-900 hover:underline font-semibold cursor-pointer"
+                      >
+                        ← Volver al formulario
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSwitchToLogin}
+                        className="text-slate-500 hover:text-slate-800 hover:underline cursor-pointer"
+                      >
+                        Ir a Iniciar Sesión
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              ) : (
                 <>
                   <p className="text-xs text-slate-500 leading-relaxed">
-                    Ingresa tus datos y Cédula/NIT para registrar tu cuenta en Pintuco y validar tu correo mediante código OTP.
+                    Ingresa tus datos y Cédula/NIT para crear tu cuenta en COLORLINK Pintuco con Supabase Auth.
                   </p>
 
-                  <form onSubmit={handleStartRegisterWithOtp} className="space-y-3">
+                  <form onSubmit={handleRegisterSubmit} className="space-y-3">
                     <div>
                       <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
                         Nombre Completo / Razón Social
@@ -1135,7 +1288,7 @@ export const UnifiedAuthModal: React.FC<UnifiedAuthModalProps> = ({
                       </div>
                     </div>
 
-                    {/* CAMPO OBLIGATORIO: Número de Cédula / NIT */}
+                    {/* CAMPO: Número de Cédula / NIT */}
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                       <div>
                         <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
@@ -1155,7 +1308,6 @@ export const UnifiedAuthModal: React.FC<UnifiedAuthModalProps> = ({
                       <div className="sm:col-span-2">
                         <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1 flex items-center justify-between">
                           <span>Número de Cédula / NIT</span>
-                          <span className="text-[10px] text-red-600 font-extrabold">* Único</span>
                         </label>
                         <div className="relative">
                           <input
@@ -1176,7 +1328,7 @@ export const UnifiedAuthModal: React.FC<UnifiedAuthModalProps> = ({
 
                     <div>
                       <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                        Correo electrónico (Receptor de OTP)
+                        Correo electrónico
                       </label>
                       <div className="relative">
                         <input
@@ -1228,7 +1380,7 @@ export const UnifiedAuthModal: React.FC<UnifiedAuthModalProps> = ({
                             spellCheck={false}
                             value={inputPassword}
                             onChange={(e) => setInputPassword(e.target.value)}
-                            placeholder="Mínimo 4 caracteres"
+                            placeholder="Mínimo 6 caracteres"
                             className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-300 focus:border-[#0033A0] focus:ring-2 focus:ring-[#0033A0]/20 text-xs text-slate-900 outline-none transition-all shadow-xs"
                           />
                           <Lock className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-3" />
@@ -1264,102 +1416,32 @@ export const UnifiedAuthModal: React.FC<UnifiedAuthModalProps> = ({
                       {isLoading ? (
                         <>
                           <RefreshCw className="w-4 h-4 animate-spin" />
-                          <span>Enviando código de verificación...</span>
+                          <span>Registrando cuenta en Supabase...</span>
                         </>
                       ) : (
                         <>
-                          <ShieldCheck className="w-4 h-4 text-cyan-300" />
-                          <span>Verificar Correo y Registrar Cuenta (OTP)</span>
+                          <UserPlus className="w-4 h-4 text-cyan-300" />
+                          <span>Crear Cuenta en COLORLINK</span>
                         </>
                       )}
                     </button>
                   </form>
                 </>
-              ) : (
-                /* PASO OTP: VERIFICACIÓN CON 6 CASILLAS NUMÉRICAS */
-                <div className="space-y-4 animate-fadeIn">
-                  <div className="text-center">
-                    <div className="w-12 h-12 bg-cyan-50 text-cyan-700 rounded-2xl flex items-center justify-center mx-auto mb-2 border border-cyan-100">
-                      <ShieldCheck className="w-6 h-6" />
-                    </div>
-                    <h3 className="text-sm font-black text-slate-800">
-                      Código de Verificación de Registro
-                    </h3>
-                    <p className="text-xs text-slate-500 mt-1">
-                      Ingresa el código de 6 dígitos enviado al correo:<br />
-                      <strong className="text-slate-800 font-mono">{inputEmail}</strong>
-                    </p>
-                  </div>
-
-                  <OtpInputBoxes
-                    value={registerOtpCode}
-                    onChange={setRegisterOtpCode}
-                    onComplete={(code) => handleVerifyRegisterOtp(code)}
-                    disabled={isLoading}
-                    autoFocus={true}
-                  />
-
-                  <button
-                    type="button"
-                    onClick={() => handleVerifyRegisterOtp()}
-                    disabled={isLoading || registerOtpCode.length !== 6}
-                    className="w-full py-3.5 rounded-xl bg-blue-900 hover:bg-blue-800 text-white font-bold text-xs shadow-sm transition-colors flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-                  >
-                    {isLoading ? (
-                      <>
-                        <RefreshCw className="w-4 h-4 animate-spin" />
-                        <span>Verificando y Creando Cuenta...</span>
-                      </>
-                    ) : (
-                      <>
-                        <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                        <span>Verificar Código y Activar Cuenta</span>
-                      </>
-                    )}
-                  </button>
-
-                  <div className="flex items-center justify-between pt-1 text-xs">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setRegisterOtpStep('form');
-                        setRegisterOtpCode('');
-                        setErrorMessage(null);
-                      }}
-                      className="text-slate-500 hover:text-slate-800 flex items-center gap-1 cursor-pointer font-medium"
-                    >
-                      <ArrowLeft className="w-3.5 h-3.5" />
-                      <span>Modificar datos</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleStartRegisterWithOtp({ preventDefault: () => {} } as any)}
-                      disabled={otpResendTimer > 0 || isLoading}
-                      className={`flex items-center gap-1 cursor-pointer font-bold ${
-                        otpResendTimer > 0 ? 'text-slate-400 cursor-not-allowed' : 'text-cyan-700 hover:text-cyan-800'
-                      }`}
-                    >
-                      <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
-                      <span>
-                        {otpResendTimer > 0 ? `Reenviar en ${otpResendTimer}s` : 'Reenviar código'}
-                      </span>
-                    </button>
-                  </div>
-                </div>
               )}
 
               {/* Botón para regresar a Iniciar Sesión */}
-              <div className="pt-2 text-center text-xs text-slate-600">
-                <span>¿Ya tienes una cuenta registrada? </span>
-                <button
-                  type="button"
-                  onClick={handleSwitchToLogin}
-                  className="font-bold text-blue-900 hover:underline cursor-pointer"
-                >
-                  Iniciar Sesión
-                </button>
-              </div>
+              {registerOtpStep === 'form' && (
+                <div className="pt-2 text-center text-xs text-slate-600">
+                  <span>¿Ya tienes una cuenta registrada? </span>
+                  <button
+                    type="button"
+                    onClick={handleSwitchToLogin}
+                    className="font-bold text-blue-900 hover:underline cursor-pointer"
+                  >
+                    Iniciar Sesión
+                  </button>
+                </div>
+              )}
 
             </div>
           )}
