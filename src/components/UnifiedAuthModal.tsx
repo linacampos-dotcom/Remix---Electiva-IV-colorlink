@@ -12,9 +12,11 @@ import {
   PintucoUserAccount
 } from '../utils/userDatabase';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
+import { checkUnifiedUserStatus, syncClientProfileToSupabase } from '../lib/supabaseService';
 import { 
   X, 
   User, 
+  UserCheck,
   Lock, 
   Mail, 
   Phone, 
@@ -31,7 +33,8 @@ import {
   ShieldCheck,
   RefreshCw,
   Send,
-  Settings
+  Settings,
+  Sparkles
 } from 'lucide-react';
 import { OtpInputBoxes } from './OtpInputBoxes';
 import { authOtpService } from '../services/authOtpService';
@@ -101,6 +104,12 @@ export const UnifiedAuthModal: React.FC<UnifiedAuthModalProps> = ({
   const [technicalAlert, setTechnicalAlert] = useState<string | null>(null);
   const [evaluationBanner, setEvaluationBanner] = useState<string | null>(null);
 
+  // Estados para validación unificada y vinculación de perfiles en Supabase Auth
+  const [accountAlreadyExists, setAccountAlreadyExists] = useState(false);
+  const [isCompletingExistingAuthUser, setIsCompletingExistingAuthUser] = useState(false);
+  const [existingAuthUserId, setExistingAuthUserId] = useState<string | null>(null);
+  const [redirectCountdown, setRedirectCountdown] = useState<number | null>(null);
+
   // Reset and synchronize state on open
   useEffect(() => {
     if (isOpen) {
@@ -109,6 +118,10 @@ export const UnifiedAuthModal: React.FC<UnifiedAuthModalProps> = ({
       setSuccessMessage(null);
       setTechnicalAlert(null);
       setEvaluationBanner(null);
+      setAccountAlreadyExists(false);
+      setIsCompletingExistingAuthUser(false);
+      setExistingAuthUserId(null);
+      setRedirectCountdown(null);
       setInputEmail('');
       setInputPassword('');
       setConfirmPassword('');
@@ -143,9 +156,29 @@ export const UnifiedAuthModal: React.FC<UnifiedAuthModalProps> = ({
     return () => clearInterval(interval);
   }, [otpResendTimer]);
 
+  // Temporizador regresivo para redirección automática al login si ya está registrado
+  useEffect(() => {
+    if (redirectCountdown === null) return;
+    if (redirectCountdown <= 0) {
+      setRedirectCountdown(null);
+      setAccountAlreadyExists(false);
+      setAuthMode('login');
+      setLoginMethod('password');
+      setErrorMessage(null);
+      return;
+    }
+    const timer = setTimeout(() => {
+      setRedirectCountdown((prev) => (prev !== null ? prev - 1 : null));
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [redirectCountdown]);
+
   const handleSwitchToRegister = () => {
     setErrorMessage(null);
     setSuccessMessage(null);
+    setAccountAlreadyExists(false);
+    setIsCompletingExistingAuthUser(false);
+    setRedirectCountdown(null);
     setInputEmail('');
     setInputPassword('');
     setConfirmPassword('');
@@ -158,6 +191,9 @@ export const UnifiedAuthModal: React.FC<UnifiedAuthModalProps> = ({
   const handleSwitchToLogin = () => {
     setErrorMessage(null);
     setSuccessMessage(null);
+    setAccountAlreadyExists(false);
+    setIsCompletingExistingAuthUser(false);
+    setRedirectCountdown(null);
     setInputPassword('');
     setConfirmPassword('');
     setRecoveryNewPassword('');
@@ -169,6 +205,8 @@ export const UnifiedAuthModal: React.FC<UnifiedAuthModalProps> = ({
   const handleOpenForgotPassword = () => {
     setErrorMessage(null);
     setSuccessMessage(null);
+    setAccountAlreadyExists(false);
+    setRedirectCountdown(null);
     setRecoveryEmail(inputEmail.trim());
     setRecoveryNewPassword('');
     setRecoveryConfirmPassword('');
@@ -176,13 +214,52 @@ export const UnifiedAuthModal: React.FC<UnifiedAuthModalProps> = ({
     setAuthMode('forgot_password');
   };
 
+  // 1. Verificación unificada al escribir el correo electrónico
+  const handleCheckEmailStatus = async (emailToCheck: string) => {
+    const cleanEmail = normalizeEmail(emailToCheck);
+    if (!cleanEmail || !cleanEmail.includes('@') || cleanEmail.length < 5) return;
+
+    try {
+      const status = await checkUnifiedUserStatus(cleanEmail, regCedula);
+
+      if (authMode === 'register') {
+        if (status.existsInAuth) {
+          if (status.hasClientProfile) {
+            // Usuario ya existe en Supabase Auth y tiene perfil completo en clientes
+            setAccountAlreadyExists(true);
+            setIsCompletingExistingAuthUser(false);
+            setExistingAuthUserId(status.authUserId || null);
+          } else {
+            // Usuario YA existe en Supabase Auth pero NO tiene perfil creado en la tabla de clientes:
+            // En lugar de mostrar error, permitirle completar su perfil y vincularlo
+            setIsCompletingExistingAuthUser(true);
+            setAccountAlreadyExists(false);
+            setExistingAuthUserId(status.authUserId || null);
+            if (status.clientProfile?.nombre && !regNombre) {
+              setRegNombre(status.clientProfile.nombre);
+            }
+            if (status.clientProfile?.numero_documento && !regCedula) {
+              setRegCedula(status.clientProfile.numero_documento);
+            }
+          }
+        } else {
+          setAccountAlreadyExists(false);
+          setIsCompletingExistingAuthUser(false);
+        }
+      }
+    } catch (err) {
+      console.debug('Error en verificación de correo:', err);
+    }
+  };
+
   if (!isOpen) return null;
 
   // 1. LOGIN HANDLER
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
     setSuccessMessage(null);
+    setAccountAlreadyExists(false);
 
     const email = normalizeEmail(inputEmail);
     const password = inputPassword.trim();
@@ -202,57 +279,153 @@ export const UnifiedAuthModal: React.FC<UnifiedAuthModalProps> = ({
     const usersDb = getPintucoUsersDb();
     const existingAccount = usersDb.find(u => normalizeEmail(u.email) === email);
 
-    // Check if user exists in pintuco_users_db
-    if (!existingAccount) {
+    // 1.1 Intentar autenticación oficial directa con Supabase Auth
+    let supabaseUser: any = null;
+    let supabaseAuthSucceeded = false;
+
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const { data: sbData, error: sbErr } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
+        if (!sbErr && sbData?.user) {
+          supabaseUser = sbData.user;
+          supabaseAuthSucceeded = true;
+        }
+      } catch (sbEx) {
+        console.debug('Supabase signInWithPassword:', sbEx);
+      }
+    }
+
+    // 1.2 Si Supabase Auth valida las credenciales exitosamente
+    if (supabaseAuthSucceeded && supabaseUser) {
+      const meta = supabaseUser.user_metadata || {};
+      const userDoc = meta.cedula || meta.numero_documento || existingAccount?.cedula;
+      const userName = meta.nombre || existingAccount?.nombre;
+      const userPhone = meta.telefono || existingAccount?.telefono;
+      const userTipoDoc = meta.tipoDocumento || existingAccount?.tipoDocumento || 'CC';
+
+      // Si el usuario existe en Supabase Auth pero NO tiene perfil completo (nombre o cédula):
+      // Permitirle completar su perfil y vincularlo
+      if (!userDoc || !userName) {
+        setIsLoading(false);
+        setIsCompletingExistingAuthUser(true);
+        setExistingAuthUserId(supabaseUser.id);
+        setAuthMode('register');
+        setRegNombre(userName || '');
+        setRegCedula(userDoc || '');
+        setRegTelefono(userPhone || '');
+        setRegTipoDoc(userTipoDoc as TipoDocumento);
+        setSuccessMessage('✓ Cuenta autenticada en Supabase Auth. Completa tus datos para finalizar tu perfil de cliente.');
+        return;
+      }
+
+      const isLinaAdmin = email === 'linajazmincampossaboya@gmail.com' || Boolean(existingAccount?.isCorporate) || email.endsWith('@pintuco.com');
+
+      const session: UserSession = {
+        id: supabaseUser.id,
+        nombre: userName,
+        email: email,
+        documento: userDoc || (isLinaAdmin ? '1.032.456.789' : '1.020.304.506'),
+        tipoDocumento: userTipoDoc as TipoDocumento,
+        ciudad: existingAccount?.ciudad || 'Bogotá D.C.',
+        direccion: existingAccount?.direccion || 'Carrera 15 # 93-60',
+        telefono: userPhone || '+57 300 123 4567',
+        userType: isLinaAdmin ? 'funcionario' : 'cliente',
+        isLoggedIn: true,
+        isCorporate: isLinaAdmin,
+        corporateRole: isLinaAdmin ? 'gerencia' : undefined,
+        departamento: isLinaAdmin ? (existingAccount?.departamento || 'Dirección General & Operaciones Corporativas Pintuco') : undefined,
+        cargo: isLinaAdmin ? (existingAccount?.cargo || 'Administrador General') : 'Cliente Registrado',
+        isSuperAdmin: email === 'linajazmincampossaboya@gmail.com',
+        direcciones: existingAccount?.direcciones || [],
+      };
+
+      // Sincronizar en base local
+      if (!existingAccount) {
+        registerPintucoUser({
+          nombre: userName,
+          email,
+          cedula: userDoc,
+          telefono: userPhone || '+57 300 123 4567',
+          password,
+          tipoDocumento: userTipoDoc as TipoDocumento,
+        });
+      }
+
       setIsLoading(false);
-      setErrorMessage('Este correo no está registrado en el sistema. Por favor completa tu registro inicial.');
-      setAuthMode('register');
+      if (isLinaAdmin) {
+        onLoginCorporate(session, 'gerencia');
+      } else {
+        onLoginClient(session);
+      }
+      onClose();
       return;
     }
 
-    // STRICT PASSWORD VERIFICATION: Match entered password with stored password
-    if (existingAccount.password !== password) {
+    // 1.3 Si no validó con Supabase Auth, verificar cuenta en registro local
+    if (existingAccount) {
+      if (existingAccount.password !== password) {
+        setIsLoading(false);
+        setErrorMessage('Contraseña incorrecta. Inténtalo de nuevo.');
+        return;
+      }
+
+      const isLinaAdmin = email === 'linajazmincampossaboya@gmail.com' || Boolean(existingAccount.isCorporate) || email.endsWith('@pintuco.com');
+
+      const session: UserSession = {
+        nombre: existingAccount.nombre,
+        email: existingAccount.email,
+        documento: existingAccount.cedula || (isLinaAdmin ? '1.032.456.789' : '1.020.304.506'),
+        tipoDocumento: (existingAccount.tipoDocumento || 'CC') as TipoDocumento,
+        ciudad: existingAccount.ciudad || 'Bogotá D.C.',
+        direccion: existingAccount.direccion || 'Carrera 15 # 93-60',
+        telefono: existingAccount.telefono,
+        userType: isLinaAdmin ? 'funcionario' : 'cliente',
+        isLoggedIn: true,
+        isCorporate: isLinaAdmin,
+        corporateRole: isLinaAdmin ? 'gerencia' : undefined,
+        departamento: isLinaAdmin ? (existingAccount.departamento || 'Dirección General & Operaciones Corporativas Pintuco') : undefined,
+        cargo: isLinaAdmin ? (existingAccount.cargo || 'Administrador General') : 'Cliente Registrado',
+        isSuperAdmin: email === 'linajazmincampossaboya@gmail.com',
+        direcciones: existingAccount.direcciones || [],
+      };
+
       setIsLoading(false);
-      setErrorMessage('Contraseña incorrecta. Inténtalo de nuevo.');
+      if (isLinaAdmin) {
+        onLoginCorporate(session, 'gerencia');
+      } else {
+        onLoginClient(session);
+      }
+      onClose();
       return;
     }
 
-    // Password is VALID -> Build Session with persistent Cédula/NIT
-    const isLinaAdmin = email === 'linajazmincampossaboya@gmail.com' || Boolean(existingAccount.isCorporate) || email.endsWith('@pintuco.com');
-
-    const session: UserSession = {
-      nombre: existingAccount.nombre,
-      email: existingAccount.email,
-      documento: existingAccount.cedula || (isLinaAdmin ? '1.032.456.789' : '1.020.304.506'),
-      tipoDocumento: (existingAccount.tipoDocumento || 'CC') as TipoDocumento,
-      ciudad: existingAccount.ciudad || 'Bogotá D.C.',
-      direccion: existingAccount.direccion || 'Carrera 15 # 93-60',
-      telefono: existingAccount.telefono,
-      userType: isLinaAdmin ? 'funcionario' : 'cliente',
-      isLoggedIn: true,
-      isCorporate: isLinaAdmin,
-      corporateRole: isLinaAdmin ? 'gerencia' : undefined,
-      departamento: isLinaAdmin ? (existingAccount.departamento || 'Dirección General & Operaciones Corporativas Pintuco') : undefined,
-      cargo: isLinaAdmin ? (existingAccount.cargo || 'Administrador General') : 'Cliente Registrado',
-      isSuperAdmin: email === 'linajazmincampossaboya@gmail.com',
-      direcciones: existingAccount.direcciones || [],
-    };
-
+    // 1.4 Si no se encuentra en local, verificar estado unificado
     setIsLoading(false);
-
-    if (isLinaAdmin) {
-      onLoginCorporate(session, 'gerencia');
+    const status = await checkUnifiedUserStatus(email);
+    if (status.existsInAuth) {
+      if (!status.hasClientProfile) {
+        setIsCompletingExistingAuthUser(true);
+        setExistingAuthUserId(status.authUserId || null);
+        setAuthMode('register');
+        setSuccessMessage('✓ Tu cuenta de acceso está activa. Por favor completa tus datos para vincular tu perfil.');
+        return;
+      }
+      setErrorMessage('Contraseña incorrecta. Puedes restablecerla o ingresar con código OTP de acceso rápido.');
     } else {
-      onLoginClient(session);
+      setErrorMessage('No encontramos una cuenta registrada con este correo. Puedes crear tu cuenta a continuación.');
+      setAuthMode('register');
     }
-    onClose();
   };
 
-  // 2. REGISTRATION HANDLER (INVOCACIÓN NATIVA A SUPABASE AUTH)
+  // 2. REGISTRATION HANDLER (CON VALIDACIÓN UNIFICADA Y VINCULACIÓN LIMPIA)
   const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
     setSuccessMessage(null);
+    setAccountAlreadyExists(false);
 
     const email = normalizeEmail(inputEmail);
     const nombre = regNombre.trim();
@@ -261,7 +434,7 @@ export const UnifiedAuthModal: React.FC<UnifiedAuthModalProps> = ({
     const password = inputPassword.trim();
 
     if (!nombre) {
-      setErrorMessage('Por favor ingresa tu nombre completo.');
+      setErrorMessage('Por favor ingresa tu nombre completo o razón social.');
       return;
     }
 
@@ -280,6 +453,82 @@ export const UnifiedAuthModal: React.FC<UnifiedAuthModalProps> = ({
       return;
     }
 
+    // ESCENARIO A: El usuario YA existe en Supabase Auth pero NO tiene perfil creado en clientes
+    // Permite completar su perfil (Nombre, Cédula, Teléfono) y vincularlo al mismo user_id
+    if (isCompletingExistingAuthUser) {
+      setIsLoading(true);
+      try {
+        const syncRes = await syncClientProfileToSupabase({
+          user_id: existingAuthUserId || undefined,
+          email,
+          nombre,
+          cedula,
+          telefono,
+          tipoDocumento: regTipoDoc,
+          ciudad: 'Bogotá D.C.',
+        });
+
+        const usersDb = getPintucoUsersDb();
+        const existingIdx = usersDb.findIndex(u => normalizeEmail(u.email) === email);
+        const isLinaAdmin = email === 'linajazmincampossaboya@gmail.com' || email.endsWith('@pintuco.com');
+
+        const session: UserSession = {
+          id: existingAuthUserId || syncRes.clienteId || undefined,
+          nombre,
+          email,
+          documento: cedula,
+          tipoDocumento: regTipoDoc,
+          ciudad: 'Bogotá D.C.',
+          direccion: 'Carrera 15 # 93-60',
+          telefono,
+          userType: isLinaAdmin ? 'funcionario' : 'cliente',
+          isLoggedIn: true,
+          isCorporate: isLinaAdmin,
+          corporateRole: isLinaAdmin ? 'gerencia' : undefined,
+          cargo: isLinaAdmin ? 'Administrador General' : 'Cliente Registrado',
+          isSuperAdmin: email === 'linajazmincampossaboya@gmail.com',
+          direcciones: [],
+        };
+
+        if (existingIdx !== -1) {
+          usersDb[existingIdx] = {
+            ...usersDb[existingIdx],
+            nombre,
+            cedula,
+            telefono,
+            tipoDocumento: regTipoDoc,
+          };
+          savePintucoUsersDb(usersDb);
+        } else {
+          registerPintucoUser({
+            nombre,
+            email,
+            cedula,
+            telefono,
+            password: password || 'pintuco_linked',
+            tipoDocumento: regTipoDoc,
+          });
+        }
+
+        setIsLoading(false);
+        setSuccessMessage('¡Perfil de cliente vinculado y cuenta completada con éxito!');
+        setTimeout(() => {
+          if (isLinaAdmin) {
+            onLoginCorporate(session, 'gerencia');
+          } else {
+            onLoginClient(session, true);
+          }
+          onClose();
+        }, 1000);
+        return;
+      } catch (err: any) {
+        setIsLoading(false);
+        setErrorMessage(err?.message || 'Error al vincular el perfil con tu cuenta.');
+        return;
+      }
+    }
+
+    // ESCENARIO B: Usuario NO existe en ninguna de las dos tablas -> Registro normal con supabase.auth.signUp()
     if (!password) {
       setErrorMessage('Por favor ingresa una contraseña.');
       return;
@@ -293,7 +542,7 @@ export const UnifiedAuthModal: React.FC<UnifiedAuthModalProps> = ({
     setIsLoading(true);
 
     try {
-      // 1. Invocación nativa oficial a Supabase Auth signUp
+      // Invocación nativa oficial a Supabase Auth signUp
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
@@ -302,11 +551,29 @@ export const UnifiedAuthModal: React.FC<UnifiedAuthModalProps> = ({
           data: {
             nombre,
             cedula,
+            numero_documento: cedula,
             telefono,
             tipoDocumento: regTipoDoc,
           },
         },
       });
+
+      // Manejo amigable del error "User already registered" (en lugar de bloquear con error rojo)
+      const isAlreadyRegistered = 
+        (error && (
+          error.message.toLowerCase().includes('already registered') ||
+          error.message.toLowerCase().includes('already been registered') ||
+          error.message.toLowerCase().includes('user already exists')
+        )) ||
+        (data?.user && Array.isArray(data.user.identities) && data.user.identities.length === 0);
+
+      if (isAlreadyRegistered) {
+        setIsLoading(false);
+        setAccountAlreadyExists(true);
+        setErrorMessage(null);
+        setRedirectCountdown(3);
+        return;
+      }
 
       if (error) {
         console.error('[AUTH DEBUG]', error);
@@ -315,21 +582,22 @@ export const UnifiedAuthModal: React.FC<UnifiedAuthModalProps> = ({
         return;
       }
 
-      // Si Supabase devuelve identidades vacías con email_confirm habilitado, el correo ya está registrado
-      if (data?.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
-        console.error('[AUTH DEBUG] Correo ya registrado (identities empty):', email);
-        setIsLoading(false);
-        setErrorMessage('User already registered. El correo ingresado ya se encuentra registrado.');
-        return;
-      }
+      // Sincronizar el perfil en la tabla 'clientes' de Supabase
+      await syncClientProfileToSupabase({
+        user_id: data?.user?.id,
+        email,
+        nombre,
+        cedula,
+        telefono,
+        tipoDocumento: regTipoDoc,
+      });
 
-      // 1. Transición de vista al registrarse: Cambia automáticamente el estado a la vista de "Confirmar Correo / Verificación OTP"
       setIsLoading(false);
       setRegisterOtpStep('verify_otp');
       setRegisterOtpCode('');
       setSuccessMessage('¡Registro exitoso! Hemos enviado un correo de verificación a tu bandeja de entrada.');
 
-      // Registrar también en la base local para precargar perfil del cliente
+      // Registrar en la base local para precargar perfil del cliente
       registerPintucoUser({
         nombre,
         email,
@@ -339,7 +607,6 @@ export const UnifiedAuthModal: React.FC<UnifiedAuthModalProps> = ({
         tipoDocumento: regTipoDoc,
       });
 
-      // Limpiar carrito para nuevo usuario registrado
       try {
         localStorage.removeItem('colorlink_cart');
         localStorage.setItem('colorlink_cart', '[]');
@@ -349,7 +616,14 @@ export const UnifiedAuthModal: React.FC<UnifiedAuthModalProps> = ({
     } catch (err: any) {
       console.error('[AUTH DEBUG]', err);
       setIsLoading(false);
-      setErrorMessage(err?.message || 'Error inesperado durante el registro.');
+      const isAlready = err?.message && err.message.toLowerCase().includes('already');
+      if (isAlready) {
+        setAccountAlreadyExists(true);
+        setErrorMessage(null);
+        setRedirectCountdown(3);
+      } else {
+        setErrorMessage(err?.message || 'Error inesperado durante el registro.');
+      }
     }
   };
 
@@ -848,6 +1122,55 @@ export const UnifiedAuthModal: React.FC<UnifiedAuthModalProps> = ({
 
         {/* Mensajes de Éxito / Error */}
         <div className="px-6 pt-4 space-y-2">
+          {/* Tarjeta amigable cuando el usuario ya tiene cuenta (User already registered) */}
+          {accountAlreadyExists && (
+            <div className="p-4 rounded-2xl bg-gradient-to-br from-blue-50 via-sky-50 to-indigo-50/70 border border-sky-300 text-slate-800 text-xs shadow-xs animate-fadeIn">
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-full bg-blue-900 text-white flex items-center justify-center shrink-0 shadow-xs mt-0.5">
+                  <UserCheck className="w-4 h-4 text-cyan-300" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h4 className="font-black text-slate-900 text-xs mb-1">
+                    Este correo ya tiene una cuenta registrada
+                  </h4>
+                  <p className="text-[11px] text-slate-600 leading-relaxed mb-3">
+                    La dirección <strong className="text-blue-900 font-mono">{inputEmail}</strong> ya se encuentra registrada en el sistema COLORLINK Pintuco.
+                    {redirectCountdown !== null && (
+                      <span className="block mt-1 text-slate-500 font-medium">
+                        Redirigiéndote al inicio de sesión en <strong className="text-blue-900">{redirectCountdown}s</strong>...
+                      </span>
+                    )}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleSwitchToLogin}
+                    className="w-full py-2.5 px-4 rounded-xl bg-blue-900 hover:bg-blue-800 text-white font-bold text-xs shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+                  >
+                    <LogIn className="w-3.5 h-3.5 text-cyan-300" />
+                    <span>Este correo ya tiene una cuenta. Inicia sesión aquí →</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Banner informativo cuando el usuario existe en Supabase Auth pero está completando su perfil */}
+          {isCompletingExistingAuthUser && authMode === 'register' && (
+            <div className="p-3.5 rounded-2xl bg-teal-50 border border-teal-300 text-teal-900 text-xs animate-fadeIn shadow-2xs">
+              <div className="flex items-start gap-2.5">
+                <Sparkles className="w-4 h-4 text-teal-700 shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <span className="font-black block text-teal-950 mb-0.5">
+                    Cuenta de acceso identificada en Supabase Auth
+                  </span>
+                  <span className="leading-relaxed text-[11px] text-teal-800">
+                    Tu acceso ya está autenticado. Completa a continuación tu nombre o razón social, cédula/NIT y teléfono para vincular tu perfil de cliente.
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
           {errorMessage && (
             <div className="p-3.5 rounded-2xl bg-red-50 border border-red-200 text-red-700 text-xs font-bold animate-fadeIn">
               <div className="flex items-start gap-2">
@@ -1327,8 +1650,13 @@ export const UnifiedAuthModal: React.FC<UnifiedAuthModalProps> = ({
                     </div>
 
                     <div>
-                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                        Correo electrónico
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1 flex items-center justify-between">
+                        <span>Correo electrónico</span>
+                        {isCompletingExistingAuthUser && (
+                          <span className="text-[10px] text-teal-700 font-bold bg-teal-50 px-1.5 py-0.5 rounded border border-teal-200">
+                            ✓ Registrado en Supabase
+                          </span>
+                        )}
                       </label>
                       <div className="relative">
                         <input
@@ -1338,7 +1666,13 @@ export const UnifiedAuthModal: React.FC<UnifiedAuthModalProps> = ({
                           autoCorrect="off"
                           spellCheck={false}
                           value={inputEmail}
-                          onChange={(e) => setInputEmail(e.target.value)}
+                          onChange={(e) => {
+                            setInputEmail(e.target.value);
+                            if (e.target.value.includes('@') && e.target.value.length > 5) {
+                              handleCheckEmailStatus(e.target.value);
+                            }
+                          }}
+                          onBlur={(e) => handleCheckEmailStatus(e.target.value)}
                           placeholder="nombre@ejemplo.com"
                           className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 focus:border-[#0033A0] focus:ring-2 focus:ring-[#0033A0]/20 text-xs text-slate-900 outline-none transition-all shadow-xs"
                         />
@@ -1366,47 +1700,54 @@ export const UnifiedAuthModal: React.FC<UnifiedAuthModalProps> = ({
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                          Crear Contraseña
-                        </label>
-                        <div className="relative">
-                          <input
-                            type={showPassword ? 'text' : 'password'}
-                            required
-                            autoComplete="off"
-                            autoCorrect="off"
-                            spellCheck={false}
-                            value={inputPassword}
-                            onChange={(e) => setInputPassword(e.target.value)}
-                            placeholder="Mínimo 6 caracteres"
-                            className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-300 focus:border-[#0033A0] focus:ring-2 focus:ring-[#0033A0]/20 text-xs text-slate-900 outline-none transition-all shadow-xs"
-                          />
-                          <Lock className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-3" />
+                    {!isCompletingExistingAuthUser ? (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                            Crear Contraseña
+                          </label>
+                          <div className="relative">
+                            <input
+                              type={showPassword ? 'text' : 'password'}
+                              required
+                              autoComplete="off"
+                              autoCorrect="off"
+                              spellCheck={false}
+                              value={inputPassword}
+                              onChange={(e) => setInputPassword(e.target.value)}
+                              placeholder="Mínimo 6 caracteres"
+                              className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-300 focus:border-[#0033A0] focus:ring-2 focus:ring-[#0033A0]/20 text-xs text-slate-900 outline-none transition-all shadow-xs"
+                            />
+                            <Lock className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-3" />
+                          </div>
                         </div>
-                      </div>
 
-                      <div>
-                        <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                          Confirmar Contraseña
-                        </label>
-                        <div className="relative">
-                          <input
-                            type={showPassword ? 'text' : 'password'}
-                            required
-                            autoComplete="off"
-                            autoCorrect="off"
-                            spellCheck={false}
-                            value={confirmPassword}
-                            onChange={(e) => setConfirmPassword(e.target.value)}
-                            placeholder="Repite la contraseña"
-                            className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-300 focus:border-[#0033A0] focus:ring-2 focus:ring-[#0033A0]/20 text-xs text-slate-900 outline-none transition-all shadow-xs"
-                          />
-                          <Lock className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-3" />
+                        <div>
+                          <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                            Confirmar Contraseña
+                          </label>
+                          <div className="relative">
+                            <input
+                              type={showPassword ? 'text' : 'password'}
+                              required
+                              autoComplete="off"
+                              autoCorrect="off"
+                              spellCheck={false}
+                              value={confirmPassword}
+                              onChange={(e) => setConfirmPassword(e.target.value)}
+                              placeholder="Repite la contraseña"
+                              className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-300 focus:border-[#0033A0] focus:ring-2 focus:ring-[#0033A0]/20 text-xs text-slate-900 outline-none transition-all shadow-xs"
+                            />
+                            <Lock className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-3" />
+                          </div>
                         </div>
                       </div>
-                    </div>
+                    ) : (
+                      <div className="p-3 bg-teal-50/70 border border-teal-200 rounded-xl text-teal-900 text-xs flex items-center gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-teal-600 shrink-0" />
+                        <span>Tu contraseña de acceso en Supabase ya está configurada. Al guardar se creará tu perfil oficial de cliente.</span>
+                      </div>
+                    )}
 
                     <button
                       type="submit"
@@ -1416,7 +1757,12 @@ export const UnifiedAuthModal: React.FC<UnifiedAuthModalProps> = ({
                       {isLoading ? (
                         <>
                           <RefreshCw className="w-4 h-4 animate-spin" />
-                          <span>Registrando cuenta en Supabase...</span>
+                          <span>{isCompletingExistingAuthUser ? 'Vinculando perfil con Supabase...' : 'Registrando cuenta en Supabase...'}</span>
+                        </>
+                      ) : isCompletingExistingAuthUser ? (
+                        <>
+                          <Sparkles className="w-4 h-4 text-amber-300" />
+                          <span>Completar y Vincular Perfil de Cliente</span>
                         </>
                       ) : (
                         <>

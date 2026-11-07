@@ -18,6 +18,230 @@ export interface SupabaseProjectWithRelations {
   productos?: SupabaseProducto | null;
 }
 
+export interface UnifiedUserStatus {
+  email: string;
+  existsInAuth: boolean;
+  hasClientProfile: boolean;
+  clientProfile?: {
+    id?: string;
+    nombre?: string;
+    numero_documento?: string;
+    tipo_documento?: string;
+    ciudad?: string;
+    telefono?: string;
+  } | null;
+  authUserId?: string | null;
+}
+
+/**
+ * Normaliza tipo de documento para coincidir con la restricción CHECK de la tabla clientes:
+ * CHECK (tipo_documento IN ('CC', 'NIT', 'CE', 'Pasaporte'))
+ */
+export function normalizeTipoDocumento(raw?: string): 'CC' | 'NIT' | 'CE' | 'Pasaporte' {
+  if (!raw) return 'CC';
+  const clean = raw.trim().toUpperCase();
+  if (clean === 'NIT') return 'NIT';
+  if (clean.includes('CE') || clean.includes('EXTRANJER')) return 'CE';
+  if (clean.includes('PASAPORTE') || clean.includes('PASAP')) return 'Pasaporte';
+  return 'CC';
+}
+
+/**
+ * Verificación unificada en Supabase Auth y tabla de clientes
+ */
+export async function checkUnifiedUserStatus(
+  email: string,
+  cedula?: string
+): Promise<UnifiedUserStatus> {
+  const cleanEmail = (email || '').trim().toLowerCase();
+  const cleanCedula = (cedula || '').trim();
+
+  if (!cleanEmail || !cleanEmail.includes('@')) {
+    return {
+      email: cleanEmail,
+      existsInAuth: false,
+      hasClientProfile: false,
+    };
+  }
+
+  try {
+    const res = await fetch('/api/auth/check-user-status', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: cleanEmail, cedula: cleanCedula }),
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.success) {
+        return {
+          email: cleanEmail,
+          existsInAuth: Boolean(data.existsInAuth),
+          hasClientProfile: Boolean(data.hasClientProfile),
+          clientProfile: data.clientProfile || null,
+          authUserId: data.authUserId || null,
+        };
+      }
+    }
+  } catch (err) {
+    console.debug('Error en consulta check-user-status:', err);
+  }
+
+  // Fallback directo desde el cliente
+  let existsInAuth = false;
+  let hasClientProfile = false;
+  let clientProfile: any = null;
+
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { error } = await supabase.auth.signInWithOtp({
+        email: cleanEmail,
+        options: { shouldCreateUser: false },
+      });
+      const notInAuth = error && (
+        error.message.toLowerCase().includes('signups not allowed') ||
+        error.message.toLowerCase().includes('signup not allowed') ||
+        error.message.toLowerCase().includes('user not found')
+      );
+      existsInAuth = !notInAuth;
+    } catch {}
+
+    if (cleanCedula) {
+      try {
+        const { data: clients } = await supabase
+          .from('clientes')
+          .select('id, tipo_documento, numero_documento, nombre, ciudad')
+          .eq('numero_documento', cleanCedula)
+          .limit(1);
+        if (clients && clients.length > 0) {
+          hasClientProfile = true;
+          clientProfile = clients[0];
+        }
+      } catch {}
+    }
+  }
+
+  return {
+    email: cleanEmail,
+    existsInAuth,
+    hasClientProfile,
+    clientProfile,
+  };
+}
+
+/**
+ * Guarda o actualiza el perfil del cliente en la base de datos (tabla 'clientes' y Supabase Auth)
+ * vinculándolo limpiamente sin generar falsos errores de validación.
+ */
+export async function syncClientProfileToSupabase(profile: {
+  id?: string;
+  user_id?: string;
+  email: string;
+  nombre: string;
+  cedula: string;
+  telefono?: string;
+  tipoDocumento?: string;
+  ciudad?: string;
+}): Promise<{
+  success: boolean;
+  clienteId?: string;
+  error?: string;
+}> {
+  await checkAndInitServerSupabase();
+
+  const cleanEmail = (profile.email || '').trim().toLowerCase();
+  const cleanNombre = (profile.nombre || '').trim();
+  const cleanDoc = (profile.cedula || '').trim();
+  const cleanTipoDoc = normalizeTipoDocumento(profile.tipoDocumento);
+  const cleanCiudad = (profile.ciudad || 'Bogotá D.C.').trim();
+  const cleanTelefono = (profile.telefono || '').trim();
+
+  let clienteId = profile.user_id || profile.id || '';
+
+  // 1. Guardar en tabla 'clientes' de Supabase
+  // NOTA: La tabla clientes contiene estrictamente: id, tipo_documento, numero_documento, nombre, ciudad
+  if (isSupabaseConfigured && supabase && cleanDoc) {
+    try {
+      const { data: existingClients, error: searchErr } = await supabase
+        .from('clientes')
+        .select('id, tipo_documento, numero_documento, nombre, ciudad')
+        .eq('numero_documento', cleanDoc)
+        .limit(1);
+
+      if (!searchErr && existingClients && existingClients.length > 0) {
+        clienteId = existingClients[0].id;
+        await supabase
+          .from('clientes')
+          .update({
+            tipo_documento: cleanTipoDoc,
+            nombre: cleanNombre,
+            ciudad: cleanCiudad,
+          })
+          .eq('id', clienteId);
+      } else {
+        const insertPayload: any = {
+          tipo_documento: cleanTipoDoc,
+          numero_documento: cleanDoc,
+          nombre: cleanNombre,
+          ciudad: cleanCiudad,
+        };
+
+        const { data: newClient, error: insertErr } = await supabase
+          .from('clientes')
+          .insert(insertPayload)
+          .select('id')
+          .single();
+
+        if (!insertErr && newClient?.id) {
+          clienteId = newClient.id;
+        } else if (insertErr) {
+          console.warn('Advertencia insertando en clientes:', insertErr.message);
+        }
+      }
+
+      // Actualizar metadata de Supabase Auth si hay sesión activa
+      try {
+        await supabase.auth.updateUser({
+          data: {
+            nombre: cleanNombre,
+            cedula: cleanDoc,
+            numero_documento: cleanDoc,
+            telefono: cleanTelefono,
+            tipoDocumento: cleanTipoDoc,
+            ciudad: cleanCiudad,
+          },
+        });
+      } catch (authMetaErr) {
+        console.debug('No active session for updateUser:', authMetaErr);
+      }
+    } catch (err: any) {
+      console.warn('Excepción sincronizando clientes en Supabase:', err);
+    }
+  }
+
+  // 2. Notificar al servidor Express para actualizar usersDatabase
+  try {
+    await fetch('/api/auth/sync-profile', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: cleanEmail,
+        nombre: cleanNombre,
+        cedula: cleanDoc,
+        telefono: cleanTelefono,
+        tipoDocumento: cleanTipoDoc,
+        ciudad: cleanCiudad,
+        userId: clienteId,
+      }),
+    });
+  } catch {}
+
+  return {
+    success: true,
+    clienteId,
+  };
+}
+
 /**
  * Checks server-side environment for Supabase credentials and reconfigures client if available
  */

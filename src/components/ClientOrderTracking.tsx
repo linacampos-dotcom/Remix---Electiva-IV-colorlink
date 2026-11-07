@@ -29,24 +29,7 @@ import {
 import { searchSupabaseProjects, SupabaseProjectWithRelations } from '../lib/supabaseService';
 import { isSupabaseConfigured } from '../lib/supabaseClient';
 
-export const isMockOrder = (o: any): boolean => {
-  if (!o) return true;
-  const id = String(o.id || '').toLowerCase();
-  const num = String(o.numeroOrden || '').toLowerCase();
-  const orderId = String(o.orderId || '').toLowerCase();
-  const name = String(o.customerName || o.form?.nombre_razon_social || '').toLowerCase();
-  const doc = String(o.customerDocument || o.form?.documento || '').replace(/[\.\-\s]/g, '');
-
-  // Las órdenes oficiales COLORLINK (#CLK-...) NUNCA deben ser descartadas
-  if (num.includes('clk-') || id.includes('clk-') || orderId.includes('clk-')) return false;
-
-  if (id === 'ord-init-1' || id === 'ord-init-2') return true;
-  if (id.includes('a93ec3fe') || num.includes('a93ec3fe') || num.includes('sb-a93ec3fe') || orderId.includes('a93ec3fe')) return true;
-  if (name.includes('sara ramirez') && (doc.includes('1028727371') || doc === '')) return true;
-  if (num.includes('sb-') && name.includes('sara')) return true;
-  if (o.form?.nombre_razon_social === 'Constructora Bolívar S.A.' || o.form?.nombre_razon_social === 'Clínica Las Américas') return true;
-  return false;
-};
+export { isMockOrder } from '../services/ordersService';
 
 interface ClientOrderTrackingProps {
   orders: COLORLINKOrder[];
@@ -61,7 +44,16 @@ export const ClientOrderTracking: React.FC<ClientOrderTrackingProps> = ({
   onSelectNewOrderTab,
   onOpenOmniNotification,
 }) => {
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState(() => {
+    try {
+      const savedTarget = sessionStorage.getItem('colorlink_track_order_query');
+      if (savedTarget) {
+        sessionStorage.removeItem('colorlink_track_order_query');
+        return savedTarget;
+      }
+    } catch {}
+    return '';
+  });
   const [isSearchingSupabase, setIsSearchingSupabase] = useState(false);
   const [supabaseResults, setSupabaseResults] = useState<SupabaseProjectWithRelations[]>([]);
   const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null);

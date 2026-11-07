@@ -36,6 +36,7 @@ import { downloadQuotationSheet } from '../utils/quotationSheetGenerator';
 import { ImageVisualizer } from './ImageVisualizer';
 import { SEDES_PINTUCO, SedePintuco } from './ColombiaInteractiveMap';
 import { DEPARTAMENTOS_COLOMBIA } from '../data/colombiaLogistics';
+import { fetchUserOrdersFromDatabase, isMockOrder } from '../services/ordersService';
 const sampleWallImg = '/src/assets/images/living_room_wall_1789834592467.jpg';
 const facadeWallImg = '/src/assets/images/facade_wall_1789834604798.jpg';
 
@@ -417,17 +418,36 @@ export const AIChatDrawer: React.FC<AIChatDrawerProps> = ({
   onOpenCoverageMap,
   orders,
 }) => {
-  const isUserAuthenticated = Boolean(
-    userSession && (userSession.isLoggedIn === true || Boolean(userSession.email))
-  );
-  const activeUserEmail = isUserAuthenticated && userSession?.email
-    ? userSession.email.trim().toLowerCase()
-    : 'guest';
-  const chatStorageKey = `colorlink_chat_${activeUserEmail}`;
-  const chatStateKey = `colorlink_chat_state_${activeUserEmail}`;
+  // Sincronización en tiempo real con Supabase Auth (user_id y email)
+  const [supabaseAuthUser, setSupabaseAuthUser] = useState<{ id: string; email: string } | null>(null);
 
-  // Saludo oficial de una sola frase solicitado por el usuario
-  const OFFICIAL_GREETING = '¡Hola! Soy tu Asistente IA de Pintuco/ColorLink. ¿En qué puedo ayudarte hoy?';
+  useEffect(() => {
+    let isMounted = true;
+    if (isSupabaseConfigured && supabase) {
+      supabase.auth.getUser().then(({ data: { user } }) => {
+        if (user && isMounted) {
+          setSupabaseAuthUser({ id: user.id, email: user.email || '' });
+        }
+      }).catch(() => {});
+    }
+    return () => { isMounted = false; };
+  }, [userSession, isOpen]);
+
+  const activeUserId = supabaseAuthUser?.id || userSession?.id || null;
+  const activeUserEmail = (supabaseAuthUser?.email || userSession?.email || '').trim().toLowerCase();
+  const isUserAuthenticated = Boolean(
+    (supabaseAuthUser && supabaseAuthUser.id) ||
+    (userSession && (userSession.isLoggedIn === true || Boolean(userSession.email)))
+  );
+  const activeUserName = userSession?.nombre || (activeUserEmail ? activeUserEmail.split('@')[0] : 'Cliente');
+
+  const chatStorageKey = `colorlink_chat_${activeUserEmail || 'guest'}`;
+  const chatStateKey = `colorlink_chat_state_${activeUserEmail || 'guest'}`;
+
+  // Saludo oficial con contexto del usuario autenticado en Supabase
+  const OFFICIAL_GREETING = isUserAuthenticated && activeUserName
+    ? `¡Hola, ${activeUserName}! Soy tu Asistente IA de Pintuco / ColorLink. Tu cuenta (${activeUserEmail}) está sincronizada. ¿En qué puedo ayudarte hoy?`
+    : '¡Hola! Soy tu Asistente IA de Pintuco/ColorLink. ¿En qué puedo ayudarte hoy?';
 
   const getInitialMessages = (): Message[] => [
     {
@@ -455,7 +475,6 @@ export const AIChatDrawer: React.FC<AIChatDrawerProps> = ({
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          // Reemplazar el saludo inicial previo por la nueva versión corta de una sola frase
           return parsed.map((m: Message, idx: number) => {
             if (idx === 0 && m.sender === 'assistant') {
               return {
@@ -473,6 +492,21 @@ export const AIChatDrawer: React.FC<AIChatDrawerProps> = ({
     }
     return getInitialMessages();
   });
+
+  // Recargar historial al cambiar de usuario autenticado
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(chatStorageKey);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setMessages(parsed);
+          return;
+        }
+      }
+    } catch {}
+    setMessages(getInitialMessages());
+  }, [chatStorageKey]);
 
   const [input, setInput] = useState('');
   const [attachedImage, setAttachedImage] = useState<string | null>(null);
@@ -971,7 +1005,14 @@ export const AIChatDrawer: React.FC<AIChatDrawerProps> = ({
             role: m.sender === 'user' ? 'user' : 'model',
             text: m.text,
           })),
-          userSession,
+          userSession: {
+            id: activeUserId,
+            user_id: activeUserId,
+            email: activeUserEmail,
+            nombre: activeUserName,
+            documento: userSession?.documento || '',
+            isLoggedIn: isUserAuthenticated,
+          },
         }),
       });
 
@@ -1086,6 +1127,86 @@ ${notaRegional ? `\n💡 ${notaRegional}\n` : ''}
     setMessages((prev) => [...prev, userMsg, assistantMsg]);
   };
 
+  // Lógica oficial para Rastrear Pedido sincronizada con la cuenta de Supabase Auth
+  const handleTrackOrderQuery = async (alreadyAddedUserMessage: boolean = false) => {
+    if (!alreadyAddedUserMessage) {
+      const userMsg: Message = {
+        id: Date.now().toString(),
+        sender: 'user',
+        text: 'Rastrear pedido',
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      };
+      setMessages((prev) => [...prev, userMsg]);
+    }
+
+    // 1. Si no ha iniciado sesión, requerir autenticación
+    if (!isUserAuthenticated || !activeUserEmail) {
+      const assistantMsg: Message = {
+        id: (Date.now() + 1).toString(),
+        sender: 'assistant',
+        text: `🔒 Validación de Seguridad Requerida:
+Por motivos de protección de datos y confidencialidad comercial, para rastrear pedidos debes iniciar sesión con tu cuenta registrada en Pintuco / ColorLink.
+
+He abierto el módulo de acceso seguro para ti. Una vez ingreses tus credenciales de Supabase Auth, podrás consultar el estado de tus compras en tiempo real.`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      };
+      setMessages((prev) => [...prev, assistantMsg]);
+      if (onOpenAuth) {
+        onOpenAuth('Rastreo Seguro de Pedido');
+      }
+      return;
+    }
+
+    // 2. Usuario autenticado: consulta en la base de datos (tabla de pedidos/orders) filtrando por el ID del usuario
+    setIsLoading(true);
+
+    try {
+      const userOrders = await fetchUserOrdersFromDatabase(
+        activeUserId,
+        activeUserEmail,
+        userSession?.documento
+      );
+
+      // Si la consulta retorna 0 pedidos (como en el caso de un cliente nuevo):
+      if (!userOrders || userOrders.length === 0) {
+        const assistantMsg: Message = {
+          id: (Date.now() + 1).toString(),
+          sender: 'assistant',
+          text: 'Actualmente no tienes ningún pedido u Orden de Compra registrada a tu nombre. ¡Realiza tu primera compra en la tienda para hacerle seguimiento!',
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          orderTrackingData: undefined,
+        };
+        setMessages((prev) => [...prev, assistantMsg]);
+      } else {
+        // Si la consulta retorna pedidos existentes, debe mostrar el listado o estado de sus órdenes reales, en lugar de enviarlo automáticamente a una OC predeterminada o ficticia
+        const orderSummaryLines = userOrders.map((o) => 
+          `• **Orden ${o.numeroOrden}**: Estado: **${o.estado || 'En Alistamiento'}** • Destino: ${o.ciudadEntrega || o.direccionEntrega || 'Dirección registrada'}`
+        ).join('\n');
+
+        const assistantMsg: Message = {
+          id: (Date.now() + 1).toString(),
+          sender: 'assistant',
+          text: `Hola ${activeUserName}. Encontramos ${userOrders.length} orden(es) de compra registrada(s) a tu cuenta (${activeUserEmail}):\n\n${orderSummaryLines}\n\nA continuación puedes consultar el estado en tiempo real de tu(s) pedido(s):`,
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          orderTrackingData: userOrders,
+        };
+        setMessages((prev) => [...prev, assistantMsg]);
+      }
+    } catch (err) {
+      console.error('Error al consultar pedidos en Supabase:', err);
+      const assistantMsg: Message = {
+        id: (Date.now() + 1).toString(),
+        sender: 'assistant',
+        text: 'Actualmente no tienes ningún pedido u Orden de Compra registrada a tu nombre. ¡Realiza tu primera compra en la tienda para hacerle seguimiento!',
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        orderTrackingData: undefined,
+      };
+      setMessages((prev) => [...prev, assistantMsg]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // Manejo de los 5 Chips Interactivos
   const handleQuickAction = (chipId: QuickChipItem['id']) => {
     if (chipId === 'cotizar') {
@@ -1107,46 +1228,7 @@ ${notaRegional ? `\n💡 ${notaRegional}\n` : ''}
       };
       setMessages((prev) => [...prev, userMsg, assistantMsg]);
     } else if (chipId === 'rastrear') {
-      const userMsg: Message = {
-        id: Date.now().toString(),
-        sender: 'user',
-        text: 'Rastrear pedido',
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      };
-
-      // Validación estricta de seguridad: si no ha iniciado sesión, redirigir al módulo de autenticación
-      if (!isUserAuthenticated) {
-        const assistantMsg: Message = {
-          id: (Date.now() + 1).toString(),
-          sender: 'assistant',
-          text: `🔒 Validación de Seguridad Requerida:
-Por motivos de protección de datos y confidencialidad comercial, para rastrear pedidos debes iniciar sesión con tu cuenta registrada en Pintuco / ColorLink.
-
-He abierto el módulo de acceso seguro para ti. Una vez ingreses tus credenciales, podrás consultar el estado de fabricación, alistamiento y despacho de tus órdenes en tiempo real.`,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        };
-        setMessages((prev) => [...prev, userMsg, assistantMsg]);
-        if (onOpenAuth) {
-          onOpenAuth('Rastreo Seguro de Pedido');
-        }
-      } else {
-        // Usuario autenticado: buscar órdenes asociadas
-        const userOrders = (orders && orders.length > 0)
-          ? orders
-          : [];
-
-        const latestOrder = userOrders[0];
-        const assistantMsg: Message = {
-          id: (Date.now() + 1).toString(),
-          sender: 'assistant',
-          text: latestOrder 
-            ? `Hola ${userSession?.nombre || 'estimado cliente'}. Aquí tienes el estado en tiempo real de tu pedido más reciente en Pintuco / ColorLink:`
-            : `Hola ${userSession?.nombre || 'estimado cliente'}. Actualmente no registras pedidos pendientes asociados a tu cuenta (${userSession?.email}).`,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          orderTrackingData: latestOrder ? [latestOrder] : undefined,
-        };
-        setMessages((prev) => [...prev, userMsg, assistantMsg]);
-      }
+      handleTrackOrderQuery();
     } else if (chipId === 'sedes') {
       setIsAwaitingCityForSedes(true);
       const userMsg: Message = {

@@ -72,6 +72,7 @@ import {
   toggleStoredFavorite, 
   syncFavoritesWithSupabase 
 } from './utils/favoritesService';
+import { isMockOrder, fetchUserOrdersFromDatabase } from './services/ordersService';
 
 const INITIAL_FORM_DATA: FMVFormData = {
   tipo_documento: 'NIT',
@@ -139,16 +140,8 @@ export default function App() {
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          // Filtrar órdenes simuladas corruptas antiguas si existieran
-          const clean = parsed.filter((o: any) => {
-            if (!o) return false;
-            const id = String(o.id || '').toLowerCase();
-            const num = String(o.numeroOrden || '').toLowerCase();
-            if (num.includes('clk-') || id.includes('clk-')) return true;
-            if (id === 'ord-init-1' || id === 'ord-init-2') return false;
-            if (id.includes('a93ec3fe') || num.includes('a93ec3fe') || num.includes('sb-a93ec3fe')) return false;
-            return true;
-          });
+          // Filtrar rigurosamente cualquier orden mock simulada
+          const clean = parsed.filter((o: any) => !isMockOrder(o));
           if (clean.length > 0) {
             localStorage.setItem('colorlink_user_orders', JSON.stringify(clean));
             localStorage.setItem('colorlink_orders', JSON.stringify(clean));
@@ -159,13 +152,8 @@ export default function App() {
     } catch (e) {
       console.error('Error cargando pedidos en inicio:', e);
     }
-    // Si es la primera vez que se usa la app y localStorage está vacío, asignar las órdenes de prueba iniciales (mock data) y guardarlas en localStorage
-    const initialMocks = DEFAULT_PROFILE_MOCK_ORDERS;
-    try {
-      localStorage.setItem('colorlink_user_orders', JSON.stringify(initialMocks));
-      localStorage.setItem('colorlink_orders', JSON.stringify(initialMocks));
-    } catch {}
-    return initialMocks;
+    // Si no hay órdenes reales del usuario, inicializar vacío (0 pedidos) sin órdenes simuladas
+    return [];
   });
 
   const [inventory, setInventory] = useState<InventoryItem[]>(() => {
@@ -455,6 +443,68 @@ export default function App() {
     return null;
   });
 
+  // Sincronización continua de Supabase Auth (user_id / email) con userSession
+  useEffect(() => {
+    let isMounted = true;
+    if (isSupabaseConfigured && supabase) {
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        if (session?.user && isMounted) {
+          const authUser = session.user;
+          setUserSession((prev) => {
+            if (!prev) {
+              const meta = authUser.user_metadata || {};
+              const email = authUser.email || '';
+              return {
+                id: authUser.id,
+                email: email,
+                nombre: meta.nombre || meta.full_name || email.split('@')[0],
+                documento: meta.cedula || meta.documento || '',
+                tipoDocumento: meta.tipoDocumento || 'CC',
+                ciudad: meta.ciudad || 'Bogotá D.C.',
+                telefono: meta.telefono || '',
+                userType: 'cliente',
+                isLoggedIn: true,
+              };
+            }
+            if (!prev.id || prev.id !== authUser.id) {
+              return { ...prev, id: authUser.id, email: authUser.email || prev.email };
+            }
+            return prev;
+          });
+        }
+      }).catch((e) => console.debug('Supabase session load:', e));
+
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+        if (session?.user && isMounted) {
+          const authUser = session.user;
+          setUserSession((prev) => {
+            if (!prev) {
+              const meta = authUser.user_metadata || {};
+              const email = authUser.email || '';
+              return {
+                id: authUser.id,
+                email: email,
+                nombre: meta.nombre || meta.full_name || email.split('@')[0],
+                documento: meta.cedula || meta.documento || '',
+                tipoDocumento: meta.tipoDocumento || 'CC',
+                ciudad: meta.ciudad || 'Bogotá D.C.',
+                telefono: meta.telefono || '',
+                userType: 'cliente',
+                isLoggedIn: true,
+              };
+            }
+            return { ...prev, id: authUser.id, email: authUser.email || prev.email };
+          });
+        }
+      });
+
+      return () => {
+        isMounted = false;
+        subscription.unsubscribe();
+      };
+    }
+  }, []);
+
   // Mis Favoritos vinculados estrictamente al perfil del usuario autenticado
   const [favoriteIds, setFavoriteIds] = useState<string[]>(() => {
     const isAuth = Boolean(userSession && (userSession.isLoggedIn === true || (userSession.email && userSession.email.trim().length > 0)));
@@ -595,18 +645,15 @@ export default function App() {
       localStorage.setItem('colorlink_cart', '[]');
     }
 
-    // Al volver a iniciar sesión, cargar de inmediato los pedidos almacenados para ese perfil desde localStorage
-    try {
-      const stored = localStorage.getItem('colorlink_user_orders') || localStorage.getItem('colorlink_orders');
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setOrders(parsed);
-        }
-      }
-    } catch (e) {
-      console.error('Error cargando pedidos al iniciar sesión:', e);
-    }
+    // Al iniciar sesión, consultar los pedidos reales del usuario desde Supabase
+    fetchUserOrdersFromDatabase(sessionWithToken.id, sessionWithToken.email, sessionWithToken.documento)
+      .then((realOrders) => {
+        setOrders(realOrders);
+      })
+      .catch((e) => {
+        console.error('Error cargando pedidos al iniciar sesión:', e);
+        setOrders([]);
+      });
 
     setFormData((prev) => ({
       ...prev,

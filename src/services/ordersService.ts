@@ -23,6 +23,189 @@ export interface PendingOrderResult {
 }
 
 /**
+ * Validador estricto para excluir órdenes simuladas o mock predeterminadas
+ */
+export function isMockOrder(o: any): boolean {
+  if (!o) return true;
+  const id = String(o.id || '').toLowerCase();
+  const num = String(o.numeroOrden || o.order_number || o.orderId || '').toLowerCase();
+  const name = String(o.customerName || o.customer_name || o.form?.nombre_razon_social || '').toLowerCase();
+  const doc = String(o.customerDocument || o.customer_document || o.form?.documento || '').replace(/[\.\-\s]/g, '');
+
+  if (id === 'clk-mock-1' || id === 'clk-mock-2' || id === 'ord-init-1' || id === 'ord-init-2') return true;
+  if (id.includes('mock') || num.includes('mock')) return true;
+  if (num === '#clk-8492' || num === '#clk-94210' || num === 'clk-8492' || num === 'clk-94210') return true;
+  if (id.includes('a93ec3fe') || num.includes('a93ec3fe') || num.includes('sb-a93ec3fe')) return true;
+  if (name.includes('sara ramirez') && (doc.includes('1028727371') || doc === '')) return true;
+  if (num.includes('sb-') && name.includes('sara')) return true;
+  if (o.form?.nombre_razon_social === 'Constructora Bolívar S.A.' || o.form?.nombre_razon_social === 'Clínica Las Américas') return true;
+
+  return false;
+}
+
+/**
+ * Consulta de Pedidos reales en Supabase vinculados al usuario autenticado (ID / Email)
+ * Garantiza que si el usuario no tiene pedidos retorne un arreglo vacío sin simular OC genéricas
+ */
+export async function fetchUserOrdersFromDatabase(
+  userId?: string | null,
+  userEmail?: string | null,
+  userDoc?: string | null
+): Promise<COLORLINKOrder[]> {
+  const cleanEmail = (userEmail || '').trim().toLowerCase();
+  const cleanDoc = (userDoc || '').replace(/[\.\-\s]/g, '').trim();
+  const cleanId = (userId || '').trim();
+
+  if (!cleanId && !cleanEmail && !cleanDoc) {
+    return [];
+  }
+
+  const resultOrders: COLORLINKOrder[] = [];
+
+  // 1. Consulta directa a Supabase
+  if (isSupabaseConfigured && supabase) {
+    try {
+      // 1.A Consulta en tabla 'orders' filtrando por user_id y/o user_email
+      const orConditions: string[] = [];
+      if (cleanId) orConditions.push(`user_id.eq.${cleanId}`);
+      if (cleanEmail) orConditions.push(`user_email.ilike.${cleanEmail}`);
+      if (cleanDoc) orConditions.push(`customer_document.eq.${cleanDoc}`);
+
+      let query = supabase.from('orders').select('*');
+      if (orConditions.length === 1) {
+        if (cleanId) query = query.eq('user_id', cleanId);
+        else if (cleanEmail) query = query.ilike('user_email', cleanEmail);
+        else query = query.eq('customer_document', cleanDoc);
+      } else if (orConditions.length > 1) {
+        query = query.or(orConditions.join(','));
+      }
+
+      const { data: dbOrders, error: ordersErr } = await query.order('created_at', { ascending: false });
+
+      if (!ordersErr && Array.isArray(dbOrders) && dbOrders.length > 0) {
+        dbOrders.forEach((row: any) => {
+          let statusText = row.status || 'Pendiente Alistamiento';
+          const s = String(statusText).toLowerCase();
+          if (s === 'pending' || s === 'pendiente') statusText = 'Pendiente Alistamiento';
+          else if (s === 'processing' || s === 'en_proceso') statusText = 'En Bodega';
+          else if (s === 'preparing' || s === 'en_preparacion') statusText = 'En Preparación';
+          else if (s === 'paid' || s === 'pagado') statusText = 'Listo para Despacho';
+          else if (s === 'shipped' || s === 'despachado') statusText = 'Despachado';
+          else if (s === 'delivered' || s === 'entregado') statusText = 'Entregado';
+
+          const mapped: COLORLINKOrder = {
+            id: row.id || `ord-${Date.now()}`,
+            numeroOrden: row.order_number || row.numeroOrden || row.numero_orden || `#CLK-${String(row.id || '').slice(0, 6).toUpperCase()}`,
+            fechaCreacion: row.created_at || row.fecha_creacion || new Date().toISOString(),
+            customerName: row.customer_name || 'Cliente Pintuco',
+            customerEmail: row.user_email || cleanEmail,
+            customerPhone: row.customer_phone || '',
+            customerDocument: row.customer_document || cleanDoc,
+            direccionEntrega: row.shipping_address || 'Dirección de obra',
+            ciudadEntrega: row.city || row.ciudad || 'Colombia',
+            departamentoEntrega: row.department || '',
+            estado: statusText,
+            total: Number(row.total) || 0,
+            items: Array.isArray(row.items) ? row.items : [],
+          };
+
+          if (!isMockOrder(mapped) && !resultOrders.some(r => r.numeroOrden === mapped.numeroOrden || r.id === mapped.id)) {
+            resultOrders.push(mapped);
+          }
+        });
+      }
+    } catch (err) {
+      console.warn('Error en fetchUserOrdersFromDatabase (orders):', err);
+    }
+
+    // 1.B Si no hay en orders, buscar proyectos asociados al cliente en tabla 'proyectos'
+    if (resultOrders.length === 0 && (cleanEmail || cleanDoc)) {
+      try {
+        const orClientConds: string[] = [];
+        if (cleanEmail) orClientConds.push(`email.ilike.${cleanEmail}`);
+        if (cleanDoc) orClientConds.push(`numero_documento.eq.${cleanDoc}`);
+
+        const { data: clients } = await supabase
+          .from('clientes')
+          .select('id, nombre, numero_documento, ciudad')
+          .or(orClientConds.join(','));
+
+        if (clients && clients.length > 0) {
+          const clientIds = clients.map((c: any) => c.id).filter(Boolean);
+          if (clientIds.length > 0) {
+            const { data: projs, error: projsErr } = await supabase
+              .from('proyectos')
+              .select('*')
+              .in('cliente_id', clientIds)
+              .order('created_at', { ascending: false });
+
+            if (!projsErr && Array.isArray(projs) && projs.length > 0) {
+              projs.forEach((p: any) => {
+                const clientInfo = clients.find((c: any) => c.id === p.cliente_id) || {};
+                const mapped: COLORLINKOrder = {
+                  id: p.id,
+                  numeroOrden: `#CLK-PRJ-${p.id.slice(0, 6).toUpperCase()}`,
+                  fechaCreacion: p.created_at || new Date().toISOString(),
+                  customerName: clientInfo.nombre || 'Cliente Pintuco',
+                  customerEmail: cleanEmail,
+                  customerDocument: clientInfo.numero_documento || cleanDoc,
+                  direccionEntrega: 'Dirección de obra',
+                  ciudadEntrega: clientInfo.ciudad || 'Colombia',
+                  estado: p.estado_pedido || 'Cotizado',
+                  total: (Number(p.galones_pintura) || 1) * 79900,
+                  items: [{
+                    id: p.id,
+                    sku: p.producto_id || 'PIN-PRJ-01',
+                    nombre: p.producto_nombre || 'Pintura Pintuco Especial',
+                    marca: 'Pintuco',
+                    cantidad: Number(p.galones_pintura) || 1,
+                    presentacion: 'Galón',
+                    precioUnitario: 79900,
+                    subtotal: (Number(p.galones_pintura) || 1) * 79900,
+                  }],
+                };
+
+                if (!isMockOrder(mapped) && !resultOrders.some(r => r.numeroOrden === mapped.numeroOrden || r.id === mapped.id)) {
+                  resultOrders.push(mapped);
+                }
+              });
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Error en fetchUserOrdersFromDatabase (proyectos):', err);
+      }
+    }
+  }
+
+  // 2. Complementar con órdenes locales REALES del usuario (NUNCA mocks)
+  try {
+    const raw = localStorage.getItem('colorlink_orders') || localStorage.getItem('colorlink_user_orders');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        parsed.forEach((order: COLORLINKOrder) => {
+          if (isMockOrder(order)) return;
+          const orderEmail = (order.customerEmail || order.form?.responsable_contacto || '').trim().toLowerCase();
+          const orderDoc = (order.customerDocument || order.form?.documento || '').replace(/[\.\-\s]/g, '').trim();
+          const emailMatch = Boolean(cleanEmail && orderEmail && orderEmail === cleanEmail);
+          const docMatch = Boolean(cleanDoc && orderDoc && orderDoc === cleanDoc);
+
+          if ((emailMatch || docMatch) && !resultOrders.some(r => r.numeroOrden === order.numeroOrden || r.id === order.id)) {
+            resultOrders.push(order);
+          }
+        });
+      }
+    }
+  } catch (e) {
+    console.error('Error sincronizando órdenes locales:', e);
+  }
+
+  // Filtrar estrictamente cualquier mock order residual
+  return resultOrders.filter(o => !isMockOrder(o));
+}
+
+/**
  * Consulta de Pedidos Pendientes en Supabase para el usuario activo
  * Filtra por user_email y estados ['pending', 'processing', 'preparing']
  */

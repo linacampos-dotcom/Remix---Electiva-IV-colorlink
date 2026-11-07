@@ -332,8 +332,163 @@ function determineRoleByEmail(email: string): {
   };
 }
 
+// API: Verificar estado unificado del usuario en Supabase Auth y tabla de perfiles
+app.post('/api/auth/check-user-status', async (req, res) => {
+  try {
+    const { email, cedula } = req.body;
+    if (!email || typeof email !== 'string' || !email.includes('@')) {
+      return res.status(400).json({ success: false, error: 'Ingresa un correo electrónico válido' });
+    }
+
+    const cleanEmail = email.toLowerCase().trim();
+    const cleanCedula = cedula ? String(cedula).trim() : '';
+
+    // 1. Verificar si existe en Supabase Auth
+    let existsInAuth = false;
+    let authUserId: string | null = null;
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const { error } = await supabase.auth.signInWithOtp({
+          email: cleanEmail,
+          options: { shouldCreateUser: false },
+        });
+        const notInAuth = error && (
+          error.message.toLowerCase().includes('signups not allowed') ||
+          error.message.toLowerCase().includes('signup not allowed') ||
+          error.message.toLowerCase().includes('user not found')
+        );
+        existsInAuth = !notInAuth;
+      } catch (e) {
+        console.warn('Error verificando en Supabase Auth:', e);
+      }
+    }
+
+    // 2. Verificar si tiene perfil en la tabla 'clientes' de Supabase
+    let hasClientProfile = false;
+    let clientProfile: any = null;
+    if (isSupabaseConfigured && supabase && cleanCedula) {
+      try {
+        const { data: clientRows } = await supabase
+          .from('clientes')
+          .select('id, tipo_documento, numero_documento, nombre, ciudad')
+          .eq('numero_documento', cleanCedula)
+          .limit(1);
+
+        if (clientRows && clientRows.length > 0) {
+          hasClientProfile = true;
+          clientProfile = clientRows[0];
+          authUserId = clientRows[0].id;
+        }
+      } catch (e) {
+        console.warn('Error verificando en tabla clientes:', e);
+      }
+    }
+
+    // 3. Verificar si existe en base de datos local del servidor
+    const localExisting = usersDatabase.get(cleanEmail);
+    if (localExisting) {
+      existsInAuth = true;
+      if (localExisting.cedula || localExisting.documento) {
+        hasClientProfile = true;
+        clientProfile = clientProfile || {
+          nombre: localExisting.nombre,
+          numero_documento: localExisting.cedula || localExisting.documento,
+          tipo_documento: localExisting.tipoDocumento || 'CC',
+          ciudad: localExisting.ciudad || 'Bogotá D.C.',
+          telefono: localExisting.telefono || '',
+        };
+      }
+    }
+
+    return res.json({
+      success: true,
+      email: cleanEmail,
+      existsInAuth,
+      hasClientProfile,
+      clientProfile,
+      authUserId,
+    });
+  } catch (err: any) {
+    console.error('Error in check-user-status:', err);
+    return res.status(500).json({ success: false, error: 'Error al verificar estado de cuenta' });
+  }
+});
+
+// API: Sincronizar perfil de cliente en Supabase y memoria del servidor
+app.post('/api/auth/sync-profile', async (req, res) => {
+  try {
+    const { email, nombre, cedula, telefono, tipoDocumento, ciudad, userId } = req.body;
+    if (!email || !email.includes('@')) {
+      return res.status(400).json({ success: false, error: 'Email requerido' });
+    }
+
+    const cleanEmail = email.toLowerCase().trim();
+    const cleanNombre = (nombre || '').trim();
+    const cleanCedula = (cedula || '').trim();
+    const cleanTelefono = (telefono || '').trim();
+    const cleanTipoDoc = (tipoDocumento || 'CC').trim().toUpperCase();
+    const cleanCiudad = (ciudad || 'Bogotá D.C.').trim();
+
+    // Actualizar registro en memoria
+    const current = usersDatabase.get(cleanEmail) || {
+      email: cleanEmail,
+      role: 'cliente',
+      isCorporate: false,
+    };
+
+    usersDatabase.set(cleanEmail, {
+      ...current,
+      id: userId || current.id || `usr-${Date.now()}`,
+      nombre: cleanNombre || current.nombre || cleanEmail.split('@')[0],
+      cedula: cleanCedula || current.cedula,
+      documento: cleanCedula || current.documento,
+      telefono: cleanTelefono || current.telefono,
+      tipoDocumento: cleanTipoDoc,
+      ciudad: cleanCiudad,
+    });
+
+    // Guardar en tabla 'clientes' de Supabase (SOLO columnas existentes)
+    if (isSupabaseConfigured && supabase && cleanCedula) {
+      try {
+        const { data: existingClients } = await supabase
+          .from('clientes')
+          .select('id')
+          .eq('numero_documento', cleanCedula)
+          .limit(1);
+
+        if (existingClients && existingClients.length > 0) {
+          await supabase
+            .from('clientes')
+            .update({
+              tipo_documento: cleanTipoDoc,
+              nombre: cleanNombre,
+              ciudad: cleanCiudad,
+            })
+            .eq('id', existingClients[0].id);
+        } else {
+          await supabase
+            .from('clientes')
+            .insert({
+              tipo_documento: cleanTipoDoc,
+              numero_documento: cleanCedula,
+              nombre: cleanNombre,
+              ciudad: cleanCiudad,
+            });
+        }
+      } catch (sbErr) {
+        console.warn('Error sincronizando clientes en Supabase:', sbErr);
+      }
+    }
+
+    return res.json({ success: true, message: 'Perfil sincronizado correctamente' });
+  } catch (err: any) {
+    console.error('Error in sync-profile:', err);
+    return res.status(500).json({ success: false, error: 'Error al sincronizar perfil' });
+  }
+});
+
 // API: Verificar correo y detectar rol automáticamente
-app.post('/api/auth/check-email', (req, res) => {
+app.post('/api/auth/check-email', async (req, res) => {
   try {
     const { email } = req.body;
     if (!email || typeof email !== 'string' || !email.includes('@')) {
@@ -387,6 +542,35 @@ app.post('/api/auth/check-email', (req, res) => {
       });
     }
 
+    // Verificar si existe en Supabase Auth
+    let existsInAuth = false;
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const { error } = await supabase.auth.signInWithOtp({
+          email: cleanEmail,
+          options: { shouldCreateUser: false },
+        });
+        const notInAuth = error && (
+          error.message.toLowerCase().includes('signups not allowed') ||
+          error.message.toLowerCase().includes('signup not allowed') ||
+          error.message.toLowerCase().includes('user not found')
+        );
+        existsInAuth = !notInAuth;
+      } catch (_) {}
+    }
+
+    if (existsInAuth) {
+      return res.json({
+        success: true,
+        email: cleanEmail,
+        exists: true,
+        existsInAuth: true,
+        isNew: false,
+        role: roleInfo.role,
+        isCorporate: false,
+      });
+    }
+
     // Si es del dominio de Pintuco pero aún no está en la BD, lo detecta como funcionario
     if (roleInfo.isCorporate) {
       return res.json({
@@ -431,12 +615,16 @@ app.post(['/api/auth/forgot-password', '/api/auth/reset-password-request'], asyn
     let exists = Boolean(existingUser);
     if (!exists && isSupabaseConfigured && supabase) {
       try {
-        const { data: sbClients } = await supabase
-          .from('clientes')
-          .select('id')
-          .ilike('email', cleanEmail)
-          .limit(1);
-        if (sbClients && sbClients.length > 0) exists = true;
+        const { error } = await supabase.auth.signInWithOtp({
+          email: cleanEmail,
+          options: { shouldCreateUser: false },
+        });
+        const notInAuth = error && (
+          error.message.toLowerCase().includes('signups not allowed') ||
+          error.message.toLowerCase().includes('signup not allowed') ||
+          error.message.toLowerCase().includes('user not found')
+        );
+        exists = !notInAuth;
       } catch (_) {}
     }
 
@@ -1202,10 +1390,56 @@ Responde ÚNICAMENTE en JSON con la siguiente estructura:
   }
 });
 
+// API: Consultar pedidos reales del usuario autenticado en Supabase
+app.get('/api/orders/user', async (req, res) => {
+  try {
+    const userId = (req.query.userId as string) || '';
+    const email = (req.query.email as string) || '';
+    const doc = (req.query.doc as string) || '';
+
+    if (!userId && !email && !doc) {
+      return res.json({ success: true, orders: [] });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanDoc = doc.replace(/[\.\-\s]/g, '').trim();
+    let ordersList: any[] = [];
+
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const orConds: string[] = [];
+        if (userId) orConds.push(`user_id.eq.${userId}`);
+        if (cleanEmail) orConds.push(`user_email.ilike.${cleanEmail}`);
+        if (cleanDoc) orConds.push(`customer_document.eq.${cleanDoc}`);
+
+        let query = supabase.from('orders').select('*');
+        if (orConds.length === 1) {
+          if (userId) query = query.eq('user_id', userId);
+          else if (cleanEmail) query = query.ilike('user_email', cleanEmail);
+          else query = query.eq('customer_document', cleanDoc);
+        } else if (orConds.length > 1) {
+          query = query.or(orConds.join(','));
+        }
+
+        const { data, error } = await query.order('created_at', { ascending: false });
+        if (!error && Array.isArray(data) && data.length > 0) {
+          ordersList = data;
+        }
+      } catch (err) {
+        console.warn('Error en /api/orders/user consultando tabla orders:', err);
+      }
+    }
+
+    return res.json({ success: true, orders: ordersList });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message, orders: [] });
+  }
+});
+
 // API: Technical Consultation Chat powered 100% by LLM Agent (Gemini AI)
 app.post('/api/ai/chat-advisor', async (req, res) => {
   try {
-    const { message, imageUrl, history } = req.body;
+    const { message, imageUrl, history, userSession } = req.body;
     const ai = getGenAI();
 
     if (!ai) {
@@ -1215,7 +1449,25 @@ app.post('/api/ai/chat-advisor', async (req, res) => {
       });
     }
 
+    const userIsAuth = Boolean(userSession && (userSession.isLoggedIn || userSession.email || userSession.id));
+    const userContextStr = userIsAuth
+      ? `\n\nDATOS DEL USUARIO ACTUAL AUTENTICADO EN SUPABASE AUTH:
+- User ID (Supabase Auth UID): ${userSession.id || userSession.user_id || 'N/A'}
+- Correo Electrónico: ${userSession.email || 'N/A'}
+- Nombre del Cliente: ${userSession.nombre || 'Cliente'}
+- Cédula/NIT: ${userSession.documento || 'No registrado'}
+- Estado: Sesión activa y autenticada en Supabase Auth.`
+      : `\n\nDATOS DEL USUARIO: Visitante no autenticado / Anónimo.`;
+
     const systemInstruction = `Eres el Asistente IA Oficial de Pintuco / ColorLink. Tu propósito es brindar asesoría técnica y comercial experta a los clientes sobre pinturas, recubrimientos arquitectónicos, preparación de superficies y cálculo de materiales según normas colombianas (ej. NTC 1335 y NTC 5828).
+${userContextStr}
+
+REGLAS DE IDENTIDAD Y USUARIO:
+- Tienes acceso al contexto del usuario autenticado en Supabase Auth.
+- Si el usuario te saluda o pregunta por su cuenta o identidad, reconócelo amablemente por su nombre (${userSession?.nombre || 'Cliente'}) y cuenta vinculada (${userSession?.email || ''}).
+- Si el usuario consulta por el rastreo de sus pedidos ("rastrear", "mi pedido", "mis compras", "estado de orden", etc.):
+  Si no tiene pedidos registrados a su nombre, la respuesta oficial es:
+  "Actualmente no tienes ningún pedido u Orden de Compra registrada a tu nombre. ¡Realiza tu primera compra en la tienda para hacerle seguimiento!"
 
 REGLAS DE COMPORTAMIENTO Y POLÍTICA DE CONVERSACIÓN ESTRICTA:
 
