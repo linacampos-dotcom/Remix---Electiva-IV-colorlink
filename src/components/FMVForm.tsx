@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { 
   FMVFormData, 
   TipoDocumento, 
@@ -54,7 +54,9 @@ import {
   Plus,
   Minus,
   Wrench,
-  Trash2
+  Trash2,
+  X,
+  Undo2
 } from 'lucide-react';
 
 // ============================================================================
@@ -471,32 +473,66 @@ export function getAvailableStoresForLocation(departamento: string, ciudad: stri
 }
 
 // ============================================================================
-// CARTAS DE COLOR DINÁMICAS SEGÚN TIPO DE PINTURA (AGUA, ESMALTE, MADERA, TRÁFICO)
+// CARTAS DE COLOR DINÁMICAS SEGÚN TIPO DE PINTURA PINTUCO
 // ============================================================================
-export const VINILOS_AGUA_PALETTE: ColorPaletteItem[] = [
-  { name: 'Blanco Puro Mate 1001', code: '1001', shortName: 'Blanco Puro', hex: '#F9FAFB', category: 'Clásicos', acabado: 'Mate', lrv: 88, description: 'Máxima luminosidad y amplitud espacial.' },
-  { name: 'Blanco Almendra Satinado 1020', code: '1020', shortName: 'Blanco Almendra', hex: '#F4EFEA', category: 'Clásicos', acabado: 'Satinado', lrv: 82, description: 'Calidez sutil con destellos marfil.' },
-  { name: 'Gris Niebla Mate 7035', code: '7035', shortName: 'Gris Niebla', hex: '#CBD5E1', category: 'Modernos', acabado: 'Mate', lrv: 62, description: 'Tono intermedio balanceado.' },
-  { name: 'Gris Basalto Satinado 7012', code: '7012', shortName: 'Gris Basalto', hex: '#4A5568', category: 'Modernos', acabado: 'Satinado', lrv: 26, description: 'Gris arquitectónico de alta presencia.' },
-  { name: 'Arena Cálida 1023', code: '1023', shortName: 'Arena Cálida', hex: '#E2D9C8', category: 'Tierras', acabado: 'Mate', lrv: 67, description: 'Inspirado en sedimentos naturales.' },
-  { name: 'Terracota Colonial 3016', code: '3016', shortName: 'Terracota Colonial', hex: '#C05621', category: 'Tierras', acabado: 'Satinado', lrv: 24, description: 'Carácter tradicional y vibrante de arcilla.' },
-  { name: 'Azul Celeste Fresco 5012', code: '5012', shortName: 'Azul Celeste', hex: '#93C5FD', category: 'Acentos', acabado: 'Mate', lrv: 60, description: 'Sensación de cielo despejado.' },
-  { name: 'Azul Océano Profundo 5003', code: '5003', shortName: 'Azul Océano', hex: '#1E3A8A', category: 'Acentos', acabado: 'Semibrillante', lrv: 14, description: 'Elegancia sobria de gran profundidad.' },
-  { name: 'Verde Salvia Calm 6021', code: '6021', shortName: 'Verde Salvia', hex: '#A3B18A', category: 'Naturales', acabado: 'Mate', lrv: 48, description: 'Tono botánico atenuado con matiz grisáceo.' },
-  { name: 'Verde Bosque Andino 6005', code: '6005', shortName: 'Verde Bosque', hex: '#14532D', category: 'Naturales', acabado: 'Satinado', lrv: 12, description: 'Riqueza vegetal andina.' },
-  { name: 'Amarillo Canario 1018', code: '1018', shortName: 'Amarillo Canario', hex: '#FBBF24', category: 'Vibrantes', acabado: 'Semibrillante', lrv: 55, description: 'Energía solar y vitalidad.' },
-  { name: 'Rosa Palo Suave 3015', code: '3015', shortName: 'Rosa Palo', hex: '#FBCFE8', category: 'Acentos', acabado: 'Mate', lrv: 70, description: 'Delicadeza moderna para espacios de descanso.' }
+
+// 1. VINILTEX: Tonos pastel, neutros y vivos de interior (Norma NTC 1335)
+export const VINILTEX_INTERIOR_PALETTE: ColorPaletteItem[] = [
+  // Tonos Neutros y Clásicos
+  { name: 'Blanco Puro Mate 1001', code: '1001', shortName: 'Blanco Puro', hex: '#F9FAFB', category: 'Clásicos', acabado: 'Mate', lrv: 88, description: 'Máxima luminosidad y amplitud espacial interior.' },
+  { name: 'Blanco Almendra Satinado 1020', code: '1020', shortName: 'Blanco Almendra', hex: '#F4EFEA', category: 'Clásicos', acabado: 'Satinado', lrv: 82, description: 'Calidez sutil con destellos marfil acogedor.' },
+  { name: 'Gris Niebla Mate 7035', code: '7035', shortName: 'Gris Niebla', hex: '#CBD5E1', category: 'Modernos', acabado: 'Mate', lrv: 62, description: 'Tono neutro balanceado para salas y alcobas.' },
+  { name: 'Gris Basalto Satinado 7012', code: '7012', shortName: 'Gris Basalto', hex: '#4A5568', category: 'Modernos', acabado: 'Satinado', lrv: 26, description: 'Gris arquitectónico de alta presencia para muros de acento.' },
+  { name: 'Arena Cálida 1023', code: '1023', shortName: 'Arena Cálida', hex: '#E2D9C8', category: 'Tierras', acabado: 'Mate', lrv: 67, description: 'Inspirado en sedimentos naturales y calma orgánica.' },
+
+  // Tonos Pastel Suaves de Interior
+  { name: 'Vainilla Pastel 1015', code: '1015', shortName: 'Vainilla Pastel', hex: '#FEF3C7', category: 'Clásicos', acabado: 'Mate', lrv: 84, description: 'Tono pastel cálido, ilumina espacios reducidos.' },
+  { name: 'Menta Suave Pastel 6019', code: '6019', shortName: 'Menta Pastel', hex: '#D1FAE5', category: 'Naturales', acabado: 'Mate', lrv: 76, description: 'Frescura botánica pastel para descanso y armonía.' },
+  { name: 'Azul Celeste Fresco 5012', code: '5012', shortName: 'Azul Celeste', hex: '#93C5FD', category: 'Acentos', acabado: 'Mate', lrv: 60, description: 'Sensación de cielo despejado y ligereza.' },
+  { name: 'Rosa Palo Suave 3015', code: '3015', shortName: 'Rosa Palo', hex: '#FBCFE8', category: 'Acentos', acabado: 'Mate', lrv: 70, description: 'Delicadeza moderna para recámaras y espacios infantiles.' },
+  { name: 'Lila Lavanda 4005', code: '4005', shortName: 'Lila Lavanda', hex: '#E9D5FF', category: 'Acentos', acabado: 'Mate', lrv: 72, description: 'Sensación relajante y creativa para estudios.' },
+
+  // Tonos Vivos y Acentos de Interior
+  { name: 'Amarillo Canario Vivo 1018', code: '1018', shortName: 'Amarillo Canario', hex: '#FBBF24', category: 'Vibrantes', acabado: 'Semibrillante', lrv: 55, description: 'Energía solar y vitalidad activa.' },
+  { name: 'Azul Caribe Vivo 5015', code: '5015', shortName: 'Azul Caribe', hex: '#2481A6', category: 'Vibrantes', acabado: 'Satinado', lrv: 35, description: 'Tono vibrante icónico de alta energía arquitectónica.' },
+  { name: 'Verde Manzana Vivo 6018', code: '6018', shortName: 'Verde Manzana', hex: '#4ADE80', category: 'Vibrantes', acabado: 'Semibrillante', lrv: 52, description: 'Impacto fresco y vital para zonas familiares.' },
+  { name: 'Naranja Mandarina Vivo 2004', code: '2004', shortName: 'Naranja Vivo', hex: '#FB923C', category: 'Vibrantes', acabado: 'Satinado', lrv: 44, description: 'Calidez dinámica y confort estimulante.' },
+  { name: 'Verde Salvia Calm 6021', code: '6021', shortName: 'Verde Salvia', hex: '#A3B18A', category: 'Naturales', acabado: 'Mate', lrv: 48, description: 'Tono botánico atenuado con matiz nórdico.' },
+  { name: 'Verde Bosque Andino 6005', code: '6005', shortName: 'Verde Bosque', hex: '#14532D', category: 'Naturales', acabado: 'Satinado', lrv: 12, description: 'Riqueza vegetal andina de máxima sofisticación.' },
+  { name: 'Azul Océano Profundo 5003', code: '5003', shortName: 'Azul Océano', hex: '#1E3A8A', category: 'Acentos', acabado: 'Semibrillante', lrv: 14, description: 'Elegancia sobria de gran profundidad marina.' },
+  { name: 'Negro Ébano Mate 9005', code: '9005', shortName: 'Negro Ébano', hex: '#1E293B', category: 'Contemporáneos', acabado: 'Mate', lrv: 6, description: 'Profundidad moderna y contraste contemporáneo.' },
 ];
 
-export const ESMALTES_ANTICORROSIVOS_PALETTE: ColorPaletteItem[] = [
+// 2. KORAZA: Tonos de alta resistencia exterior e intemperie (Protección Solar y Lluvia)
+export const KORAZA_EXTERIOR_PALETTE: ColorPaletteItem[] = [
+  { name: 'Blanco Ostra Exterior 1013', code: '1013', shortName: 'Blanco Ostra', hex: '#F5F5F0', category: 'Clásicos', acabado: 'Mate', lrv: 85, description: 'Blanco hidrorrepelente con filtro solar UV para fachadas.' },
+  { name: 'Arena Colonial Intemperie 1024', code: '1024', shortName: 'Arena Colonial', hex: '#D8CBB5', category: 'Tierras', acabado: 'Mate', lrv: 64, description: 'Tono tierra mineral resistente a la salinidad y polución.' },
+  { name: 'Gris Piedra Fachada 7038', code: '7038', shortName: 'Gris Piedra', hex: '#9CA3AF', category: 'Modernos', acabado: 'Mate', lrv: 46, description: 'Gris natural exterior, oculta la polución y suciedad ambiental.' },
+  { name: 'Gris Grafito Exterior 7024', code: '7024', shortName: 'Gris Grafito', hex: '#374151', category: 'Modernos', acabado: 'Satinado', lrv: 22, description: 'Gris oscuro arquitectónico de alta resistencia a la intemperie.' },
+  { name: 'Terracota Colonial Resistente 3016', code: '3016', shortName: 'Terracota Colonial', hex: '#B45309', category: 'Tierras', acabado: 'Satinado', lrv: 24, description: 'Arcilla horneada tradicional para fachadas y balcones.' },
+  { name: 'Ocre Andino Fachadas 1006', code: '1006', shortName: 'Ocre Andino', hex: '#C27803', category: 'Tierras', acabado: 'Mate', lrv: 34, description: 'Pigmento mineral terroso con alta solidez a la radiación solar.' },
+  { name: 'Ladrillo Clásico Exterior 3009', code: '3009', shortName: 'Ladrillo Clásico', hex: '#881337', category: 'Tierras', acabado: 'Satinado', lrv: 18, description: 'Rojo rústico tradicional para exteriores y cerramientos.' },
+  { name: 'Verde Oliva Campestre 6003', code: '6003', shortName: 'Verde Oliva', hex: '#4D5D43', category: 'Naturales', acabado: 'Mate', lrv: 28, description: 'Verde campero resistente a hongos y humedad exterior.' },
+  { name: 'Marrón Tabaco Fachada 8011', code: '8011', shortName: 'Marrón Tabaco', hex: '#5A3825', category: 'Tierras', acabado: 'Mate', lrv: 15, description: 'Marrón profundo para molduras, zócalos y muros expuestos.' },
+  { name: 'Azul Colonial Balcones 5001', code: '5001', shortName: 'Azul Colonial', hex: '#1E3A5F', category: 'Acentos', acabado: 'Satinado', lrv: 16, description: 'Azul tradicional para chambranas, dinteles y fachadas coloniales.' },
+  { name: 'Café Colonial Techo 8017', code: '8017', shortName: 'Café Colonial', hex: '#382216', category: 'Tierras', acabado: 'Mate', lrv: 10, description: 'Tono café oscuro para remates y muros de fachada.' },
+  { name: 'Trigo Dorado Intemperie 1002', code: '1002', shortName: 'Trigo Dorado', hex: '#E2BF7D', category: 'Tierras', acabado: 'Mate', lrv: 58, description: 'Calidez dorada exterior con excelente estabilidad lumínica.' },
+];
+
+// 3. PINTULUX / ESMALTE: Colores brillante / semibrillante específicos para metales y maderas
+export const PINTULUX_ESMALTE_PALETTE: ColorPaletteItem[] = [
   { name: 'Blanco Puro Brillante E-100', code: 'E-100', shortName: 'Blanco Puro', hex: '#FFFFFF', category: 'Clásicos', acabado: 'Brillante', lrv: 90, description: 'Línea directa de fábrica con alto brillo y nivelación para metales.' },
   { name: 'Negro Ébano Brillante E-900', code: 'E-900', shortName: 'Negro Ébano', hex: '#111827', category: 'Contemporáneos', acabado: 'Brillante', lrv: 5, description: 'Esmalte negro profundo para rejas, portones y tuberías.' },
   { name: 'Gris Perla Maquinaria E-700', code: 'E-700', shortName: 'Gris Perla', hex: '#6B7280', category: 'Modernos', acabado: 'Brillante', lrv: 45, description: 'Tono industrial estándar para perfiles y estructuras.' },
-  { name: 'Rojo Colonial E-300', code: 'E-300', shortName: 'Rojo Colonial', hex: '#B91C1C', category: 'Tierras', acabado: 'Brillante', lrv: 22, description: 'Color tradicional para barandas, carpintería metálica y techos.' },
-  { name: 'Aluminio Brillante E-500', code: 'E-500', shortName: 'Aluminio', hex: '#94A3B8', category: 'Modernos', acabado: 'Brillante', lrv: 58, description: 'Pigmentación metálica anticorrosiva de alta reflectividad.' },
-  { name: 'Verde Máquina E-600', code: 'E-600', shortName: 'Verde Máquina', hex: '#15803D', category: 'Naturales', acabado: 'Brillante', lrv: 20, description: 'Verde bosque industrial para cercas, motores y rejas.' },
+  { name: 'Gris Carbón Semibrillante E-750', code: 'E-750', shortName: 'Gris Carbón', hex: '#374151', category: 'Modernos', acabado: 'Semibrillante', lrv: 22, description: 'Acabado semibrillante contemporáneo de alta dureza.' },
+  { name: 'Rojo Colonial Brillante E-300', code: 'E-300', shortName: 'Rojo Colonial', hex: '#B91C1C', category: 'Tierras', acabado: 'Brillante', lrv: 22, description: 'Color tradicional para barandas, carpintería metálica y techos.' },
   { name: 'Azul Real Brillante E-501', code: 'E-501', shortName: 'Azul Real', hex: '#1D4ED8', category: 'Acentos', acabado: 'Brillante', lrv: 18, description: 'Tono corporativo vibrante de gran poder cubriente.' },
-  { name: 'Amarillo Seguridad E-101', code: 'E-101', shortName: 'Amarillo Seguridad', hex: '#EAB308', category: 'Vibrantes', acabado: 'Brillante', lrv: 50, description: 'Color preventivo para barandas, escaleras y demarcación.' }
+  { name: 'Verde Máquina Brillante E-600', code: 'E-600', shortName: 'Verde Máquina', hex: '#15803D', category: 'Naturales', acabado: 'Brillante', lrv: 20, description: 'Verde bosque industrial para cercas, motores y rejas.' },
+  { name: 'Amarillo Seguridad Brillante E-101', code: 'E-101', shortName: 'Amarillo Seguridad', hex: '#EAB308', category: 'Vibrantes', acabado: 'Brillante', lrv: 50, description: 'Color preventivo para barandas, escaleras y demarcación.' },
+  { name: 'Aluminio Brillante E-500', code: 'E-500', shortName: 'Aluminio', hex: '#94A3B8', category: 'Modernos', acabado: 'Brillante', lrv: 58, description: 'Pigmentación metálica anticorrosiva de alta reflectividad.' },
+  { name: 'Caoba Maderas Semibrillante E-310', code: 'E-310', shortName: 'Caoba Semibrillante', hex: '#6B271A', category: 'Tierras', acabado: 'Semibrillante', lrv: 16, description: 'Tono rojizo elegante para puertas, marcos y maderas tratadas.' },
+  { name: 'Bronce Colonial E-450', code: 'E-450', shortName: 'Bronce Colonial', hex: '#78350F', category: 'Tierras', acabado: 'Semibrillante', lrv: 20, description: 'Bronce decorativo para forja, cancelería y faroles.' },
+  { name: 'Tabaco Maderas Semibrillante E-820', code: 'E-820', shortName: 'Tabaco Semibrillante', hex: '#451A03', category: 'Contemporáneos', acabado: 'Semibrillante', lrv: 9, description: 'Tono marrón profundo satinado para carpintería de madera y metal.' }
 ];
 
 export const MADERA_BARNICES_PALETTE: ColorPaletteItem[] = [
@@ -524,6 +560,23 @@ export const IMPERMEABILIZANTES_PALETTE: ColorPaletteItem[] = [
   { name: 'Verde Terraza AQ-60', code: 'AQ-60', shortName: 'Verde Terraza', hex: '#15803D', category: 'Naturales', acabado: 'Mate', lrv: 24, description: 'Cubiertas transitables y terrazas ajardinadas.' },
   { name: 'Incoloro Bloqueador AQ-00', code: 'AQ-00', shortName: 'Incoloro', hex: '#F1F5F9', category: 'Clásicos', acabado: 'Mate', lrv: 80, description: 'Sellado hidrófugo sin alterar la apariencia del ladrillo o piedra.' }
 ];
+
+// Re-exportaciones compatibles
+export const VINILOS_AGUA_PALETTE = VINILTEX_INTERIOR_PALETTE;
+export const ESMALTES_ANTICORROSIVOS_PALETTE = PINTULUX_ESMALTE_PALETTE;
+
+/**
+ * Obtiene la paleta de colores reactiva correspondiente a un producto Pintuco
+ */
+export function getPaletteForProductName(productName: string): ColorPaletteItem[] {
+  const p = (productName || '').toLowerCase();
+  if (p.includes('koraza')) return KORAZA_EXTERIOR_PALETTE;
+  if (p.includes('pintulux') || p.includes('esmalte') || p.includes('anticorrosivo')) return PINTULUX_ESMALTE_PALETTE;
+  if (p.includes('tráfico') || p.includes('trafico')) return EPOXICOS_TRAFICO_PALETTE;
+  if (p.includes('madera') || p.includes('barniz') || p.includes('tinte')) return MADERA_BARNICES_PALETTE;
+  if (p.includes('aquablock') || p.includes('impermeabiliz') || p.includes('fill')) return IMPERMEABILIZANTES_PALETTE;
+  return VINILTEX_INTERIOR_PALETTE;
+}
 
 // ============================================================================
 // ATAJOS FRECUENTES DE ESPACIOS (AMPLIADOS SEGÚN REQUERIMIENTOS)
@@ -780,6 +833,284 @@ export const RECOMMENDED_PROJECT_TOOLS: ComplementaryProduct[] = [
   },
 ];
 
+// ============================================================================
+// CONSEJO PINTUCO DINÁMICO SEGÚN EL CONTEXTO ESTRICTO DE COMPRA (PASO 4)
+// ============================================================================
+export interface DynamicConsejoPintuco {
+  badge: string;
+  badgeColor: string;
+  titulo: string;
+  icono: string;
+  parrafoPrincipal: string;
+  tips: string[];
+  normaReferencia: string;
+}
+
+export function getDynamicConsejoPintuco(
+  formData: FMVFormData,
+  calculation: CalculationResult
+): DynamicConsejoPintuco {
+  const prod = (formData.producto_deseado || calculation.productoSugerido || '').toLowerCase();
+  const amb = (formData.ambiente || '').toLowerCase();
+  const sup = (formData.superficie || '').toLowerCase();
+  const cond = (formData.condicion || '').toLowerCase();
+
+  // 1. Impermeabilizantes, Humedades o Techos
+  if (
+    prod.includes('aquablock') || 
+    prod.includes('impermeabiliz') || 
+    prod.includes('fill') ||
+    amb.includes('techo') || 
+    amb.includes('impermeabiliz') ||
+    cond.includes('humedad') ||
+    cond.includes('fisur')
+  ) {
+    return {
+      badge: 'Protección Hidrófuga • NTC 1335',
+      badgeColor: 'bg-cyan-100 text-cyan-900 border-cyan-300',
+      titulo: 'Consejo Experto Pintuco • Sellado de Juntas, Grietas y Pendientes',
+      icono: '💧',
+      parrafoPrincipal:
+        'En impermeabilizaciones (techos, terrazas o muros con humedad), el 80% de la durabilidad radica en el sellado previo de puntos críticos y chaflanes antes de aplicar Aquablock.',
+      tips: [
+        'Sella previamente grietas y juntas de dilatación con masilla elastomérica y tela de refuerzo antes de fondear.',
+        'Verifica que la cubierta o terraza cuente con una pendiente mínima del 1% para evitar encharcamientos permanentes.',
+        'Aplica mínimo 2 manos cruzadas respetando 4 a 6 horas de secado entre capas, con traslape de 10 cm en encuentros pared-piso.',
+      ],
+      normaReferencia: 'Especificación Técnica Pintuco Aquablock & Sellado Elastomérico',
+    };
+  }
+
+  // 2. Exteriores / Fachadas / Koraza
+  if (
+    prod.includes('koraza') || 
+    amb.includes('exterior') || 
+    amb.includes('fachada') || 
+    amb.includes('marítimo') || 
+    amb.includes('costero')
+  ) {
+    return {
+      badge: 'Máxima Resistencia Intemperie • NTC 1335 Tipo 1',
+      badgeColor: 'bg-emerald-100 text-emerald-900 border-emerald-300',
+      titulo: 'Consejo Experto Pintuco • Fachadas de Alta Intemperie y Protección UV',
+      icono: '☀️',
+      parrafoPrincipal:
+        'Las fachadas exteriores soportan radiación solar extrema y lluvias continuas. La tecnología Koraza crea un escudo elástico hidrorrepelente que no se cuartea.',
+      tips: [
+        'Aplica en horas de sombra matutina (antes de 10:00 a.m.) o vespertina (después de 3:00 p.m.) para evitar secado acelerado en muros calientes.',
+        'No diluyas con más del 15% de agua limpia: un exceso de dilución debilita la película polimérica protectora contra hongos y lluvia ácida.',
+        'Aplica 2 manos cruzadas con rodillo de felpa de 3/4" sobre revoques o mampostería para cubrir toda la textura.',
+      ],
+      normaReferencia: 'Norma Técnica NTC 1335 Tipo 1 (Pinturas para Exterior con Resistencia UV)',
+    };
+  }
+
+  // 3. Esmaltes / Metales y Maderas / Pintulux
+  if (
+    prod.includes('pintulux') || 
+    prod.includes('esmalte') || 
+    prod.includes('anticorrosivo') || 
+    sup.includes('metal') || 
+    sup.includes('madera')
+  ) {
+    return {
+      badge: 'Anticorrosivo & Brillo Espejo • Dureza Sintética',
+      badgeColor: 'bg-amber-100 text-amber-900 border-amber-300',
+      titulo: 'Consejo Experto Pintuco • Desengrase, Lijado y Capas Finas en Metales',
+      icono: '🛡️',
+      parrafoPrincipal:
+        'En rejas, perfiles metálicos y maderas tratadas, la adherencia y el brillo de espejo del esmalte Pintulux dependen enteramente de la preparación del sustrato.',
+      tips: [
+        'Desengrasa totalmente la superficie y lija con lija al agua #220 a #320 para abrir poro de adherencia mecánica.',
+        'Si hay óxido visible, retíralo con espátula o cepillo de alambre y aplica previamente Base Anticorrosiva Pintuco.',
+        'Aplica 2 capas finas y parejas en lugar de una gruesa: las capas gruesas de esmalte tardan en curar internamente y pueden arrugarse.',
+      ],
+      normaReferencia: 'Guía Técnica Pintulux Resinas Alquídicas de Alta Nivelación',
+    };
+  }
+
+  // 4. Zonas Húmedas / Baños y Cocinas
+  if (
+    prod.includes('baños') || 
+    prod.includes('cocina') || 
+    amb.includes('baños') || 
+    amb.includes('húmedas')
+  ) {
+    return {
+      badge: 'Fungicida Activo • Barrera Antivapor',
+      badgeColor: 'bg-teal-100 text-teal-900 border-teal-300',
+      titulo: 'Consejo Experto Pintuco • Prevención de Moho y Adherencia en Ambientes Húmedos',
+      icono: '🛁',
+      parrafoPrincipal:
+        'La condensación de vapor de agua y la grasa ambiental en baños y cocinas deterioran las pinturas convencionales.',
+      tips: [
+        'Lava los muros previamente con agua y vinagre blanco o solución al 10% de cloro para eliminar esporas latentes de moho.',
+        'Deja secar completamente y asegura ventilación adecuada antes, durante y 48 horas después del pintado.',
+        'Viniltex Baños y Cocinas contiene fungicidas activos de larga duración; no diluyas con más del 10% de agua para no alterar su efectividad.',
+      ],
+      normaReferencia: 'NTC 1335 Grado Lavabilidad Superior con Biocida Activo',
+    };
+  }
+
+  // 5. Alto Tráfico / Demarcación / Pintutráfico / Epóxicos
+  if (
+    prod.includes('tráfico') || 
+    prod.includes('trafico') || 
+    amb.includes('tráfico') || 
+    amb.includes('piso') || 
+    amb.includes('industrial')
+  ) {
+    return {
+      badge: 'Resistencia a Abrasión Pesada • Curado Rápido',
+      badgeColor: 'bg-indigo-100 text-indigo-900 border-indigo-300',
+      titulo: 'Consejo Experto Pintuco • Curado, Prueba de Humedad y Anclaje en Pisos',
+      icono: '🚜',
+      parrafoPrincipal:
+        'La pintura vial y para pisos industriales requiere un anclaje químico superior para resistir paso de llantas y maquinaria.',
+      tips: [
+        'Prueba del plástico: coloca 30x30 cm de polietileno sellado en el suelo por 24 horas; si hay humedad condensada, el piso aún no está apto.',
+        'El concreto debe tener mínimo 28 días de vaciado para garantizar curado completo y estabilidad de pH.',
+        'Permite mínimo 24 horas para tráfico peatonal y 72 horas para tránsito vehicular pesado.',
+      ],
+      normaReferencia: 'NTC 1360 Demarcación y Recubrimiento de Pavimentos Industriales',
+    };
+  }
+
+  // 6. Superficies Especiales / Sustratos no Convencionales
+  if (
+    sup.includes('otro') || 
+    sup.includes('especial') || 
+    sup.includes('drywall') || 
+    sup.includes('azulejo')
+  ) {
+    return {
+      badge: 'Superficie Especial • Imprimación Técnica',
+      badgeColor: 'bg-purple-100 text-purple-900 border-purple-300',
+      titulo: 'Consejo Experto Pintuco • Anclaje en Sustratos Porosos o No Convencionales',
+      icono: '🧪',
+      parrafoPrincipal:
+        'En sustratos especiales (azulejos, plástico, drywall, fibra de vidrio o yeso), la adherencia directa sin imprimante puede fallar.',
+      tips: [
+        'En Drywall o yeso cartón, aplica obligatoriamente una mano de Sellador Fijador Antialcalino para igualar absorciones entre placas y cinta.',
+        'En materiales brillantes o plásticos, lija suavemente con grano #360 para crear microanclaje mecánico.',
+        'Aplica una pequeña prueba testigo en una esquina y espera 24h para comprobar adherencia antes del pintado general.',
+      ],
+      normaReferencia: 'Manual Técnico Pintuco de Preparación de Sustratos Especiales',
+    };
+  }
+
+  // 7. Interiores Tradicionales / Viniltex Avanzado (Default)
+  return {
+    badge: 'Máxima Lavabilidad • NTC 1335 Tipo 1',
+    badgeColor: 'bg-blue-100 text-blue-900 border-blue-300',
+    titulo: 'Consejo Experto Pintuco • Recorte de Bordes, Iluminación y Manos Cruzadas',
+    icono: '🎨',
+    parrafoPrincipal:
+      'Para interiores residenciales y oficinas, la técnica adecuada garantiza paredes impecables sin sombras ni marcas de rodillo.',
+    tips: [
+      'Inicia recortando con brocha fina (2") en esquinas, filos y bordes de interruptores antes de pasar el rodillo central.',
+      'Aplica el rodillo en dirección hacia la entrada de luz natural de las ventanas para que los empalmes queden completamente invisibles.',
+      'Aplica 2 manos respetando 2 a 3 horas de secado al tacto. Viniltex Avanzado alcanza su lavabilidad óptima a los 7 días de curado.',
+    ],
+    normaReferencia: 'Certificación NTC 1335 Tipo 1 (> 800 ciclos de lavabilidad con esponja)',
+  };
+}
+
+// ============================================================================
+// RECOMENDACIONES INTELIGENTES DE COMPLEMENTOS CONTEXTUALES (PRE-PAGO)
+// ============================================================================
+export interface ContextualToolItem {
+  id: string;
+  nombre: string;
+  categoria: string;
+  precio: number;
+  presentacion: 'Unidad' | 'Galón' | 'Cuarto (1/4 Gal)' | 'Caneca';
+  sku: string;
+  descripcion: string;
+  imagenUrl: string;
+  matchScore: number;
+  matchReason: string;
+}
+
+export function getContextualToolRecommendations(
+  formData: FMVFormData,
+  calculation: CalculationResult,
+  selectedTools: Record<string, number>
+): ContextualToolItem[] {
+  const prod = (formData.producto_deseado || calculation.productoSugerido || '').toLowerCase();
+  const sup = (formData.superficie || '').toLowerCase();
+  const hasTape = (selectedTools['tool-cinta-azul'] || 0) > 0;
+  const hasRoller = (selectedTools['tool-kit-rodillo'] || 0) > 0;
+  const hasBrushes = (selectedTools['tool-kit-brochas'] || 0) > 0;
+  const hasSandpaper = (selectedTools['tool-lijas-pack'] || 0) > 0;
+  const hasSpatula = (selectedTools['tool-espatula-inox'] || 0) > 0;
+  const hasCunetes = calculation.cuñetesPintura > 0;
+
+  return RECOMMENDED_PROJECT_TOOLS.map(tool => {
+    let matchScore = 1;
+    let matchReason = 'Accesorio recomendado para tu proyecto';
+
+    if (tool.id === 'tool-kit-brochas') {
+      if (hasTape) {
+        matchScore = 10;
+        matchReason = 'Ideal con tu cinta azul: cerdas finas para recortar esquinas con máxima precisión';
+      } else if (hasRoller) {
+        matchScore = 8;
+        matchReason = 'Complemento esencial: el rodillo no llega a marcos ni filos; usa la brocha';
+      } else {
+        matchReason = 'Cerdas finas sin caída de pelos para cortes limpios en molduras y uniones';
+      }
+    } else if (tool.id === 'tool-cinta-azul') {
+      if (hasBrushes || hasRoller) {
+        matchScore = 9;
+        matchReason = 'Protege marcos de puertas, zócalos e interruptores sin dejar residuos de pegamento';
+      } else {
+        matchReason = 'Cinta de pintor con bloqueo de pintura para líneas 100% nítidas';
+      }
+    } else if (tool.id === 'tool-espatula-inox') {
+      if (hasTape || hasSandpaper) {
+        matchScore = 9;
+        matchReason = 'Perfecta para alisar masilla en grietas y asentar bordes de cinta';
+      } else if (sup.includes('otro') || sup.includes('revoque') || sup.includes('drywall')) {
+        matchScore = 8;
+        matchReason = 'Herramienta clave para resanes y curado de imperfecciones previas';
+      } else {
+        matchReason = 'Hoja flexible de acero inoxidable anticorrosivo para empastes duraderos';
+      }
+    } else if (tool.id === 'tool-lijas-pack') {
+      if (prod.includes('pintulux') || prod.includes('esmalte') || sup.includes('metal') || sup.includes('madera')) {
+        matchScore = 10;
+        matchReason = 'Imprescindible para lijar y desengrasar antes de aplicar esmaltes o barnices';
+      } else if (hasSpatula) {
+        matchScore = 9;
+        matchReason = 'Pule los resanes de tu espátula dejando la pared completamente sedosa';
+      } else {
+        matchReason = 'Suaviza asperezas y abre poro para garantizar máxima adherencia de la pintura';
+      }
+    } else if (tool.id === 'tool-destapador') {
+      if (hasCunetes) {
+        matchScore = 10;
+        matchReason = 'Especial para tus cuñetes de 5 Gal: destapa sin romper la tapa ni lastimarte';
+      } else {
+        matchReason = 'Apertura limpia y segura para conservar herméticamente sobrantes de pintura';
+      }
+    } else if (tool.id === 'tool-kit-rodillo') {
+      if (formData.area_m2 >= 20) {
+        matchScore = 9;
+        matchReason = `Para tus ${formData.area_m2} m², este rodillo antigoteo rinde el doble con bandeja dosificadora`;
+      } else {
+        matchReason = 'Acabado parejo sin salpicaduras en paredes y techos';
+      }
+    }
+
+    return {
+      ...tool,
+      matchScore,
+      matchReason,
+    };
+  }).sort((a, b) => b.matchScore - a.matchScore);
+}
+
 export interface FMVFormProps {
   formData: FMVFormData;
   onChange: (field: keyof FMVFormData, value: any) => void;
@@ -788,7 +1119,7 @@ export interface FMVFormProps {
   onOpenNLPExtractor: () => void;
   supabaseProducts?: SupabaseProducto[];
   isUsingSupabaseCatalog?: boolean;
-  // Enhanced props for full 3-step wizard integration
+  // Enhanced props for 4-step wizard integration
   calculation?: CalculationResult;
   userSession?: UserSession | null;
   onAddToCart?: (
@@ -802,7 +1133,8 @@ export interface FMVFormProps {
       precioUnitario: number;
       sku: string;
       imagenUrl: string;
-    }>
+    }>,
+    deliveryData?: any
   ) => void;
   onSaveOrder?: (tipo?: 'pedido' | 'cotizacion') => Promise<void>;
   isSaving?: boolean;
@@ -942,6 +1274,12 @@ export const FMVForm: React.FC<FMVFormProps> = ({
     { id: 'Mampostería', label: 'Ladrillo o Mampostería', desc: 'Poroso, requiere +15% rendimiento', icon: '🧱' },
     { id: 'Concreto Vaciado', label: 'Concreto o Cemento', desc: 'Estructuras firmes o columnas', icon: '🏗️' },
     { id: 'Madera', label: 'Madera o Metales', desc: 'Carpintería o perfiles estructurales', icon: '🪵' },
+    { 
+      id: 'Otro / Superficie Especial', 
+      label: 'Otro / Superficie Especial', 
+      desc: 'Azulejos, plástico, fibra de vidrio u otros materiales no convencionales', 
+      icon: '🧪' 
+    },
   ];
 
   // Condición de la pared
@@ -1012,11 +1350,37 @@ export const FMVForm: React.FC<FMVFormProps> = ({
   // ============================================================================
   const activePaintCategory = useMemo(() => {
     const prod = (formData.producto_deseado || '').toLowerCase();
-    const amb = (formData.ambiente || '').toLowerCase();
-    const sup = (formData.superficie || '').toLowerCase();
 
-    // 1. Epóxicos y Tráfico / Demarcación
-    if (prod.includes('tráfico') || prod.includes('trafico') || amb.includes('piso') || amb.includes('tráfico') || amb.includes('industrial')) {
+    // 1. Koraza: Alta resistencia exterior e intemperie
+    if (prod.includes('koraza')) {
+      return {
+        type: 'koraza',
+        label: 'Koraza Clima Extremo (Fachadas y Exteriores)',
+        paintLineName: 'Koraza Doble Vida Protección Clima Extremo',
+        palette: KORAZA_EXTERIOR_PALETTE,
+        allowsCustomTinting: true,
+        badgeText: 'Tonos de Alta Resistencia Exterior e Intemperie',
+        badgeColor: 'bg-blue-100 text-[#004B93] border-blue-300',
+        restrictionNotice: null
+      };
+    }
+
+    // 2. Pintulux / Esmaltes: Colores brillante/semibrillante para metales y maderas
+    if (prod.includes('pintulux') || prod.includes('esmalte') || prod.includes('anticorrosivo')) {
+      return {
+        type: 'esmalte_anticorrosivo',
+        label: 'Pintulux Esmalte (Metales y Maderas)',
+        paintLineName: 'Pintulux Esmalte Sintético Anticorrosivo',
+        palette: PINTULUX_ESMALTE_PALETTE,
+        allowsCustomTinting: false,
+        badgeText: 'Colores Brillante y Semibrillante para Metales y Maderas',
+        badgeColor: 'bg-amber-100 text-amber-900 border-amber-300',
+        restrictionNotice: 'ℹ️ Esmaltes anticorrosivos de secado rápido para rejas, cancelería, puertas y maderas. Pigmentación formulada de fábrica.'
+      };
+    }
+
+    // 3. Epóxicos y Tráfico / Demarcación
+    if (prod.includes('tráfico') || prod.includes('trafico')) {
       return {
         type: 'epoxico_trafico',
         label: 'Epóxicos y Demarcación de Tráfico',
@@ -1029,8 +1393,8 @@ export const FMVForm: React.FC<FMVFormProps> = ({
       };
     }
 
-    // 2. Barnices y Tintes para Madera
-    if (sup.includes('madera') || amb.includes('madera') || prod.includes('barniz') || prod.includes('madera') || prod.includes('tinte')) {
+    // 4. Barnices y Tintes para Madera
+    if (prod.includes('barniz') || prod.includes('madera') || prod.includes('tinte')) {
       return {
         type: 'madera_barniz',
         label: 'Barnices y Tintes para Madera',
@@ -1043,22 +1407,8 @@ export const FMVForm: React.FC<FMVFormProps> = ({
       };
     }
 
-    // 3. Esmaltes y Anticorrosivos (Pintulux / Doméstico)
-    if (sup.includes('metal') || amb.includes('metal') || prod.includes('pintulux') || prod.includes('anticorrosivo') || prod.includes('esmalte') || prod.includes('doméstico')) {
-      return {
-        type: 'esmalte_anticorrosivo',
-        label: 'Esmaltes y Anticorrosivos (Pintulux)',
-        paintLineName: 'Pintulux Esmalte Sintético Anticorrosivo',
-        palette: ESMALTES_ANTICORROSIVOS_PALETTE,
-        allowsCustomTinting: false,
-        badgeText: 'Colores de Línea Directa de Fábrica',
-        badgeColor: 'bg-slate-100 text-slate-800 border-slate-300',
-        restrictionNotice: 'ℹ️ Esmaltes de línea directa de fábrica con pigmentación antioxidante de alta resistencia. La preparación de colores personalizados no está disponible para esta formulación.'
-      };
-    }
-
-    // 4. Impermeabilizantes y Techos (Aquablock)
-    if (amb.includes('impermeabiliz') || amb.includes('techo') || prod.includes('aquablock') || prod.includes('fill')) {
+    // 5. Impermeabilizantes y Techos (Aquablock)
+    if (prod.includes('aquablock') || prod.includes('impermeabiliz') || prod.includes('fill')) {
       return {
         type: 'impermeabilizante',
         label: 'Impermeabilizantes y Techos (Aquablock)',
@@ -1071,21 +1421,52 @@ export const FMVForm: React.FC<FMVFormProps> = ({
       };
     }
 
-    // 5. Default: Pinturas de Agua / Vinilos (Viniltex, Koraza, Intervinil)
+    // 6. Default: Viniltex (Vinilos de agua: tonos pastel, neutros y vivos de interior)
     return {
-      type: 'vinilo_agua',
-      label: 'Pinturas de Agua / Vinilos (Viniltex & Koraza)',
-      paintLineName: 'Viniltex Avanzado / Koraza Clima Extremo',
-      palette: VINILOS_AGUA_PALETTE,
+      type: 'viniltex',
+      label: 'Viniltex Avanzado (Interiores y Zonas Húmedas)',
+      paintLineName: 'Viniltex Avanzado Máxima Lavabilidad',
+      palette: VINILTEX_INTERIOR_PALETTE,
       allowsCustomTinting: true,
-      badgeText: 'Sistema Tintométrico Color In (+2.000 Tonos)',
+      badgeText: 'Tonos Pastel, Neutros y Vivos de Interior',
       badgeColor: 'bg-emerald-100 text-emerald-800 border-emerald-300',
       restrictionNotice: null
     };
-  }, [formData.producto_deseado, formData.ambiente, formData.superficie]);
+  }, [formData.producto_deseado]);
 
-  // Sincronizar automáticamente el color seleccionado si no pertenece a la paleta del producto activo
+  // Identificador de la familia activa para los botones y tarjetas del Paso 2
+  const selectedPaintFamilyKey = useMemo(() => {
+    const prod = (formData.producto_deseado || '').toLowerCase();
+    if (prod.includes('koraza')) return 'koraza';
+    if (prod.includes('pintulux') || prod.includes('esmalte') || prod.includes('anticorrosivo')) return 'pintulux';
+    if (prod.includes('aquablock') || prod.includes('impermeabiliz')) return 'aquablock';
+    if (prod.includes('tráfico') || prod.includes('trafico')) return 'trafico';
+    if (prod.includes('barniz') || prod.includes('madera')) return 'madera';
+    return 'viniltex';
+  }, [formData.producto_deseado]);
+
+  // Callback para cambiar tipo de pintura y resetear reactivamente el color al primer tono de la nueva paleta
+  const handleSelectPaintType = (productName: string) => {
+    onChange('producto_deseado', productName);
+    const newPalette = getPaletteForProductName(productName);
+    if (newPalette && newPalette.length > 0) {
+      onChange('color_acabado', newPalette[0].name);
+    }
+  };
+
+  // Sincronizar y resetear automáticamente el color seleccionado al primer tono cuando cambia la paleta del tipo de pintura
+  const lastPaletteTypeRef = useRef<string>(activePaintCategory.type);
   useEffect(() => {
+    // Si cambió el tipo de pintura, resetear siempre al primer color de la nueva paleta
+    if (lastPaletteTypeRef.current !== activePaintCategory.type) {
+      lastPaletteTypeRef.current = activePaintCategory.type;
+      if (activePaintCategory.palette.length > 0) {
+        onChange('color_acabado', activePaintCategory.palette[0].name);
+      }
+      return;
+    }
+
+    // Si el color actual no pertenece a la paleta activa, resetear al primer tono disponible
     const currentPalette = activePaintCategory.palette;
     const isColorValid = currentPalette.some(
       c => c.name === formData.color_acabado || formData.color_acabado.includes(c.code)
@@ -1248,7 +1629,7 @@ export const FMVForm: React.FC<FMVFormProps> = ({
             }`}>
               {currentStep > 2 ? '✓' : '2'}
             </span>
-            <span className="truncate">2. Medidas y Color</span>
+            <span className="truncate">2. Pintura, Medidas y Color</span>
           </button>
 
           {/* Step 3 Pill */}
@@ -1561,7 +1942,7 @@ export const FMVForm: React.FC<FMVFormProps> = ({
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
                 1.2 ¿Qué superficie tiene la pared?
               </label>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
                 {surfaceOptions.map((s) => {
                   const isSelected = formData.superficie === s.id;
                   return (
@@ -1570,7 +1951,7 @@ export const FMVForm: React.FC<FMVFormProps> = ({
                       onClick={() => onChange('superficie', s.id)}
                       className={`p-3.5 rounded-2xl border-2 transition-all cursor-pointer flex flex-col justify-between ${
                         isSelected
-                          ? 'border-[#004B93] bg-blue-50/70 shadow-xs'
+                          ? 'border-[#004B93] bg-blue-50/70 shadow-xs ring-1 ring-[#004B93]/20'
                           : 'border-slate-200 bg-white hover:border-slate-300'
                       }`}
                     >
@@ -1586,6 +1967,19 @@ export const FMVForm: React.FC<FMVFormProps> = ({
                   );
                 })}
               </div>
+
+              {/* Nota explicativa para Otro / Superficie Especial */}
+              {formData.superficie === 'Otro / Superficie Especial' && (
+                <div className="p-3.5 rounded-xl bg-blue-50/80 border border-blue-200 space-y-1.5 animate-fadeIn">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-[#004B93]">
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Superficie Especial (Azulejos, Plástico, Fibra de Vidrio, PVC o Materiales No Convencionales):</span>
+                  </div>
+                  <p className="text-[11px] text-slate-600 leading-relaxed">
+                    Para azulejos esmaltados, PVC, fibra de vidrio o plásticos rígidos, se recomienda aplicar un promotor de adherencia / imprimante epóxico antes de la pintura de acabado para asegurar un anclaje duradero.
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* 1.3 ESTADO O CONDICIÓN DE LA PARED */}
@@ -1624,68 +2018,6 @@ export const FMVForm: React.FC<FMVFormProps> = ({
               </div>
             </div>
 
-            {/* SUGERENCIA AUTOMÁTICA INTELIGENTE DE PINTURA PINTUCO */}
-            <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div className="flex items-start gap-3">
-                <div className="w-10 h-10 rounded-xl bg-red-100 text-[#E30613] flex items-center justify-center font-black text-lg shrink-0 mt-0.5">
-                  ✓
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-50 text-[#E30613] border border-red-200">
-                      Pintura Oficial Recomendada por IA
-                    </span>
-                    <span className="text-[11px] text-slate-500 font-mono">Norma NTC 1335</span>
-                  </div>
-                  <h4 className="text-base font-black text-slate-900 mt-0.5">
-                    {calculation.productoSugerido}
-                  </h4>
-                  <p className="text-xs text-slate-600 mt-0.5">
-                    Rendimiento garantizado de 30 a 32 m²/galón a 2 manos. Alta resistencia y lavabilidad superior.
-                  </p>
-                </div>
-              </div>
-
-              <div className="shrink-0 flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowCatalogSelector(!showCatalogSelector)}
-                  className="px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-800 transition-colors cursor-pointer"
-                >
-                  {showCatalogSelector ? 'Ocultar catálogo' : 'Cambiar pintura'}
-                </button>
-              </div>
-            </div>
-
-            {/* Desplegable opcional para cambiar producto si el usuario desea uno específico */}
-            {showCatalogSelector && (
-              <div className="p-4 rounded-2xl bg-white border border-slate-200 space-y-2 animate-fadeIn">
-                <span className="text-xs font-bold text-slate-700 block">
-                  Selecciona otra pintura del catálogo oficial:
-                </span>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {PINTUCO_CATALOG.slice(0, 8).map((catProd) => (
-                    <button
-                      key={catProd.id}
-                      type="button"
-                      onClick={() => {
-                        onChange('producto_deseado', catProd.nombre);
-                        setShowCatalogSelector(false);
-                      }}
-                      className="p-2.5 rounded-xl border border-slate-200 text-left hover:border-[#004B93] hover:bg-blue-50/50 transition-all group"
-                    >
-                      <span className="font-bold text-xs text-slate-900 group-hover:text-[#004B93] block">
-                        {catProd.nombre}
-                      </span>
-                      <span className="text-[11px] text-slate-500">
-                        {catProd.linea} • {catProd.tipoPintura}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
             {/* BOTÓN CONTINUAR AL PASO 2 */}
             <div className="pt-2 flex items-center justify-end">
               <button
@@ -1693,7 +2025,7 @@ export const FMVForm: React.FC<FMVFormProps> = ({
                 onClick={() => setCurrentStep(2)}
                 className="w-full sm:w-auto px-7 py-3.5 rounded-2xl bg-[#004B93] hover:bg-[#003B75] text-white font-black text-sm shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer hover:scale-[1.01]"
               >
-                <span>Continuar a Medidas y Color (Paso 2)</span>
+                <span>Continuar a Tipo de Pintura y Medidas (Paso 2)</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
             </div>
@@ -1702,7 +2034,7 @@ export const FMVForm: React.FC<FMVFormProps> = ({
         )}
 
         {/* -------------------------------------------------------------------
-            PASO 2: ¿CUÁNTO MIDE TU ESPACIO? (Área m² y Color Pintuco)
+            PASO 2: TIPO DE PINTURA, MEDIDAS Y COLOR PINTUCO
         -------------------------------------------------------------------- */}
         {currentStep === 2 && (
           <div className="space-y-7 animate-fadeIn">
@@ -1710,30 +2042,251 @@ export const FMVForm: React.FC<FMVFormProps> = ({
             {/* Step Header */}
             <div className="border-b border-slate-200/80 pb-4">
               <span className="text-[11px] font-bold text-[#004B93] uppercase tracking-wider">
-                Paso 2 de 3 • Medidas y Acabado
+                Paso 2 de 3 • Tipo de Pintura, Medidas y Color
               </span>
               <h3 className="text-lg sm:text-xl font-extrabold text-slate-900 mt-1">
-                ¿Cuánto mide tu espacio y qué color prefieres?
+                ¿Qué tipo de pintura prefieres, cuánto mide tu espacio y qué color deseas?
               </h3>
               <p className="text-xs sm:text-sm text-slate-600 mt-1">
-                Indica los metros cuadrados totales de pared y selecciona el tono de la carta oficial Pintuco.
+                Elige la línea técnica Pintuco para tu proyecto, define los metros cuadrados y selecciona el tono oficial correspondiente.
               </p>
             </div>
 
-            {/* 2.1 ATAJOS DE METRAJE DIRECTO SEGÚN CATEGORÍA SELECCIONADA EN PASO 1 */}
+            {/* 2.1 SELECCIÓN DE TIPO DE PINTURA PINTUCO */}
             <div className="space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-800">
+                      2.1 ¿Qué tipo de pintura Pintuco prefieres?
+                    </label>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-50 text-[#E30613] border border-red-200">
+                      Línea Oficial Pintuco
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Selecciona la formulación técnica. La carta de color (2.3) se adaptará automáticamente a tu elección:
+                  </p>
+                </div>
+              </div>
+
+              {/* Tarjetas interactivas de Viniltex, Koraza y Pintulux / Esmalte */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {/* Viniltex */}
+                <div
+                  onClick={() => handleSelectPaintType('Viniltex Avanzado Máxima Lavabilidad')}
+                  className={`p-4 rounded-2xl border-2 transition-all cursor-pointer flex flex-col justify-between group ${
+                    selectedPaintFamilyKey === 'viniltex'
+                      ? 'border-[#004B93] bg-blue-50/80 shadow-xs ring-1 ring-[#004B93]/20'
+                      : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/50'
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-2xl">🎨</span>
+                        <div>
+                          <h4 className="font-extrabold text-sm text-slate-900 group-hover:text-[#004B93] transition-colors">
+                            Viniltex
+                          </h4>
+                          <span className="text-[10px] font-bold text-slate-500">Paredes Interiores</span>
+                        </div>
+                      </div>
+                      {selectedPaintFamilyKey === 'viniltex' ? (
+                        <span className="w-5 h-5 rounded-full bg-[#004B93] text-white flex items-center justify-center text-xs font-bold shadow-2xs">
+                          ✓
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-mono font-bold text-slate-400">$84.900/GL</span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-600 leading-snug">
+                      Vinilo acrílico Tipo 1 para salas, alcobas y drywall. Máxima lavabilidad (+20.000 ciclos), bajo olor y cero VOC.
+                    </p>
+                  </div>
+
+                  <div className="mt-3 pt-2.5 border-t border-slate-200/60 flex items-center justify-between">
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800">
+                      Tonos pastel, neutros y vivos
+                    </span>
+                    <span className="text-[10px] font-semibold text-slate-500">NTC 1335</span>
+                  </div>
+                </div>
+
+                {/* Koraza */}
+                <div
+                  onClick={() => handleSelectPaintType('Koraza Doble Vida Protección Clima Extremo')}
+                  className={`p-4 rounded-2xl border-2 transition-all cursor-pointer flex flex-col justify-between group ${
+                    selectedPaintFamilyKey === 'koraza'
+                      ? 'border-[#004B93] bg-blue-50/80 shadow-xs ring-1 ring-[#004B93]/20'
+                      : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/50'
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-2xl">🛡️</span>
+                        <div>
+                          <h4 className="font-extrabold text-sm text-slate-900 group-hover:text-[#004B93] transition-colors">
+                            Koraza
+                          </h4>
+                          <span className="text-[10px] font-bold text-slate-500">Fachadas e Intemperie</span>
+                        </div>
+                      </div>
+                      {selectedPaintFamilyKey === 'koraza' ? (
+                        <span className="w-5 h-5 rounded-full bg-[#004B93] text-white flex items-center justify-center text-xs font-bold shadow-2xs">
+                          ✓
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-mono font-bold text-slate-400">$142.000/GL</span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-600 leading-snug">
+                      Acrílico hidrorrepelente para muros exteriores y balcones. Protección extrema contra rayos UV, lluvia ácida y hongos.
+                    </p>
+                  </div>
+
+                  <div className="mt-3 pt-2.5 border-t border-slate-200/60 flex items-center justify-between">
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-blue-100 text-[#004B93]">
+                      Tonos resistentes exterior
+                    </span>
+                    <span className="text-[10px] font-semibold text-slate-500">10 Años Garantía</span>
+                  </div>
+                </div>
+
+                {/* Pintulux / Esmalte */}
+                <div
+                  onClick={() => handleSelectPaintType('Pintulux Esmalte Sintético Anticorrosivo')}
+                  className={`p-4 rounded-2xl border-2 transition-all cursor-pointer flex flex-col justify-between group ${
+                    selectedPaintFamilyKey === 'pintulux'
+                      ? 'border-[#004B93] bg-blue-50/80 shadow-xs ring-1 ring-[#004B93]/20'
+                      : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/50'
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-2xl">⚙️</span>
+                        <div>
+                          <h4 className="font-extrabold text-sm text-slate-900 group-hover:text-[#004B93] transition-colors">
+                            Pintulux / Esmalte
+                          </h4>
+                          <span className="text-[10px] font-bold text-slate-500">Metales y Maderas</span>
+                        </div>
+                      </div>
+                      {selectedPaintFamilyKey === 'pintulux' ? (
+                        <span className="w-5 h-5 rounded-full bg-[#004B93] text-white flex items-center justify-center text-xs font-bold shadow-2xs">
+                          ✓
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-mono font-bold text-slate-400">$68.900/GL</span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-600 leading-snug">
+                      Esmalte sintético anticorrosivo para rejas, portones, marcos de puertas, muebles y estructuras metálicas.
+                    </p>
+                  </div>
+
+                  <div className="mt-3 pt-2.5 border-t border-slate-200/60 flex items-center justify-between">
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-100 text-amber-900">
+                      Brillante y Semibrillante
+                    </span>
+                    <span className="text-[10px] font-semibold text-slate-500">Anticorrosivo</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Botón y desplegable para otras líneas especializadas Pintuco */}
+              <div className="pt-1">
+                <button
+                  type="button"
+                  onClick={() => setShowCatalogSelector(!showCatalogSelector)}
+                  className="text-xs font-bold text-slate-600 hover:text-[#004B93] flex items-center gap-1.5 cursor-pointer py-1"
+                >
+                  <Sliders className="w-3.5 h-3.5" />
+                  <span>{showCatalogSelector ? 'Ocultar otras formulaciones especializadas' : '¿Buscas otra formulación técnica? (Aquablock Impermeabilizante, Pintutráfico o Maderas)'}</span>
+                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showCatalogSelector ? 'rotate-180' : ''}`} />
+                </button>
+
+                {showCatalogSelector && (
+                  <div className="p-3.5 rounded-2xl bg-white border border-slate-200 mt-2 space-y-2 animate-fadeIn shadow-2xs">
+                    <span className="text-xs font-bold text-slate-700 block">
+                      Selecciona una línea técnica especializada:
+                    </span>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                      {[
+                        {
+                          id: 'aquablock',
+                          nombre: 'Aquablock Sellador Antihumedad Bloqueador',
+                          linea: 'Impermeabilizantes',
+                          desc: 'Techos, terrazas y filtraciones'
+                        },
+                        {
+                          id: 'trafico',
+                          nombre: 'Pintutráfico Base Solvente Alto Desempeño',
+                          linea: 'Pisos y Señalización',
+                          desc: 'Canchas, garajes y alto tráfico'
+                        },
+                        {
+                          id: 'madera',
+                          nombre: 'Línea Maderas y Barnices Pintuco',
+                          linea: 'Maderas Nobles',
+                          desc: 'Barnices y tintes traslúcidos'
+                        },
+                        {
+                          id: 'banos',
+                          nombre: 'Viniltex Baños y Cocinas Antibacterial',
+                          linea: 'Zonas Húmedas',
+                          desc: 'Resistencia a vapor y hongos'
+                        },
+                        {
+                          id: 'cielos',
+                          nombre: 'Intervinil Cielos Mate Antirreflejo',
+                          linea: 'Cielorrasos',
+                          desc: 'Línea mate antirreflejo'
+                        }
+                      ].map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => {
+                            handleSelectPaintType(item.nombre);
+                            setShowCatalogSelector(false);
+                          }}
+                          className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                            formData.producto_deseado === item.nombre
+                              ? 'border-[#004B93] bg-blue-50/80 font-bold'
+                              : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
+                          }`}
+                        >
+                          <span className="font-bold text-xs text-slate-900 block leading-tight">
+                            {item.nombre}
+                          </span>
+                          <span className="text-[10px] text-slate-500 mt-0.5 block">
+                            {item.linea} • {item.desc}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* 2.2 ÁREA TOTAL A PINTAR (METROS CUADRADOS) */}
+            <div className="space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div>
                   <div className="flex items-center gap-2 flex-wrap">
                     <label className="block text-xs font-bold uppercase tracking-wider text-slate-800">
-                      2.1 Atajos de metraje recomendados
+                      2.2 Área Total a Pintar (Metros Cuadrados)
                     </label>
                     <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-[#004B93] border border-blue-200">
-                      Categoría: {currentAreaContext.categoryTitle}
+                      Contexto: {currentAreaContext.categoryTitle}
                     </span>
                   </div>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    Selecciona un metraje estimado de referencia para tu proyecto o digita los m² exactos:
+                    Selecciona un atajo de metraje estimado o ingresa los m² exactos:
                   </p>
                 </div>
                 <span className="text-[11px] font-bold text-slate-700 bg-slate-100 border border-slate-200 px-3 py-1 rounded-xl w-fit">
@@ -1741,6 +2294,7 @@ export const FMVForm: React.FC<FMVFormProps> = ({
                 </span>
               </div>
 
+              {/* Atajos de metraje */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                 {currentAreaContext.shortcuts.map((shortcut) => {
                   const isSelected = formData.area_m2 === shortcut.area;
@@ -1807,15 +2361,15 @@ export const FMVForm: React.FC<FMVFormProps> = ({
               )}
             </div>
 
-            {/* 2.2 INGRESO DIRECTO DE METROS CUADRADOS */}
+            {/* INGRESO DIRECTO / AJUSTE FINO DE METROS CUADRADOS */}
             <div className="p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                   <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                    2.2 Área Total a Pintar (Metros Cuadrados)
+                    Ajuste fino del metraje o cálculo por dimensiones
                   </span>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    Medida real de las paredes a cubrir. El cálculo aplicará 2 manos por norma.
+                    Medida real de las paredes a cubrir. El cálculo aplicará 2 manos por norma técnica NTC 1335.
                   </p>
                 </div>
 

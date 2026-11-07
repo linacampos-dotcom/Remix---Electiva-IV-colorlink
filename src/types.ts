@@ -37,7 +37,8 @@ export type SuperficieTipo =
   | 'Concreto Vaciado'
   | 'Pintura Existente'
   | 'Madera'
-  | 'Metal / Estructura';
+  | 'Metal / Estructura'
+  | 'Otro / Superficie Especial';
 
 export type AmbienteTipo = 
   | 'Interior'

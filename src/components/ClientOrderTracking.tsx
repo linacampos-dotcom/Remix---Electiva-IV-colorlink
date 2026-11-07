@@ -29,7 +29,8 @@ import {
 import { searchSupabaseProjects, SupabaseProjectWithRelations } from '../lib/supabaseService';
 import { isSupabaseConfigured } from '../lib/supabaseClient';
 
-export { isMockOrder } from '../services/ordersService';
+import { isMockOrder } from '../services/ordersService';
+export { isMockOrder };
 
 interface ClientOrderTrackingProps {
   orders: COLORLINKOrder[];

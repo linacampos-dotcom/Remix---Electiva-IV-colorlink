@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { FMVFormData, CalculationResult, UserSession, CartItem, COLORLINKOrder } from '../types';
 import { 
@@ -28,7 +28,8 @@ import {
   Check,
   ExternalLink,
   Phone,
-  Truck
+  Truck,
+  ChevronDown
 } from 'lucide-react';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 import { AddToCartModal, ProductToConfigure } from './AddToCartModal';
@@ -106,6 +107,21 @@ export const DEFAULT_TOOLS_KIT: ToolItem[] = [
     imagenUrl: '/src/assets/images/lija_agua_pintuco_1790894597920.jpg'
   }
 ];
+
+/**
+ * Limita el texto introductorio a máximo 2 frases ejecutivas
+ * según norma de concisión para el Asesor IA
+ */
+export function formatExecutiveIntro(text: string): string {
+  if (!text) return '';
+  const trimmed = text.trim();
+  // Divide por puntuación de fin de frase (. ! ?) seguida de espacio o salto de línea
+  const sentences = trimmed.match(/[^.!?\n]+[.!?]+(?:\s|$)/g);
+  if (sentences && sentences.length > 2) {
+    return sentences.slice(0, 2).join(' ').trim();
+  }
+  return trimmed;
+}
 
 export interface QuickChipItem {
   id: 'cotizar' | 'rastrear' | 'sedes' | 'subir_imagen' | 'simulador';
@@ -575,6 +591,28 @@ export const AIChatDrawer: React.FC<AIChatDrawerProps> = ({
   const [simulatedCanvasMap, setSimulatedCanvasMap] = useState<Record<string, string>>({});
   const [isDownloadingSheet, setIsDownloadingSheet] = useState<boolean>(false);
   const [downloadToast, setDownloadToast] = useState<{ message: string; type: 'info' | 'success' } | null>(null);
+  // Estado para controlar qué cotizaciones detalladas están desplegadas en el chat
+  const [expandedQuotes, setExpandedQuotes] = useState<Record<string, boolean>>({});
+
+  const toggleQuoteDetail = (msgId: string) => {
+    setExpandedQuotes((prev) => ({
+      ...prev,
+      [msgId]: !prev[msgId],
+    }));
+  };
+
+  const handleSimulationRendered = useCallback((msgId: string, simDataUrl: string) => {
+    setSimulatedCanvasMap((prev) => {
+      if (prev[msgId] === simDataUrl && prev.latest === simDataUrl) {
+        return prev;
+      }
+      return {
+        ...prev,
+        [msgId]: simDataUrl,
+        latest: simDataUrl,
+      };
+    });
+  }, []);
 
   const SIMULATION_SWATCHES = [
     { name: 'Azul Caribe', code: '2481', hex: '#2481A6' },
@@ -1660,7 +1698,11 @@ ${notaRegional ? `\n💡 ${notaRegional}\n` : ''}
                   </div>
                 )}
 
-                <div className="whitespace-pre-wrap">{msg.text}</div>
+                <div className="whitespace-pre-wrap">
+                  {((msg.cartActions && msg.cartActions.length > 0) || msg.cartAction) && msg.sender === 'assistant'
+                    ? formatExecutiveIntro(msg.text)
+                    : msg.text}
+                </div>
 
                 {/* BOTONES DE RESPUESTA RÁPIDA (CHIPS INLINE DENTRO DEL PRIMER MENSAJE DE BIENVENIDA) */}
                 {(msg.showQuickChips || msg.id === 'welcome-1') && (
@@ -1862,315 +1904,334 @@ ${notaRegional ? `\n💡 ${notaRegional}\n` : ''}
                   </div>
                 )}
 
-                {/* RECOMENDACIÓN DE PINTURA (Paso 3) */}
-                {((msg.cartActions && msg.cartActions.length > 0) || msg.cartAction) && (
-                  <div className="mt-3.5 pt-3 border-t border-slate-200 space-y-2.5">
-                    <div className="text-[11px] font-black uppercase tracking-wider text-slate-700 flex items-center justify-between">
-                      <span className="flex items-center gap-1.5">
-                        <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                        <span>Pinturas Oficiales Pintuco (NTC 1335)</span>
-                      </span>
-                      <span className="text-[10px] text-blue-900 font-bold bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
-                        Garantía de Fábrica
-                      </span>
-                    </div>
+                {/* RECOMENDACIÓN DE PINTURA (Paso 3) - RESUMEN COMPACTO CON BOTÓN [VER COTIZACIÓN DETALLADA] */}
+                {((msg.cartActions && msg.cartActions.length > 0) || msg.cartAction) && (() => {
+                  const allActions = msg.cartActions && msg.cartActions.length > 0 ? msg.cartActions : [msg.cartAction!];
+                  const primaryAction = simulatedProduct || allActions[0];
+                  const toolsKitToUse = msg.toolsKit || DEFAULT_TOOLS_KIT;
+                  const toolsCost = toolsKitToUse.reduce((acc, t) => acc + (t.cantidad * t.precioUnitario), 0);
+                  const paintCost = primaryAction.cantidad * primaryAction.precioUnitario;
+                  const totalCotizacion = paintCost + toolsCost;
+                  const isDetailed = Boolean(expandedQuotes[msg.id]);
+                  const isMsgSimulationActive = isMsgActiveForSimulation && simulatedProduct;
 
-                    <div className="space-y-2">
-                      {(msg.cartActions || [msg.cartAction!]).map((action, actionIdx) => {
-                        const isPremium = action.tipo === 'recomendada' || actionIdx === 0;
-                        const isSelectedInSim = simulatedProduct?.sku === action.sku;
-
-                        return (
-                          <div
-                            key={`${msg.id}-action-${actionIdx}`}
-                            className={`p-3 rounded-2xl border transition-all ${
-                              isSelectedInSim
-                                ? 'bg-gradient-to-br from-amber-50/90 via-sky-50/50 to-blue-50/40 border-amber-400 ring-2 ring-amber-400/40 shadow-sm'
-                                : isPremium
-                                ? 'bg-gradient-to-br from-blue-50/80 to-indigo-50/40 border-blue-200 shadow-2xs hover:border-blue-300'
-                                : 'bg-gradient-to-br from-emerald-50/80 to-teal-50/40 border-emerald-200 shadow-2xs hover:border-emerald-300'
-                            }`}
-                          >
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="min-w-0 flex-1">
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  <span
-                                    className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full ${
-                                      isPremium
-                                        ? 'bg-blue-900 text-white'
-                                        : 'bg-emerald-800 text-white'
-                                    }`}
-                                  >
-                                    {action.badge || (isPremium ? '⭐ Opción Recomendada / Premium' : '💡 Opción Alternativa')}
-                                  </span>
-                                  <span className="text-[10px] text-slate-500 font-mono">
-                                    SKU: {action.sku}
-                                  </span>
-                                </div>
-
-                                <h4 className="text-xs sm:text-sm font-black text-slate-900 mt-1 leading-snug">
-                                  {action.productName}
-                                </h4>
-
-                                {action.descripcion && (
-                                  <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
-                                    {action.descripcion}
-                                  </p>
-                                )}
-
-                                <div className="flex items-center gap-2 mt-2 text-xs flex-wrap">
-                                  <span className="px-2 py-0.5 rounded-md bg-white border border-slate-200 font-bold text-slate-800 shadow-2xs">
-                                    {action.cantidad} {action.presentacion}
-                                  </span>
-                                  <span className="font-black text-blue-950">
-                                    ${(action.cantidad * action.precioUnitario).toLocaleString('es-CO')} COP
-                                  </span>
-                                  <span className="text-[10px] text-slate-500">
-                                    (${action.precioUnitario.toLocaleString('es-CO')}/un)
-                                  </span>
-                                </div>
+                  return (
+                    <div className="mt-3.5 pt-3 border-t border-slate-200 space-y-3">
+                      {/* 1. RESUMEN COMPACTO EJECUTIVO (NO SOBRECARGA EL CHAT) */}
+                      <div className="rounded-2xl bg-gradient-to-br from-slate-50 via-sky-50/40 to-blue-50/50 border border-blue-200/90 p-3.5 shadow-2xs">
+                        <div className="flex items-start justify-between gap-2.5">
+                          <div className="flex items-start gap-2.5 min-w-0 flex-1">
+                            {/* Miniatura / Thumbnail del producto */}
+                            <div className="w-11 h-11 rounded-xl bg-white border border-slate-200 p-1 flex items-center justify-center shrink-0 shadow-2xs">
+                              <img
+                                src={primaryAction.imagenUrl || '/src/assets/images/viniltex_can_studio_1790894409491.jpg'}
+                                alt={primaryAction.productName}
+                                className="w-full h-full object-contain"
+                              />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-blue-900 text-white">
+                                  NTC 1335
+                                </span>
+                                <span className="text-[10px] text-teal-800 font-bold bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200">
+                                  {msg.areaM2 || sqm || 24} m²
+                                </span>
+                                <span className="text-[10px] text-slate-500 font-mono">
+                                  SKU: {primaryAction.sku}
+                                </span>
                               </div>
-                            </div>
-
-                            <div className="mt-2.5 pt-2 border-t border-slate-200/60 flex items-center justify-between gap-2 flex-wrap">
-                              <button
-                                type="button"
-                                onClick={() => handleStartSimulation(action, msg.id)}
-                                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black transition-all shadow-xs active:scale-95 cursor-pointer ${
-                                  isSelectedInSim
-                                    ? 'bg-amber-500 text-slate-950 ring-2 ring-amber-400'
-                                    : 'bg-blue-900 hover:bg-blue-800 text-white'
-                                }`}
-                              >
-                                <Palette className="w-3.5 h-3.5" />
-                                <span>🎨 Probar Simulación de Color</span>
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => handleConfirmAddToCartDirect(action, activeSimulationColor)}
-                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-emerald-50 text-slate-800 hover:text-emerald-900 text-[11px] font-bold transition-colors cursor-pointer shadow-2xs"
-                              >
-                                <ShoppingCart className="w-3.5 h-3.5 text-emerald-600" />
-                                <span>Agregar Pintura</span>
-                              </button>
+                              <h4 className="text-xs sm:text-sm font-black text-slate-900 mt-1 leading-snug truncate">
+                                {primaryAction.productName}
+                              </h4>
+                              <p className="text-[11px] text-slate-600 mt-0.5 leading-tight">
+                                <strong>{primaryAction.cantidad} {primaryAction.presentacion}</strong> + Kit Profesional ({toolsKitToUse.length} herramientas)
+                              </p>
                             </div>
                           </div>
-                        );
-                      })}
-                    </div>
 
-                    {/* TARJETA DE SIMULACIÓN VISUAL DEL ESPACIO (Antes y Después con paleta Pintuco) */}
-                    {isMsgActiveForSimulation && simulatedProduct && (
-                      <div className="mt-3 rounded-2xl border-2 border-amber-400/80 bg-white overflow-hidden shadow-lg text-slate-800 animate-fadeIn">
-                        <div className="px-3.5 py-2.5 bg-gradient-to-r from-[#002244] via-[#003366] to-[#004080] text-white flex items-center justify-between">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
-                            <div className="min-w-0">
-                              <span className="text-xs font-black uppercase tracking-wider block truncate">
-                                {showOriginalMap[msg.id] 
-                                  ? '📷 Foto Original (Antes)' 
-                                  : `✨ Simulación: ${activeSimulationColor.name} (#${activeSimulationColor.code})`}
-                              </span>
-                              <span className="text-[10px] text-sky-200 font-medium block truncate">
-                                {simulatedProduct.productName} • {simulatedProduct.cantidad} {simulatedProduct.presentacion}
-                              </span>
-                            </div>
+                          {/* Precio Total Estimado */}
+                          <div className="text-right shrink-0">
+                            <span className="text-[10px] font-bold text-slate-500 uppercase block">Total Estimado:</span>
+                            <span className="text-sm sm:text-base font-black text-blue-950 block">
+                              ${totalCotizacion.toLocaleString('es-CO')} COP
+                            </span>
+                            <span className="text-[9px] text-slate-400 block">IVA incluido</span>
                           </div>
+                        </div>
+
+                        {/* Barra de Acciones del Resumen Compacto */}
+                        <div className="mt-3 pt-2.5 border-t border-slate-200/70 flex items-center justify-between gap-2 flex-wrap">
                           <button
                             type="button"
-                            onClick={() => setShowOriginalMap((prev) => ({ ...prev, [msg.id]: !prev[msg.id] }))}
-                            className="px-2.5 py-1 rounded-xl bg-white/15 hover:bg-white/25 text-white text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs active:scale-95"
+                            onClick={() => handleStartSimulation(primaryAction, msg.id)}
+                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black transition-all shadow-xs active:scale-95 cursor-pointer ${
+                              isMsgSimulationActive
+                                ? 'bg-amber-500 text-slate-950 ring-2 ring-amber-400'
+                                : 'bg-gradient-to-r from-blue-900 to-indigo-900 hover:from-blue-950 hover:to-indigo-950 text-white'
+                            }`}
                           >
-                            <Eye className="w-3.5 h-3.5 text-sky-300" />
-                            <span>{showOriginalMap[msg.id] ? 'Ver Simulado' : 'Ver Antes'}</span>
+                            <Palette className="w-3.5 h-3.5 text-amber-300" />
+                            <span>🎨 Probar Simulación de Color</span>
                           </button>
-                        </div>
 
-                        {/* Visor Inpainting con segmentación de muros */}
-                        <div className="relative overflow-hidden w-full bg-slate-900 rounded-b-none">
-                          <ImageVisualizer
-                            imageUrl={uploadedImage || msg.imageUrl || sampleWallImg}
-                            selectedColor={activeSimulationColor}
-                            showOriginal={Boolean(showOriginalMap[msg.id])}
-                            surfaceType={detectedSurface || chatState.tipoEspacio || 'fachada'}
-                            onToggleOriginal={() => setShowOriginalMap((prev) => ({ ...prev, [msg.id]: !prev[msg.id] }))}
-                            onSimulationRendered={(simDataUrl) => {
-                              setSimulatedCanvasMap((prev) => ({
-                                ...prev,
-                                [msg.id]: simDataUrl,
-                                latest: simDataUrl,
-                              }));
-                            }}
-                          />
-                        </div>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {/* BOTÓN INTERACTIVO SOLICITADO: [Ver Cotización Detallada] */}
+                            <button
+                              type="button"
+                              onClick={() => toggleQuoteDetail(msg.id)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-blue-300 bg-white hover:bg-blue-50 text-blue-950 text-xs font-bold transition-all shadow-2xs cursor-pointer active:scale-95"
+                            >
+                              <FileText className="w-3.5 h-3.5 text-blue-700" />
+                              <span>{isDetailed ? 'Ocultar Detalle' : 'Ver Cotización Detallada'}</span>
+                              <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${isDetailed ? 'rotate-180' : ''}`} />
+                            </button>
 
-                        {/* Paleta Oficial Colorlink */}
-                        <div className="p-3 bg-slate-50 border-t border-slate-100">
-                          <div className="flex items-center justify-between gap-1 mb-2">
-                            <span className="text-[10px] font-black uppercase tracking-wider text-slate-600 flex items-center gap-1">
-                              <Palette className="w-3 h-3 text-blue-900" />
-                              <span>Paleta de Color Pintuco:</span>
-                            </span>
-                            <span className="text-[10px] text-slate-500 font-mono font-bold">
-                              {activeSimulationColor.name} (#{activeSimulationColor.code})
+                            <button
+                              type="button"
+                              onClick={() => handleProceedFullQuotationPurchase(primaryAction, toolsKitToUse, activeSimulationColor)}
+                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-black transition-all shadow-2xs active:scale-95 cursor-pointer"
+                            >
+                              <ShoppingCart className="w-3.5 h-3.5" />
+                              <span>Comprar Todo</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 2. TARJETA DE SIMULACIÓN VISUAL DEL ESPACIO (Visible al activar simulación) */}
+                      {isMsgSimulationActive && simulatedProduct && (
+                        <div className="rounded-2xl border-2 border-amber-400/80 bg-white overflow-hidden shadow-lg text-slate-800 animate-fadeIn">
+                          <div className="px-3.5 py-2.5 bg-gradient-to-r from-[#002244] via-[#003366] to-[#004080] text-white flex items-center justify-between">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
+                              <div className="min-w-0">
+                                <span className="text-xs font-black uppercase tracking-wider block truncate">
+                                  {showOriginalMap[msg.id] 
+                                    ? '📷 Foto Original (Antes)' 
+                                    : `✨ Simulación: ${activeSimulationColor.name} (#${activeSimulationColor.code})`}
+                                </span>
+                                <span className="text-[10px] text-sky-200 font-medium block truncate">
+                                  {simulatedProduct.productName} • {simulatedProduct.cantidad} {simulatedProduct.presentacion}
+                                </span>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setShowOriginalMap((prev) => ({ ...prev, [msg.id]: !prev[msg.id] }))}
+                              className="px-2.5 py-1 rounded-xl bg-white/15 hover:bg-white/25 text-white text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs active:scale-95"
+                            >
+                              <Eye className="w-3.5 h-3.5 text-sky-300" />
+                              <span>{showOriginalMap[msg.id] ? 'Ver Simulado' : 'Ver Antes'}</span>
+                            </button>
+                          </div>
+
+                          {/* Visor Inpainting con segmentación de muros, feather y blend mode */}
+                          <div className="relative overflow-hidden w-full bg-slate-900 rounded-b-none">
+                            <ImageVisualizer
+                              imageUrl={uploadedImage || msg.imageUrl || sampleWallImg}
+                              selectedColor={activeSimulationColor}
+                              showOriginal={Boolean(showOriginalMap[msg.id])}
+                              surfaceType={detectedSurface || chatState.tipoEspacio || 'fachada'}
+                              blendMode="multiply"
+                              onToggleOriginal={() => setShowOriginalMap((prev) => ({ ...prev, [msg.id]: !prev[msg.id] }))}
+                              onSimulationRendered={(simDataUrl) => handleSimulationRendered(msg.id, simDataUrl)}
+                            />
+                          </div>
+
+                          {/* Paleta Oficial Colorlink */}
+                          <div className="p-3 bg-slate-50 border-t border-slate-100">
+                            <div className="flex items-center justify-between gap-1 mb-2">
+                              <span className="text-[10px] font-black uppercase tracking-wider text-slate-600 flex items-center gap-1">
+                                <Palette className="w-3 h-3 text-blue-900" />
+                                <span>Paleta de Color Pintuco:</span>
+                              </span>
+                              <span className="text-[10px] text-slate-500 font-mono font-bold">
+                                {activeSimulationColor.name} (#{activeSimulationColor.code})
+                              </span>
+                            </div>
+
+                            <div className="grid grid-cols-4 gap-1.5">
+                              {SIMULATION_SWATCHES.map((swatch) => {
+                                const isSelected = activeSimulationColor.code === swatch.code;
+                                return (
+                                  <button
+                                    key={swatch.code}
+                                    type="button"
+                                    onClick={() => {
+                                      setActiveSimulationColor(swatch);
+                                      setShowOriginalMap((prev) => ({ ...prev, [msg.id]: false }));
+                                    }}
+                                    className={`inline-flex items-center gap-1.5 px-2 py-1.5 rounded-xl text-[10px] font-bold border transition-all cursor-pointer ${
+                                      isSelected
+                                        ? 'border-blue-900 bg-blue-50 text-blue-950 ring-2 ring-blue-900/30 shadow-xs'
+                                        : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50'
+                                    }`}
+                                  >
+                                    <span
+                                      className="w-3 h-3 rounded-full border border-slate-300 shrink-0 shadow-2xs"
+                                      style={{ backgroundColor: swatch.hex }}
+                                    />
+                                    <span className="truncate">{swatch.name.split(' ')[0]}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          {/* Descargar ficha */}
+                          <div className="px-3 py-2 bg-white border-t border-slate-100 flex items-center justify-end">
+                            <button
+                              type="button"
+                              disabled={isDownloadingSheet}
+                              onClick={() => handleDownloadTechnicalSheet(msg, simulatedProduct)}
+                              className="inline-flex items-center gap-1.5 text-xs text-blue-900 hover:text-blue-950 font-bold hover:underline cursor-pointer"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                              <span>Descargar Ficha Técnica con Simulación (PNG)</span>
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 3. DESGLOSE DETALLADO DE COTIZACIÓN (Solo visible con botón interactivo [Ver Cotización Detallada]) */}
+                      {isDetailed && (
+                        <div className="rounded-2xl bg-white border-2 border-blue-900/30 p-4 shadow-md space-y-3.5 animate-fadeIn">
+                          <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                            <div className="flex items-center gap-2">
+                              <FileText className="w-4 h-4 text-blue-900" />
+                              <h4 className="text-xs sm:text-sm font-black text-slate-900">
+                                Desglose de Cotización Técnica (Norma NTC 1335)
+                              </h4>
+                            </div>
+                            <span className="text-[11px] font-bold text-teal-800 bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200">
+                              {msg.areaM2 || sqm || 24} m²
                             </span>
                           </div>
 
-                          <div className="grid grid-cols-4 gap-1.5">
-                            {SIMULATION_SWATCHES.map((swatch) => {
-                              const isSelected = activeSimulationColor.code === swatch.code;
+                          {/* Opciones de Pinturas (Recomendada y Alternativa) */}
+                          <div className="space-y-2">
+                            <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 block">
+                              🎨 Pinturas Oficiales Pintuco:
+                            </span>
+                            {allActions.map((action, actionIdx) => {
+                              const isPremium = action.tipo === 'recomendada' || actionIdx === 0;
                               return (
-                                <button
-                                  key={swatch.code}
-                                  type="button"
-                                  onClick={() => {
-                                    setActiveSimulationColor(swatch);
-                                    setShowOriginalMap((prev) => ({ ...prev, [msg.id]: false }));
-                                  }}
-                                  className={`inline-flex items-center gap-1.5 px-2 py-1.5 rounded-xl text-[10px] font-bold border transition-all cursor-pointer ${
-                                    isSelected
-                                      ? 'border-blue-900 bg-blue-50 text-blue-950 ring-2 ring-blue-900/30 shadow-xs'
-                                      : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50'
+                                <div
+                                  key={`${msg.id}-det-action-${actionIdx}`}
+                                  className={`p-2.5 rounded-xl border text-xs ${
+                                    isPremium
+                                      ? 'bg-blue-50/60 border-blue-200'
+                                      : 'bg-slate-50 border-slate-200'
                                   }`}
                                 >
-                                  <span
-                                    className="w-3 h-3 rounded-full border border-slate-300 shrink-0 shadow-2xs"
-                                    style={{ backgroundColor: swatch.hex }}
-                                  />
-                                  <span className="truncate">{swatch.name.split(' ')[0]}</span>
-                                </button>
+                                  <div className="flex items-start justify-between gap-2">
+                                    <div>
+                                      <div className="flex items-center gap-1.5">
+                                        <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded-full ${isPremium ? 'bg-blue-900 text-white' : 'bg-slate-700 text-white'}`}>
+                                          {isPremium ? '⭐ Recomendada' : '💡 Alternativa'}
+                                        </span>
+                                        <span className="font-mono text-[10px] text-slate-500">SKU: {action.sku}</span>
+                                      </div>
+                                      <h5 className="font-bold text-slate-900 mt-1">{action.productName}</h5>
+                                      <p className="text-[11px] text-slate-600">{action.descripcion}</p>
+                                    </div>
+                                    <div className="text-right shrink-0">
+                                      <span className="font-black text-slate-900 block">
+                                        ${(action.cantidad * action.precioUnitario).toLocaleString('es-CO')} COP
+                                      </span>
+                                      <span className="text-[10px] text-slate-500 block">
+                                        {action.cantidad} {action.presentacion} (${action.precioUnitario.toLocaleString('es-CO')}/un)
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleConfirmAddToCartDirect(action, activeSimulationColor)}
+                                        className="mt-1 px-2 py-0.5 rounded-lg border border-slate-300 hover:bg-emerald-50 text-[10px] font-bold text-slate-800 transition-colors cursor-pointer"
+                                      >
+                                        + Agregar
+                                      </button>
+                                    </div>
+                                  </div>
+                                </div>
                               );
                             })}
                           </div>
-                        </div>
 
-                        {/* Descargar ficha */}
-                        <div className="px-3 py-2 bg-white border-t border-slate-100 flex items-center justify-end">
-                          <button
-                            type="button"
-                            disabled={isDownloadingSheet}
-                            onClick={() => handleDownloadTechnicalSheet(msg, simulatedProduct)}
-                            className="inline-flex items-center gap-1.5 text-xs text-blue-900 hover:text-blue-950 font-bold hover:underline cursor-pointer"
-                          >
-                            <Download className="w-3.5 h-3.5" />
-                            <span>Descargar Ficha Técnica con Simulación (PNG)</span>
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* DESGLOSE PRECISO DE COTIZACIÓN (PINTURA + KIT DE HERRAMIENTAS) */}
-                    {simulatedProduct && (
-                      <div className="mt-3 p-3.5 rounded-2xl bg-white border-2 border-blue-900/30 shadow-md">
-                        <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-                          <div className="flex items-center gap-2">
-                            <FileText className="w-4 h-4 text-blue-900" />
-                            <h4 className="text-xs sm:text-sm font-black text-slate-900">
-                              Cotización Oficial Estimada (Norma NTC 1335)
-                            </h4>
-                          </div>
-                          <span className="text-[11px] font-bold text-teal-800 bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200">
-                            {sqm || msg.areaM2 || 24} m²
-                          </span>
-                        </div>
-
-                        {/* Ítem 1: Pintura recomendada */}
-                        <div className="mt-3 space-y-1.5 text-xs">
-                          <div className="flex items-center justify-between text-slate-800 font-bold">
-                            <span className="flex items-center gap-1.5 truncate">
-                              <span className="w-2 h-2 rounded-full bg-blue-900 shrink-0" />
-                              <span className="truncate">{simulatedProduct.productName} ({simulatedProduct.cantidad} {simulatedProduct.presentacion})</span>
+                          {/* Kit de Herramientas Pintuco Desglosado */}
+                          <div className="pt-2.5 border-t border-slate-100">
+                            <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 block mb-1.5">
+                              🛠️ Kit Profesional de Preparación y Aplicación:
                             </span>
-                            <span className="font-black text-slate-900 shrink-0">
-                              ${(simulatedProduct.cantidad * simulatedProduct.precioUnitario).toLocaleString('es-CO')} COP
-                            </span>
+                            <div className="space-y-1 text-xs">
+                              {toolsKitToUse.map((tool, tIdx) => (
+                                <div key={tIdx} className="flex items-center justify-between text-slate-700 text-[11px]">
+                                  <span className="truncate">• {tool.cantidad}x {tool.nombre}</span>
+                                  <span className="font-semibold text-slate-900 shrink-0">
+                                    ${(tool.cantidad * tool.precioUnitario).toLocaleString('es-CO')} COP
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
                           </div>
-                          <p className="text-[11px] text-slate-500 pl-3.5">
-                            Color: <strong>{activeSimulationColor.name}</strong> (#{activeSimulationColor.code}) • Rendimiento certificado a 2 manos
-                          </p>
-                        </div>
 
-                        {/* Ítem 2: Kit de herramientas Pintuco */}
-                        <div className="mt-3 pt-2.5 border-t border-slate-100">
-                          <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 block mb-1.5">
-                            🛠️ Kit Profesional de Preparación y Aplicación:
-                          </span>
-                          <div className="space-y-1 text-xs">
-                            {(msg.toolsKit || DEFAULT_TOOLS_KIT).map((tool, tIdx) => (
-                              <div key={tIdx} className="flex items-center justify-between text-slate-700 text-[11px]">
-                                <span className="truncate">• {tool.cantidad}x {tool.nombre}</span>
-                                <span className="font-semibold text-slate-900 shrink-0">
-                                  ${(tool.cantidad * tool.precioUnitario).toLocaleString('es-CO')} COP
-                                </span>
-                              </div>
-                            ))}
+                          {/* Resumen Total y Acciones del Desglose */}
+                          <div className="pt-2.5 border-t-2 border-slate-200 flex items-center justify-between">
+                            <div>
+                              <span className="text-xs font-black uppercase text-slate-500 block">Total Paquete Obra:</span>
+                              <span className="text-[10px] text-slate-400">Pintura + Kit de Herramientas</span>
+                            </div>
+                            <div className="text-right">
+                              <span className="text-base sm:text-lg font-black text-blue-950 block">
+                                ${totalCotizacion.toLocaleString('es-CO')} COP
+                              </span>
+                            </div>
                           </div>
-                        </div>
 
-                        {/* Total Estimado en COP */}
-                        <div className="mt-3.5 pt-2.5 border-t-2 border-slate-200 flex items-center justify-between">
-                          <div>
-                            <span className="text-xs font-black uppercase text-slate-500 block">Total Estimado Obra:</span>
-                            <span className="text-[10px] text-slate-400">IVA 19% incluido en COP</span>
-                          </div>
-                          <div className="text-right">
-                            <span className="text-base sm:text-lg font-black text-blue-950 block">
-                              ${(
-                                (simulatedProduct.cantidad * simulatedProduct.precioUnitario) +
-                                (msg.toolsKit || DEFAULT_TOOLS_KIT).reduce((acc, t) => acc + (t.cantidad * t.precioUnitario), 0)
-                              ).toLocaleString('es-CO')} COP
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* BOTÓN DE LLAMADA A LA ACCIÓN (CTA PRINCIPAL) */}
-                        <div className="mt-3.5 pt-2 flex flex-col gap-2">
-                          <button
-                            type="button"
-                            onClick={() => handleProceedFullQuotationPurchase(
-                              simulatedProduct,
-                              msg.toolsKit || DEFAULT_TOOLS_KIT,
-                              activeSimulationColor
-                            )}
-                            className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-amber-500 via-amber-600 to-amber-500 hover:from-amber-600 hover:to-amber-700 text-slate-950 text-xs sm:text-sm font-black shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-98"
-                          >
-                            <ShoppingCart className="w-4 h-4 shrink-0 text-slate-950" />
-                            <span>Proceder con la Compra / Agregar al Pedido</span>
-                          </button>
-
-                          <div className="flex items-center justify-between gap-2 text-xs">
+                          <div className="pt-2 flex flex-col gap-2">
                             <button
                               type="button"
-                              onClick={() => {
-                                if (onApplyCalculation) {
-                                  onApplyCalculation(sqm || msg.areaM2 || 24, simulatedProduct.productName);
-                                } else if (onNavigateTab) {
-                                  onNavigateTab('cotizador');
-                                }
-                                onClose();
-                              }}
-                              className="text-blue-900 hover:underline font-bold text-[11px] flex items-center gap-1 cursor-pointer"
+                              onClick={() => handleProceedFullQuotationPurchase(
+                                primaryAction,
+                                toolsKitToUse,
+                                activeSimulationColor
+                              )}
+                              className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-amber-500 via-amber-600 to-amber-500 hover:from-amber-600 hover:to-amber-700 text-slate-950 text-xs sm:text-sm font-black shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-98"
                             >
-                              <FileText className="w-3 h-3" />
-                              <span>Ver en Cotizador Inteligente (BOM)</span>
+                              <ShoppingCart className="w-4 h-4 shrink-0 text-slate-950" />
+                              <span>Proceder con la Compra / Agregar al Pedido</span>
                             </button>
 
-                            {onOpenCart && (
+                            <div className="flex items-center justify-between gap-2 text-xs">
                               <button
                                 type="button"
-                                onClick={onOpenCart}
-                                className="text-slate-600 hover:text-slate-900 font-bold text-[11px] flex items-center gap-1 cursor-pointer"
+                                onClick={() => {
+                                  if (onApplyCalculation) {
+                                    onApplyCalculation(msg.areaM2 || sqm || 24, primaryAction.productName);
+                                  } else if (onNavigateTab) {
+                                    onNavigateTab('cotizador');
+                                  }
+                                  onClose();
+                                }}
+                                className="text-blue-900 hover:underline font-bold text-[11px] flex items-center gap-1 cursor-pointer"
                               >
-                                <span>Ver Carrito ({addedToCartMap.fullOrder ? '1 paquete' : '0'}) →</span>
+                                <FileText className="w-3 h-3" />
+                                <span>Ver en Cotizador Inteligente (BOM)</span>
                               </button>
-                            )}
+
+                              <button
+                                type="button"
+                                onClick={() => toggleQuoteDetail(msg.id)}
+                                className="text-slate-500 hover:text-slate-800 font-bold text-[11px] cursor-pointer"
+                              >
+                                Ocultar Detalle ▲
+                              </button>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    )}
-                  </div>
-                )}
+                      )}
+                    </div>
+                  );
+                })()}
 
                 <div
                   className={`text-[10px] mt-2 text-right ${

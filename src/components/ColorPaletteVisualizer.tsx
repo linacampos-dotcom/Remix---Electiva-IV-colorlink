@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { COLOR_PALETTE, ColorPaletteItem } from '../data/pintucoData';
 import { 
   Check, 
@@ -67,6 +67,12 @@ export const ColorPaletteVisualizer: React.FC<ColorPaletteVisualizerProps> = ({
   const currentColor = COLOR_PALETTE.find(
     (c) => c.name === selectedColorName || selectedColorName.includes(c.code)
   ) || COLOR_PALETTE[0];
+
+  const selectedSimulationColor = useMemo(() => ({
+    name: currentColor.name,
+    code: currentColor.code,
+    hex: currentColor.hex,
+  }), [currentColor.name, currentColor.code, currentColor.hex]);
 
   const filteredColors = activeCategory === 'Todos'
     ? COLOR_PALETTE
@@ -651,11 +657,7 @@ export const ColorPaletteVisualizer: React.FC<ColorPaletteVisualizerProps> = ({
           {/* Renderizado fotorrealista por Canvas y Máscara de Muros (Sin overlay CSS plano) */}
           <ImageVisualizer
             imageUrl={currentSceneObj.image}
-            selectedColor={{
-              name: currentColor.name,
-              code: currentColor.code,
-              hex: currentColor.hex,
-            }}
+            selectedColor={selectedSimulationColor}
             showOriginal={showOriginal}
             surfaceType={activeScene === 'facade' ? 'fachada' : 'muro_interior'}
             className="w-full h-full object-cover"

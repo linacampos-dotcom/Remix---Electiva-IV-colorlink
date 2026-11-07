@@ -219,6 +219,12 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
 
     if (isOpen) {
       syncQuoteDelivery();
+      try {
+        if (sessionStorage.getItem('colorlink_open_checkout_step') === 'true') {
+          setIsCheckoutStep(true);
+          sessionStorage.removeItem('colorlink_open_checkout_step');
+        }
+      } catch {}
     }
 
     const handleCustomUpdate = () => {

@@ -153,7 +153,6 @@ export const ClientView: React.FC<ClientViewProps> = ({
     setActiveClientTab('cotizador');
   };
 
-  // Add the materials calculated by the smart quote directly into the shopping cart
   const handleAddCalculationToCart = (
     customQtys?: { cunetes?: number; galones?: number; sellador?: number },
     proceedToCheckout: boolean = false,
@@ -165,8 +164,27 @@ export const ClientView: React.FC<ClientViewProps> = ({
       precioUnitario: number;
       sku: string;
       imagenUrl: string;
-    }>
+    }>,
+    deliveryData?: any
   ) => {
+    // Sincronización íntegra de datos de entrega y despacho en el almacenamiento local
+    if (deliveryData) {
+      try {
+        localStorage.setItem('colorlink_quote_delivery', JSON.stringify(deliveryData));
+        if (deliveryData.direccion) {
+          localStorage.setItem('shippingAddress', deliveryData.direccion);
+          localStorage.setItem('colorlink_shipping_address', deliveryData.direccion);
+        }
+        window.dispatchEvent(new CustomEvent('colorlink_quote_delivery_updated', { detail: deliveryData }));
+      } catch {}
+    }
+
+    if (proceedToCheckout) {
+      try {
+        sessionStorage.setItem('colorlink_open_checkout_step', 'true');
+      } catch {}
+    }
+
     const precioBaseGalon = 
       calculation.productoSugerido.includes('Koraza') ? 142000 :
       calculation.productoSugerido.includes('Baños') ? 128000 :

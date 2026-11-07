@@ -206,10 +206,12 @@ app.post('/api/auth/verify-otp', (req, res) => {
 // GESTIÓN DE USUARIOS Y AUTENTICACIÓN CENTRALIZADA (DETECCIÓN AUTOMÁTICA)
 // =========================================================================
 interface RegisteredUserRecord {
+  id?: string;
   email: string;
   nombre: string;
   cargo?: string;
   documento?: string;
+  cedula?: string;
   tipoDocumento?: string;
   telefono?: string;
   ciudad?: string;
@@ -430,10 +432,13 @@ app.post('/api/auth/sync-profile', async (req, res) => {
     const cleanCiudad = (ciudad || 'Bogotá D.C.').trim();
 
     // Actualizar registro en memoria
-    const current = usersDatabase.get(cleanEmail) || {
+    const current: RegisteredUserRecord = usersDatabase.get(cleanEmail) || {
+      id: userId || `usr-${Date.now()}`,
       email: cleanEmail,
+      nombre: cleanNombre || cleanEmail.split('@')[0],
       role: 'cliente',
       isCorporate: false,
+      created_at: new Date().toISOString(),
     };
 
     usersDatabase.set(cleanEmail, {
@@ -1527,13 +1532,15 @@ REGLAS DE COMPORTAMIENTO Y POLÍTICA DE CONVERSACIÓN ESTRICTA:
      • Centro de Enlace Nariño Torobajo: Sector Torobajo, Vía Panamericana Sur Km 1.5 | Horario: Lunes a Viernes 8:00 AM - 5:30 PM | Sábados 8:00 AM - 1:00 PM | Tel: +57 (602) 723 4400 | Entrega: 24 a 48 horas
    - Si el usuario pregunta por sedes de forma general sin ciudad, pídele amablemente en qué ciudad se encuentra para ubicar la más cercana. Cuando indique la ciudad (incluyendo Santa Marta, Pasto, Villavicencio, Ibagué o Cúcuta), entrégale la sede oficial correspondiente con su nombre, dirección exacta, teléfono, horario de atención y tiempo de entrega.
 
-6. TONO:
-   - Profesional, cálido, colombiano, técnico y conciso.
+6. TONO Y REGLAS DE RESPUESTA EN CHAT (ESTRICTO):
+   - Profesional, cálido, colombiano, técnico y sumamente conciso.
+   - REGLA DE BREVEDAD OBLIGATORIA: El campo "reply" DEBE LIMITARSE a un texto introductorio de MÁXIMO 2 FRASES EJECUTIVAS (ejemplo: "Para tu espacio de 16 m², te recomiendo Viniltex Avanzado según la norma NTC 1335. He preparado tu cotización oficial y simulación de color.").
+   - NUNCA incluyas desgloses de precios, listas de herramientas, tablas ni fórmulas matemáticas en el texto de "reply". Todo el desglose de productos y herramientas debe ir en los campos estructurados "cartActions" y "toolsKit" para que la interfaz los presente en el resumen compacto interactivo con el botón [Ver Cotización Detallada].
 
 FORMATO DE SALIDA JSON OBLIGATORIO:
 Responde ÚNICAMENTE con un objeto JSON válido con la siguiente estructura:
 {
-  "reply": "Texto de la respuesta en viñetas o pasos claros...",
+  "reply": "Máximo 2 frases ejecutivas introductorias...",
   "superficieIdentificada": "sala interior" | "fachada exterior" | "habitación" | "baño o cocina" | "metal o madera",
   "areaEstimadaM2": número estimado o confirmado,
   "productoRecomendado": "Nombre del producto",
@@ -1977,8 +1984,8 @@ Si la consulta no tiene nada que ver con pintura ni Pintuco, pon "esFueraDeAlcan
     ];
 
     const replyMsg = hasPhoto
-      ? `He procesado la fotografía de tu ${identifiedSurface}. Estimo un área aproximada de ${m2} m². He generado la simulación visual interactiva de color y la cotización precisa con la pintura oficial y el kit de herramientas reglamentario bajo norma NTC 1335.`
-      : `Entendido, ${m2} m² para ${identifiedSurface}. Calculado con la norma técnica colombiana NTC 1335 (2 manos + 10% desperdicio). A continuación te presento la cotización oficial de producto y herramientas recomendadas:`;
+      ? `Para tu ${identifiedSurface} de aproximadamente ${m2} m², te recomiendo ${fallbackActions[0].productName} según la norma NTC 1335. He activado la simulación de color y el resumen ejecutivo de tu cotización.`
+      : `Para tu espacio de ${m2} m², te recomiendo ${fallbackActions[0].productName} según la norma NTC 1335. A continuación encontrarás el resumen compacto de tu proyecto:`;
 
     return res.json({
       reply: replyMsg,

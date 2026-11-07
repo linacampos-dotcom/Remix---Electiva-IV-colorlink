@@ -25,6 +25,7 @@ export interface ImageVisualizerProps {
   showOriginal?: boolean;
   surfaceType?: string;
   className?: string;
+  blendMode?: 'multiply' | 'overlay';
   onSimulationRendered?: (simulatedDataUrl: string) => void;
   onToggleOriginal?: () => void;
 }
@@ -52,6 +53,7 @@ export const ImageVisualizer: React.FC<ImageVisualizerProps> = ({
   showOriginal = false,
   surfaceType = 'fachada',
   className = '',
+  blendMode = 'multiply',
   onSimulationRendered,
   onToggleOriginal,
 }) => {
@@ -62,10 +64,37 @@ export const ImageVisualizer: React.FC<ImageVisualizerProps> = ({
   const [simulatedDataUrl, setSimulatedDataUrl] = useState<string | null>(null);
   const [isRendering, setIsRendering] = useState<boolean>(false);
   const [localShowOriginal, setLocalShowOriginal] = useState<boolean>(showOriginal);
+  const [activeBlendMode, setActiveBlendMode] = useState<'multiply' | 'overlay'>(blendMode);
+
+  // Extraer valores primitivos para evitar loops por referencias de objetos
+  const colorHex = selectedColor?.hex || '#2481A6';
+  const colorName = selectedColor?.name || 'Colorlink';
+  const colorCode = selectedColor?.code || '';
+
+  // Guardar callbacks en refs para no recrear efectos ni causar re-renders infinitos
+  const onSimulationRenderedRef = useRef(onSimulationRendered);
+  useEffect(() => {
+    onSimulationRenderedRef.current = onSimulationRendered;
+  }, [onSimulationRendered]);
+
+  const onToggleOriginalRef = useRef(onToggleOriginal);
+  useEffect(() => {
+    onToggleOriginalRef.current = onToggleOriginal;
+  }, [onToggleOriginal]);
+
+  // Clave de última simulación renderizada para evitar ejecuciones repetidas
+  const lastRenderKeyRef = useRef<string>('');
+
+  // Sincronizar prop blendMode si cambia desde el padre sin provocar re-renders cíclicos
+  useEffect(() => {
+    if (blendMode) {
+      setActiveBlendMode((prev) => (prev !== blendMode ? blendMode : prev));
+    }
+  }, [blendMode]);
 
   // Mantener sincronizado el estado de mostrar original
   useEffect(() => {
-    setLocalShowOriginal(showOriginal);
+    setLocalShowOriginal((prev) => (prev !== showOriginal ? showOriginal : prev));
   }, [showOriginal]);
 
   // Paso 1: Obtener la máscara de segmentación desde el API o la caché
@@ -149,6 +178,8 @@ export const ImageVisualizer: React.FC<ImageVisualizerProps> = ({
   // Paso 2: Renderizado fotorrealista sobre Canvas con la máscara y luminancia real
   const renderSimulationCanvas = useCallback(async () => {
     if (!imageUrl || !segmentationData || isAnalyzing) return;
+    const renderKey = `${imageUrl}::${colorHex}::${activeBlendMode}`;
+    if (lastRenderKeyRef.current === renderKey) return;
 
     setIsRendering(true);
     try {
@@ -225,10 +256,20 @@ export const ImageVisualizer: React.FC<ImageVisualizerProps> = ({
         }
       }
 
-      const maskImageData = maskCtx.getImageData(0, 0, width, height);
+      // 2.1 SUAVIZADO DE BORDES (FEATHER / BLUR SUTIL)
+      // Evita recortes geométricos artificiales difuminando suavemente el contorno de la máscara (3-4px)
+      const featherCanvas = document.createElement('canvas');
+      featherCanvas.width = width;
+      featherCanvas.height = height;
+      const featherCtx = featherCanvas.getContext('2d', { willReadFrequently: true });
+      if (featherCtx) {
+        featherCtx.filter = 'blur(4px)';
+        featherCtx.drawImage(maskCanvas, 0, 0);
+      }
+      const maskImageData = (featherCtx || maskCtx).getImageData(0, 0, width, height);
       const maskData = maskImageData.data;
 
-      // 3. Canvas final con tintado por luminancia fotométrica
+      // 3. Canvas final con mezcla de capa fotorrealista (mix-blend-mode: multiply / overlay)
       const finalCanvas = canvasRef.current || document.createElement('canvas');
       finalCanvas.width = width;
       finalCanvas.height = height;
@@ -238,7 +279,7 @@ export const ImageVisualizer: React.FC<ImageVisualizerProps> = ({
       const finalImageData = finalCtx.createImageData(width, height);
       const finalData = finalImageData.data;
 
-      const targetRgb = hexToRgb(selectedColor.hex);
+      const targetRgb = hexToRgb(colorHex);
       const totalPixels = width * height;
 
       for (let i = 0; i < totalPixels; i++) {
@@ -251,7 +292,7 @@ export const ImageVisualizer: React.FC<ImageVisualizerProps> = ({
         const maskAlpha = maskData[offset + 3] / 255;
 
         // Si el píxel está fuera de la máscara de pared, se mantiene 100% el píxel original intacto
-        if (maskAlpha <= 0.02) {
+        if (maskAlpha <= 0.01) {
           finalData[offset] = r;
           finalData[offset + 1] = g;
           finalData[offset + 2] = b;
@@ -291,62 +332,73 @@ export const ImageVisualizer: React.FC<ImageVisualizerProps> = ({
         }
 
         // =========================================================================
-        // APLICACIÓN DE COLOR COLORLINK BASADA EN LUMINANCIA REAL
-        // Preserva el relieve, textura rugosa y sombras originales de la foto
+        // MODO DE MEZCLA DE CAPA PROFESIONAL (CSS mix-blend-mode: multiply / overlay)
+        // Conserva fielmente la textura estucada, relieve, luces y sombras reales
+        // evitando bloques de color planos en tonos como Azul Caribe (#2481A6)
         // =========================================================================
-        // Luminancia percibida (estándar ITU-R BT.601)
-        const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-        const lumFactor = lum / 128; // 1.0 en tonos medios, < 1.0 en sombras, > 1.0 en luces
+        let paintR = 0;
+        let paintG = 0;
+        let paintB = 0;
 
-        // Cálculo del tinte pigmentario
-        let tintR = targetRgb.r * lumFactor;
-        let tintG = targetRgb.g * lumFactor;
-        let tintB = targetRgb.b * lumFactor;
+        if (activeBlendMode === 'multiply') {
+          // Fórmula estándar Multiply: (Base * Blend) / 255
+          paintR = (r * targetRgb.r) / 255;
+          paintG = (g * targetRgb.g) / 255;
+          paintB = (b * targetRgb.b) / 255;
 
-        // Conservar micro-textura y rugosidad original del muro (estuco/piedra)
-        const textureRatio = 0.16;
-        tintR = (1 - textureRatio) * tintR + textureRatio * r;
-        tintG = (1 - textureRatio) * tintG + textureRatio * g;
-        tintB = (1 - textureRatio) * tintB + textureRatio * b;
+          // Compensación sutil de luminosidad en áreas iluminadas para mantener el tono natural del pigmento
+          const lumNorm = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+          const highlightLift = Math.max(0, lumNorm - 0.52) * 0.40;
+          paintR = Math.min(255, paintR + targetRgb.r * highlightLift);
+          paintG = Math.min(255, paintG + targetRgb.g * highlightLift);
+          paintB = Math.min(255, paintB + targetRgb.b * highlightLift);
+        } else {
+          // Fórmula estándar Overlay
+          const calcOverlay = (base: number, blend: number) => {
+            const bNorm = base / 255;
+            const lNorm = blend / 255;
+            const res = bNorm < 0.5 ? (2 * bNorm * lNorm) : (1 - 2 * (1 - bNorm) * (1 - lNorm));
+            return Math.min(255, Math.max(0, res * 255));
+          };
+          paintR = calcOverlay(r, targetRgb.r);
+          paintG = calcOverlay(g, targetRgb.g);
+          paintB = calcOverlay(b, targetRgb.b);
+        }
 
-        // Normalizar rangos [0, 255]
-        tintR = Math.min(255, Math.max(0, tintR));
-        tintG = Math.min(255, Math.max(0, tintG));
-        tintB = Math.min(255, Math.max(0, tintB));
-
-        // Mezcla suave con el original en base a la máscara y opacidad natural de pintura (88%)
-        const blendWeight = maskAlpha * 0.88;
-        finalData[offset] = Math.round(r * (1 - blendWeight) + tintR * blendWeight);
-        finalData[offset + 1] = Math.round(g * (1 - blendWeight) + tintG * blendWeight);
-        finalData[offset + 2] = Math.round(b * (1 - blendWeight) + tintB * blendWeight);
+        // Ponderación suave con la máscara difuminada (feathered maskAlpha) y acabado de pintura real (90%)
+        const blendWeight = Math.min(1, Math.max(0, maskAlpha)) * 0.90;
+        finalData[offset] = Math.round(r * (1 - blendWeight) + paintR * blendWeight);
+        finalData[offset + 1] = Math.round(g * (1 - blendWeight) + paintG * blendWeight);
+        finalData[offset + 2] = Math.round(b * (1 - blendWeight) + paintB * blendWeight);
         finalData[offset + 3] = a;
       }
 
       finalCtx.putImageData(finalImageData, 0, 0);
 
       const generatedDataUrl = finalCanvas.toDataURL('image/png');
-      setSimulatedDataUrl(generatedDataUrl);
+      lastRenderKeyRef.current = renderKey;
+      setSimulatedDataUrl((prev) => (prev === generatedDataUrl ? prev : generatedDataUrl));
 
-      if (onSimulationRendered) {
-        onSimulationRendered(generatedDataUrl);
+      if (onSimulationRenderedRef.current) {
+        onSimulationRenderedRef.current(generatedDataUrl);
       }
     } catch (err) {
       console.error('Error renderizando simulación por canvas:', err);
     } finally {
       setIsRendering(false);
     }
-  }, [imageUrl, segmentationData, isAnalyzing, selectedColor, onSimulationRendered]);
+  }, [imageUrl, segmentationData, isAnalyzing, colorHex, activeBlendMode]);
 
-  // Disparar render cuando la máscara o el color seleccionado cambien
+  // Disparar render cuando la máscara, el color seleccionado o el modo de mezcla cambien
   useEffect(() => {
     if (segmentationData && !isAnalyzing) {
       renderSimulationCanvas();
     }
-  }, [segmentationData, isAnalyzing, selectedColor, renderSimulationCanvas]);
+  }, [segmentationData, isAnalyzing, colorHex, activeBlendMode, renderSimulationCanvas]);
 
   const handleToggle = () => {
-    if (onToggleOriginal) {
-      onToggleOriginal();
+    if (onToggleOriginalRef.current) {
+      onToggleOriginalRef.current();
     } else {
       setLocalShowOriginal((prev) => !prev);
     }
@@ -360,7 +412,7 @@ export const ImageVisualizer: React.FC<ImageVisualizerProps> = ({
       {/* Elemento Canvas Oculto para procesamiento de alto rendimiento */}
       <canvas ref={canvasRef} className="hidden" />
 
-      {/* Visor de Imagen: Renderizado fotorrealista SIN filtros globales CSS */}
+      {/* Visor de Imagen: Renderizado fotorrealista con modo de mezcla y bordes suavizados */}
       <div className="relative w-full flex items-center justify-center min-h-[200px] max-h-80 bg-slate-950">
         <img
           src={localShowOriginal ? imageUrl : simulatedDataUrl || imageUrl}
@@ -379,7 +431,7 @@ export const ImageVisualizer: React.FC<ImageVisualizerProps> = ({
               Analizando estructura y contornos de muros...
             </p>
             <p className="text-sky-200 text-[11px] mt-1 max-w-xs leading-relaxed">
-              Segmentando paredes y preservando puertas de madera, marcos, ventanas y vegetación
+              Aplicando suavizado de bordes (feather) y modo de mezcla fotográfico sobre sombras y texturas
             </p>
             <div className="mt-3 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/10 text-white/90 text-[10px] font-mono border border-white/15">
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
@@ -388,9 +440,9 @@ export const ImageVisualizer: React.FC<ImageVisualizerProps> = ({
           </div>
         )}
 
-        {/* Badge de Tono Colorlink Superpuesto */}
+        {/* Badge de Tono Colorlink Superpuesto y Modo de Mezcla */}
         {!localShowOriginal && simulatedDataUrl && !isAnalyzing && (
-          <div className="absolute bottom-2.5 left-2.5 z-10 flex items-center gap-1.5">
+          <div className="absolute bottom-2.5 left-2.5 z-10 flex flex-wrap items-center gap-1.5">
             <span className="px-2.5 py-1 rounded-lg text-[10px] font-black bg-slate-950/85 text-white backdrop-blur-xs border border-white/20 flex items-center gap-1.5 shadow-md">
               <span
                 className="w-3 h-3 rounded-full border border-white/80 shrink-0 shadow-2xs"
@@ -398,6 +450,34 @@ export const ImageVisualizer: React.FC<ImageVisualizerProps> = ({
               />
               <span>Colorlink • {selectedColor.name} (#{selectedColor.code})</span>
             </span>
+
+            {/* Selector interactivo de Modo de Mezcla (Multiply / Overlay) */}
+            <div className="flex items-center rounded-lg bg-slate-950/85 backdrop-blur-xs border border-white/20 p-0.5 shadow-md">
+              <button
+                type="button"
+                onClick={() => setActiveBlendMode('multiply')}
+                className={`px-2 py-0.5 rounded text-[9px] font-bold transition-all cursor-pointer ${
+                  activeBlendMode === 'multiply'
+                    ? 'bg-amber-500 text-slate-950 font-black shadow-xs'
+                    : 'text-slate-300 hover:text-white'
+                }`}
+                title="Modo Multiply: multiplica sobre sombras y micro-relieves de pared"
+              >
+                Multiplicar (Multiply)
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveBlendMode('overlay')}
+                className={`px-2 py-0.5 rounded text-[9px] font-bold transition-all cursor-pointer ${
+                  activeBlendMode === 'overlay'
+                    ? 'bg-amber-500 text-slate-950 font-black shadow-xs'
+                    : 'text-slate-300 hover:text-white'
+                }`}
+                title="Modo Overlay: realza luminosidad y brillo conservando relieves"
+              >
+                Superponer (Overlay)
+              </button>
+            </div>
           </div>
         )}
 
