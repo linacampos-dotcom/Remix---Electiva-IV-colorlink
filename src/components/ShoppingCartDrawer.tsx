@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { CartItem, UserSession, COLORLINKOrder, TipoDocumento } from '../types';
 import { 
@@ -103,6 +103,17 @@ export const CART_COMPLEMENTARY_TOOLS: CartComplementaryTool[] = [
     descripcion: 'Palanca de destape seguro que protege la tapa para conservaciones posteriores.',
     imagenUrl: '/src/assets/images/destapa_cunetes_herramienta_1790894634999.jpg',
     motivo: 'Apertura limpia y segura de cuñetes de 5 Galones sin deformar la tapa',
+  },
+  {
+    id: 'tool-sellador-acrilico',
+    nombre: 'Sellador Acrílico Grietas y Juntas Pintuco (300 ml)',
+    categoria: 'Preparación',
+    precio: 16900,
+    presentacion: 'Unidad',
+    sku: 'PIN-SEL-300',
+    descripcion: 'Sellante elastomérico de alto desempeño para resanar grietas antes de pintar o lijar.',
+    imagenUrl: '/src/assets/images/paint_roller_tray_1790894457076.jpg',
+    motivo: 'Sellado elástico previo en juntas y fisuras para evitar desprendimiento y ampollas',
   },
 ];
 
@@ -429,8 +440,8 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
     );
     const itemNames = items.map(i => i.nombre.toLowerCase()).join(' ');
 
-    const hasPintura = /viniltex|koraza|esmalte|pintura|barniz|intervinil|acrílica|acrilica|latex|base|sellador/i.test(itemNames);
-    const hasLija = /lija|lijas|pulir/i.test(itemNames);
+    const hasPintura = /viniltex|koraza|esmalte|pintura|barniz|intervinil|acrílica|acrilica|latex|base|sellador|madera|metal/i.test(itemNames);
+    const hasLija = /lija|lijas|pulir|preparación|preparacion|estuco|masilla|resane|impermeabilizante/i.test(itemNames);
     const hasCunete = items.some(i => 
       (i.presentacion || '').toLowerCase().includes('cuñete') || 
       (i.presentacion || '').toLowerCase().includes('5 gal')
@@ -438,23 +449,27 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
 
     const recs: CartComplementaryTool[] = [];
 
-    // Pinturas / Barnices -> Kit Profesional Pintor & Cinta de Enmascarar Azul
+    // Pinturas / Barnices -> Brochas, Rodillos antigota y Cinta de Enmascarar Azul
     if (hasPintura) {
       const kitPro = CART_COMPLEMENTARY_TOOLS.find(t => t.id === 'tool-kit-pro');
       if (kitPro && !existingSkusOrIds.has(kitPro.id) && !existingSkusOrIds.has(kitPro.sku.toLowerCase())) {
-        recs.push({ ...kitPro, motivo: 'Recomendado para tu pintura: rodillo antigoteo y brocha para esquinas limpias' });
+        recs.push({ ...kitPro, motivo: 'Recomendado para tu pintura: rodillo antigoteo y brocha para esquinas y bordes limpios' });
       }
       const cinta = CART_COMPLEMENTARY_TOOLS.find(t => t.id === 'tool-cinta-azul');
       if (cinta && !existingSkusOrIds.has(cinta.id) && !existingSkusOrIds.has(cinta.sku.toLowerCase())) {
-        recs.push({ ...cinta, motivo: 'Protege zócalos y marcos sin levantar la película de pintura' });
+        recs.push({ ...cinta, motivo: 'Protege zócalos, marcos y bordes sin levantar la película de pintura' });
       }
     }
 
-    // Lijas -> Espátula de acero inoxidable
+    // Lijas / Preparación -> Espátula de acero inoxidable & Sellador Acrílico
     if (hasLija) {
       const espatula = CART_COMPLEMENTARY_TOOLS.find(t => t.id === 'tool-espatula-inox');
       if (espatula && !existingSkusOrIds.has(espatula.id) && !existingSkusOrIds.has(espatula.sku.toLowerCase())) {
-        recs.push({ ...espatula, motivo: 'Complemento de lijado: espátula flexible para nivelar y aplicar masilla' });
+        recs.push({ ...espatula, motivo: 'Complemento de preparación: espátula flexible para nivelar y aplicar masilla' });
+      }
+      const sellador = CART_COMPLEMENTARY_TOOLS.find(t => t.id === 'tool-sellador-acrilico');
+      if (sellador && !existingSkusOrIds.has(sellador.id) && !existingSkusOrIds.has(sellador.sku.toLowerCase())) {
+        recs.push({ ...sellador, motivo: 'Sellado elástico previo en juntas y fisuras para evitar desprendimiento y ampollas' });
       }
     }
 
@@ -585,7 +600,7 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
 
     const orderNumber = `ORD-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
     const finalDireccion = modalidad === 'retiro_tienda' 
-      ? `Retiro en Tienda Pintuco: ${selectedSede}` 
+      ? `Retiro en Sede Oficial Pintuco: ${selectedSede} (${matchingStore?.direccion || selectedCiudad})` 
       : checkoutDireccion.trim();
 
     const newOrder: COLORLINKOrder = {
@@ -801,7 +816,7 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
               <div className="space-y-2 max-w-sm">
                 <h3 className="text-lg font-black text-slate-900">Procesando pago seguro...</h3>
                 <p className="text-xs text-slate-500 leading-relaxed">
-                  Conectando con la pasarela financiera oficial y validando autorización bancaria encriptada con estándar PCI-DSS.
+                  Verificando con entidad bancaria y reservando existencias de tu pedido con estándar de seguridad encriptada PCI-DSS.
                 </p>
               </div>
 
@@ -996,7 +1011,11 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
                       <Truck className="w-3.5 h-3.5 text-slate-500" />
                       <span>Costo de Envío / Flete:</span>
                     </span>
-                    {esEnvioGratis ? (
+                    {modalidad === 'retiro_tienda' ? (
+                      <span className="font-black text-blue-700 bg-blue-100/90 px-2.5 py-0.5 rounded-full border border-blue-300 text-[11px]">
+                        $0 COP (Retiro en Tienda - Flete GRATIS)
+                      </span>
+                    ) : esEnvioGratis ? (
                       <span className="font-black text-emerald-700 bg-emerald-100/80 px-2.5 py-0.5 rounded-full border border-emerald-300 text-[11px]">
                         $0 COP (Envío GRATIS)
                       </span>
@@ -1373,10 +1392,11 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
                       >
                         <option value="1">1 cuota (Sin intereses - Débito / Crédito)</option>
                         <option value="2">2 cuotas</option>
-                        <option value="3">3 cuotas</option>
+                        <option value="3">3 cuotas (0% de interés con bancos aliados Pintuco / ColorLink)</option>
                         <option value="6">6 cuotas</option>
                         <option value="12">12 cuotas</option>
                         <option value="24">24 cuotas</option>
+                        <option value="36">36 cuotas</option>
                       </select>
                     </div>
                   </div>
@@ -1942,16 +1962,33 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
             {/* Price Breakdown */}
             <div className="space-y-1.5 text-xs text-slate-600 pt-1">
               <div className="flex justify-between">
-                <span>Subtotal productos ({totalItems} uds):</span>
+                <span>Subtotal productos ({totalItems} {totalItems === 1 ? 'ud' : 'uds'}):</span>
                 <span className="font-semibold text-slate-900">${subtotalCOP.toLocaleString('es-CO')} COP</span>
               </div>
-              <div className="flex justify-between">
-                <span>Flete / Despacho ({shipping.tipoZona}):</span>
+              <div className="flex justify-between text-[11px] text-slate-500 pl-2.5 border-l-2 border-slate-300">
+                <span>• Base Gravable:</span>
+                <span className="font-mono text-slate-700">${baseGravable.toLocaleString('es-CO')} COP</span>
+              </div>
+              <div className="flex justify-between text-[11px] text-slate-500 pl-2.5 border-l-2 border-slate-300">
+                <span>• IVA (19% incluido):</span>
+                <span className="font-mono text-emerald-700 font-semibold">${iva19.toLocaleString('es-CO')} COP</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="flex items-center gap-1">
+                  <Truck className="w-3.5 h-3.5 text-slate-500" />
+                  <span>Costo de Envío / Flete:</span>
+                </span>
                 <span className="font-semibold text-slate-900">
-                  {shipping.esFleteGratis ? (
-                    <strong className="text-emerald-600">¡Flete Gratis!</strong>
+                  {modalidad === 'retiro_tienda' ? (
+                    <strong className="text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200 text-[11px] font-black">
+                      $0 COP (Retiro en Tienda)
+                    </strong>
+                  ) : esEnvioGratis ? (
+                    <strong className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 text-[11px] font-black">
+                      $0 COP (Envío GRATIS)
+                    </strong>
                   ) : (
-                    `$${shipping.costoFlete.toLocaleString('es-CO')} COP`
+                    `$${envioCOP.toLocaleString('es-CO')} COP`
                   )}
                 </span>
               </div>

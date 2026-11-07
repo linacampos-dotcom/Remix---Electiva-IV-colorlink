@@ -11,20 +11,28 @@ import {
   Mail, 
   User, 
   FileText,
-  Clock
+  Clock,
+  Check,
+  Building2,
+  Lock
 } from 'lucide-react';
 import { radicarConsultaWeb, TicketSAC, getTicketsSAC } from '../services/corporateService';
+import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
+import { UserSession } from '../types';
+import { findUserByEmail } from '../utils/userDatabase';
 
 interface CustomerInquiryModalProps {
   isOpen: boolean;
   onClose: () => void;
   prefilledSubject?: string;
+  userSession?: UserSession | null;
 }
 
 export const CustomerInquiryModal: React.FC<CustomerInquiryModalProps> = ({
   isOpen,
   onClose,
   prefilledSubject = '',
+  userSession,
 }) => {
   const [nombre, setNombre] = useState('');
   const [email, setEmail] = useState('');
@@ -35,39 +43,206 @@ export const CustomerInquiryModal: React.FC<CustomerInquiryModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submittedTicket, setSubmittedTicket] = useState<TicketSAC | null>(null);
 
-  // Cerrar y minimizar automáticamente el chat de IA al abrir este formulario PQRS
-  useEffect(() => {
-    if (isOpen) {
-      window.dispatchEvent(new CustomEvent('colorlink_close_ai_chat'));
-    }
-  }, [isOpen]);
+  // Datos del usuario autenticado
+  const [authenticatedUserId, setAuthenticatedUserId] = useState<string | null>(null);
+  const [isAutoFilled, setIsAutoFilled] = useState<boolean>(false);
+  const [isLoadingProfile, setIsLoadingProfile] = useState<boolean>(false);
 
   // Active tickets for this user from localStorage
   const [userEmailSearch, setUserEmailSearch] = useState('');
   const [matchingTickets, setMatchingTickets] = useState<TicketSAC[]>([]);
 
+  // Cerrar y minimizar automáticamente el chat de IA al abrir este formulario PQRS
+  // y consultar datos del usuario autenticado en Supabase y sesión activa
+  useEffect(() => {
+    if (!isOpen) return;
+
+    window.dispatchEvent(new CustomEvent('colorlink_close_ai_chat'));
+
+    let isMounted = true;
+
+    const loadAuthenticatedProfile = async () => {
+      setIsLoadingProfile(true);
+      let foundUserId: string | null = null;
+      let foundEmail = '';
+      let foundName = '';
+      let foundPhone = '';
+
+      // 1. Primero consultar la sesión activa del usuario (props o localStorage)
+      const sessionToUse = userSession || (() => {
+        try {
+          const s = localStorage.getItem('currentUser') || localStorage.getItem('colorlink_user_session');
+          return s ? JSON.parse(s) : null;
+        } catch {
+          return null;
+        }
+      })();
+
+      if (sessionToUse) {
+        if (sessionToUse.id) foundUserId = sessionToUse.id;
+        if (sessionToUse.email) foundEmail = String(sessionToUse.email).trim();
+        if (sessionToUse.nombre) foundName = String(sessionToUse.nombre).trim();
+        if (sessionToUse.telefono) foundPhone = String(sessionToUse.telefono).trim();
+      }
+
+      // 2. Consultar directamente a Supabase Auth por el usuario autenticado oficial
+      if (isSupabaseConfigured && supabase) {
+        try {
+          const { data: authData } = await supabase.auth.getUser();
+          const authUser = authData?.user;
+          if (authUser) {
+            foundUserId = authUser.id || foundUserId;
+            if (authUser.email) foundEmail = authUser.email;
+            if (authUser.phone && !foundPhone) foundPhone = authUser.phone;
+
+            const meta = authUser.user_metadata || {};
+            const metaName = meta.nombre || meta.full_name || meta.name || '';
+            const metaPhone = meta.telefono || meta.phone || '';
+            if (metaName) foundName = metaName;
+            if (metaPhone && !foundPhone) foundPhone = metaPhone;
+
+            // 3. Consultar perfil en tabla clientes de Supabase
+            try {
+              if (authUser.email) {
+                const { data: clients } = await supabase
+                  .from('clientes')
+                  .select('*')
+                  .limit(10);
+                if (clients && clients.length > 0) {
+                  const match = clients.find((c: any) => 
+                    (c.email && c.email.toLowerCase() === authUser.email.toLowerCase()) ||
+                    (sessionToUse?.documento && c.numero_documento === sessionToUse.documento) ||
+                    (foundName && c.nombre && c.nombre.toLowerCase().includes(foundName.toLowerCase()))
+                  );
+                  if (match && match.nombre && !foundName) {
+                    foundName = match.nombre;
+                  }
+                }
+              }
+            } catch (errDb) {
+              console.debug('Nota de consulta de clientes Supabase:', errDb);
+            }
+          }
+        } catch (errAuth) {
+          console.debug('Nota de consulta Supabase Auth:', errAuth);
+        }
+      }
+
+      // 4. Complementar con base de datos de usuarios local si algo falta
+      if (foundEmail && (!foundName || !foundPhone)) {
+        try {
+          const localAccount = findUserByEmail(foundEmail);
+          if (localAccount) {
+            if (!foundName) foundName = localAccount.nombre;
+            if (!foundPhone) foundPhone = localAccount.telefono;
+            if (!foundUserId) foundUserId = localAccount.id;
+          }
+        } catch {}
+      }
+
+      if (!isMounted) return;
+
+      // Autocompletar los campos correspondientes
+      if (foundName) setNombre(foundName);
+      if (foundEmail) {
+        setEmail(foundEmail);
+        setUserEmailSearch(foundEmail);
+      }
+      if (foundPhone) setTelefono(foundPhone);
+      if (foundUserId) setAuthenticatedUserId(foundUserId);
+
+      if (foundName || foundEmail || foundPhone) {
+        setIsAutoFilled(true);
+      }
+      setIsLoadingProfile(false);
+    };
+
+    loadAuthenticatedProfile();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isOpen, userSession]);
+
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!nombre.trim() || !email.trim() || !mensaje.trim()) return;
 
     setIsSubmitting(true);
-    setTimeout(() => {
-      const ticket = radicarConsultaWeb({
-        clienteNombre: nombre,
-        clienteEmail: email,
-        clienteTelefono: telefono,
-        canal: 'Formulario PQR',
-        asunto: asunto.trim() || 'Consulta técnica general',
-        mensaje,
-        categoria,
-      });
 
-      setSubmittedTicket(ticket);
-      setIsSubmitting(false);
-      setMensaje('');
-    }, 400);
+    // 1. Radicar en el servicio unificado de tickets SAC Pintuco
+    const ticket = radicarConsultaWeb({
+      clienteNombre: nombre.trim(),
+      clienteEmail: email.trim(),
+      clienteTelefono: telefono.trim(),
+      canal: 'Formulario PQR',
+      asunto: asunto.trim() || 'Consulta técnica general',
+      mensaje: mensaje.trim(),
+      categoria,
+    });
+
+    // 2. Guardar en Supabase junto con el user_id del cliente autenticado
+    const userIdToSave = authenticatedUserId || userSession?.id || null;
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const { error } = await supabase.from('tickets').insert([{
+          user_id: userIdToSave,
+          radicado: ticket.radicado,
+          cliente_nombre: nombre.trim(),
+          cliente_email: email.trim(),
+          cliente_telefono: telefono.trim(),
+          categoria,
+          asunto: asunto.trim() || 'Consulta técnica general',
+          mensaje: mensaje.trim(),
+          estado: 'Nuevo',
+          canal: 'Formulario PQR',
+          created_at: new Date().toISOString()
+        }]);
+
+        if (error) {
+          // Fallback a tabla pqrs si existiera con otro esquema
+          try {
+            await supabase.from('pqrs').insert([{
+              user_id: userIdToSave,
+              radicado: ticket.radicado,
+              nombre: nombre.trim(),
+              email: email.trim(),
+              telefono: telefono.trim(),
+              categoria,
+              asunto: asunto.trim() || 'Consulta técnica general',
+              mensaje: mensaje.trim(),
+              created_at: new Date().toISOString()
+            }]);
+          } catch {}
+        }
+      } catch (errSb) {
+        console.debug('Nota de guardado remoto en Supabase:', errSb);
+      }
+    }
+
+    // 3. Registrar en backend local vía endpoint de servidor
+    try {
+      fetch('/api/pqr', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: userIdToSave,
+          clienteNombre: nombre.trim(),
+          clienteEmail: email.trim(),
+          clienteTelefono: telefono.trim(),
+          categoria,
+          asunto: asunto.trim() || 'Consulta técnica general',
+          mensaje: mensaje.trim(),
+          radicado: ticket.radicado,
+        })
+      }).catch(() => {});
+    } catch {}
+
+    setSubmittedTicket(ticket);
+    setIsSubmitting(false);
+    setMensaje('');
   };
 
   const handleSearchMyTickets = (e: React.FormEvent) => {
@@ -123,34 +298,88 @@ export const CustomerInquiryModal: React.FC<CustomerInquiryModalProps> = ({
         </div>
 
         {/* Content */}
-        <div className="p-5 sm:p-6 max-h-[75vh] overflow-y-auto space-y-6">
-          {submittedTicket ? (
-            <div className="p-6 rounded-2xl bg-emerald-50 border border-emerald-200 text-center space-y-3 animate-fadeIn">
-              <div className="w-14 h-14 rounded-full bg-emerald-100 text-emerald-700 mx-auto flex items-center justify-center shadow-inner">
-                <CheckCircle2 className="w-8 h-8" />
-              </div>
-              <h4 className="text-base font-black text-slate-900">
-                ¡Consulta Radicada Exitosamente!
-              </h4>
-              <p className="text-xs text-slate-600 max-w-md mx-auto leading-relaxed">
-                Hemos asignado el número de radicado oficial <strong className="text-emerald-800 font-mono text-sm">{submittedTicket.radicado}</strong> a tu solicitud. Nuestro equipo técnico responderá en un plazo máximo de 8 horas hábiles.
-              </p>
-
-              <div className="p-4 rounded-xl bg-white border border-emerald-200 text-left text-xs space-y-1.5 max-w-md mx-auto">
-                <div className="flex justify-between text-slate-500">
-                  <span>Radicado:</span>
-                  <strong className="text-slate-900 font-mono">{submittedTicket.radicado}</strong>
+        <div className="p-5 sm:p-6 max-h-[75vh] overflow-y-auto space-y-5">
+          
+          {/* Aviso informativo de autocompletado si el usuario está autenticado */}
+          {isAutoFilled && !submittedTicket && (
+            <div className="p-3 rounded-2xl bg-sky-50 border border-sky-200 text-sky-950 text-xs flex items-center justify-between gap-3 animate-fadeIn shadow-2xs">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-7 h-7 rounded-lg bg-sky-600 text-white flex items-center justify-center shrink-0">
+                  <Check className="w-4 h-4" />
                 </div>
-                <div className="flex justify-between text-slate-500">
+                <div className="min-w-0">
+                  <strong className="block text-slate-900 font-bold truncate">
+                    Datos del titular autocompletados desde tu cuenta
+                  </strong>
+                  <span className="text-[11px] text-slate-500 block truncate">
+                    Los campos permanecen editables por si necesitas actualizar tu teléfono o correo para esta solicitud.
+                  </span>
+                </div>
+              </div>
+              <span className="px-2 py-0.5 rounded-md bg-white border border-sky-200 text-sky-800 text-[10px] font-bold font-mono shrink-0">
+                Sesión Activa
+              </span>
+            </div>
+          )}
+
+          {submittedTicket ? (
+            /* Vista de Confirmación con el Número de Radicado Oficial */
+            <div className="p-6 rounded-2xl bg-emerald-50 border border-emerald-200 text-center space-y-4 animate-fadeIn">
+              <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-700 mx-auto flex items-center justify-center shadow-inner">
+                <CheckCircle2 className="w-9 h-9" />
+              </div>
+              <div className="space-y-1">
+                <h4 className="text-lg font-black text-slate-900">
+                  ¡Consulta Radicada Exitosamente!
+                </h4>
+                <p className="text-xs text-slate-600 max-w-md mx-auto leading-relaxed">
+                  Tu solicitud ha sido guardada y asociada a tu cuenta en el sistema de tickets de Pintuco / ColorLink.
+                </p>
+              </div>
+
+              {/* Ficha oficial del radicado */}
+              <div className="p-4 rounded-2xl bg-white border border-emerald-200 text-left text-xs space-y-2 max-w-md mx-auto shadow-sm">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                  <span className="text-slate-500 font-medium">Número de Radicado:</span>
+                  <span className="px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-950 font-mono font-black text-sm">
+                    {submittedTicket.radicado}
+                  </span>
+                </div>
+                <div className="flex justify-between text-slate-600">
+                  <span>Titular Solicitante:</span>
+                  <strong className="text-slate-900">{submittedTicket.clienteNombre}</strong>
+                </div>
+                <div className="flex justify-between text-slate-600">
+                  <span>Correo de Respuesta:</span>
+                  <span className="text-slate-900 font-mono text-[11px]">{submittedTicket.clienteEmail}</span>
+                </div>
+                {submittedTicket.clienteTelefono && (
+                  <div className="flex justify-between text-slate-600">
+                    <span>Teléfono Registrado:</span>
+                    <span className="text-slate-900 font-mono text-[11px]">{submittedTicket.clienteTelefono}</span>
+                  </div>
+                )}
+                <div className="flex justify-between text-slate-600">
                   <span>Categoría:</span>
                   <strong className="text-slate-900">{submittedTicket.categoria}</strong>
                 </div>
-                <div className="flex justify-between text-slate-500">
-                  <span>Estado actual:</span>
+                <div className="flex justify-between text-slate-600">
+                  <span>Estado Inicial:</span>
                   <span className="px-2 py-0.5 rounded-full bg-cyan-100 text-cyan-800 font-bold text-[10px]">
                     {submittedTicket.estado}
                   </span>
                 </div>
+                {authenticatedUserId && (
+                  <div className="flex justify-between text-slate-400 text-[10px] pt-1 border-t border-slate-100">
+                    <span>ID Cliente Supabase:</span>
+                    <span className="font-mono truncate max-w-[170px]">{authenticatedUserId}</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center justify-center gap-1.5 text-xs text-slate-500">
+                <Clock className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Tiempo máximo de respuesta: <strong>8 horas hábiles</strong>.</span>
               </div>
 
               <div className="flex justify-center gap-3 pt-2">

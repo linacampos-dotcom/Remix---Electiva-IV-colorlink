@@ -2585,7 +2585,7 @@ export const FMVForm: React.FC<FMVFormProps> = ({
                     </span>
                   </div>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    Selecciona un atajo de metraje estimado o ingresa los m² exactos:
+                    Ingresa directamente el metraje exacto o selecciona un atajo de estimación rápida:
                   </p>
                 </div>
                 <span className="text-[11px] font-bold text-slate-700 bg-slate-100 border border-slate-200 px-3 py-1 rounded-xl w-fit">
@@ -2593,48 +2593,221 @@ export const FMVForm: React.FC<FMVFormProps> = ({
                 </span>
               </div>
 
-              {/* Atajos de metraje */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                {currentAreaContext.shortcuts.map((shortcut) => {
-                  const isSelected = formData.area_m2 === shortcut.area;
-                  return (
-                    <button
-                      key={shortcut.id}
-                      type="button"
-                      onClick={() => onChange('area_m2', shortcut.area)}
-                      className={`p-3.5 rounded-2xl border-2 text-left transition-all cursor-pointer flex flex-col justify-between group hover:-translate-y-0.5 ${
-                        isSelected
-                          ? 'border-[#004B93] bg-blue-50/80 shadow-xs ring-1 ring-[#004B93]/20'
-                          : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/80'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <span className={`text-xs font-mono font-black px-2.5 py-1 rounded-xl transition-colors ${
-                          isSelected 
-                            ? 'bg-[#004B93] text-white shadow-2xs' 
-                            : 'bg-slate-100 text-slate-800 group-hover:bg-blue-100 group-hover:text-blue-900'
-                        }`}>
-                          ~{shortcut.area} m²
-                        </span>
-                        {isSelected && (
-                          <span className="w-5 h-5 rounded-full bg-[#004B93] text-white flex items-center justify-center text-[10px] font-bold">
-                            ✓
-                          </span>
-                        )}
+              {/* INGRESO DIRECTO / AJUSTE FINO DE METROS CUADRADOS - TOTALMENTE FLEXIBLE */}
+              <div className="p-5 rounded-2xl bg-white border-2 border-blue-200/80 shadow-xs space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <span className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-[#004B93]"></span>
+                      Ingreso Directo de Metraje (Cualquier valor entero o decimal)
+                    </span>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Medida real de las superficies a cubrir. Se aplican 2 manos según norma técnica colombiana NTC 1335.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowDimensionCalc(!showDimensionCalc)}
+                    className="text-xs font-bold text-[#004B93] hover:underline flex items-center gap-1 cursor-pointer self-start sm:self-auto bg-blue-50 px-2.5 py-1.5 rounded-lg border border-blue-200 transition-colors"
+                  >
+                    <Sliders className="w-3.5 h-3.5" />
+                    <span>{showDimensionCalc ? 'Ocultar calculadora de dimensiones' : '¿Calcular con Ancho × Alto?'}</span>
+                  </button>
+                </div>
+
+                {/* Dimension Calculator Accordion */}
+                {showDimensionCalc && (
+                  <div className="p-4 rounded-xl bg-blue-50/60 border border-blue-200/70 space-y-3">
+                    <div className="flex items-center gap-2 text-xs font-bold text-[#004B93]">
+                      <Info className="w-4 h-4" />
+                      <span>Calculadora rápida de paredes (Ancho × Alto × Número de muros)</span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div>
+                        <label className="text-[11px] font-semibold text-slate-700 block mb-1">Ancho por pared (m)</label>
+                        <input
+                          type="number"
+                          min="0.1"
+                          step="any"
+                          value={dimAncho}
+                          onChange={(e) => setDimAncho(Math.max(0.1, Number(e.target.value)))}
+                          className="w-full text-xs font-bold p-2 rounded-lg border border-slate-300 bg-white"
+                        />
                       </div>
                       <div>
-                        <h5 className={`font-extrabold text-xs leading-tight transition-colors ${
-                          isSelected ? 'text-[#004B93]' : 'text-slate-900'
-                        }`}>
-                          {shortcut.label}
-                        </h5>
-                        <p className="text-[10px] text-slate-500 mt-1 leading-snug">
-                          {shortcut.desc}
-                        </p>
+                        <label className="text-[11px] font-semibold text-slate-700 block mb-1">Alto de techo (m)</label>
+                        <input
+                          type="number"
+                          min="0.1"
+                          step="any"
+                          value={dimAlto}
+                          onChange={(e) => setDimAlto(Math.max(0.1, Number(e.target.value)))}
+                          className="w-full text-xs font-bold p-2 rounded-lg border border-slate-300 bg-white"
+                        />
                       </div>
+                      <div>
+                        <label className="text-[11px] font-semibold text-slate-700 block mb-1">Número de paredes</label>
+                        <input
+                          type="number"
+                          min="1"
+                          value={dimParedes}
+                          onChange={(e) => setDimParedes(Math.max(1, Number(e.target.value)))}
+                          className="w-full text-xs font-bold p-2 rounded-lg border border-slate-300 bg-white"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between pt-1">
+                      <span className="text-xs text-slate-600">
+                        Resultado estimado: <strong>{Number((dimAncho * dimAlto * dimParedes).toFixed(2))} m²</strong>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={applyDimensionsCalc}
+                        className="px-3.5 py-1.5 rounded-lg bg-[#004B93] text-white text-xs font-bold shadow-xs hover:bg-[#003B75] transition-colors cursor-pointer"
+                      >
+                        Aplicar al cálculo
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Slider and Manual Input - Totalmente flexible para cualquier entero o decimal */}
+                <div className="flex flex-col sm:flex-row sm:items-center gap-4 pt-1">
+                  <div className="flex-1">
+                    <input
+                      type="range"
+                      min="1"
+                      max="1000"
+                      step="any"
+                      value={formData.area_m2 || 1}
+                      onChange={(e) => onChange('area_m2', Math.max(0.1, parseFloat(e.target.value) || 0.1))}
+                      className="w-full h-2.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-[#004B93]"
+                    />
+                    <div className="flex justify-between text-[11px] text-slate-400 font-mono mt-1">
+                      <span>1 m²</span>
+                      <span>100 m²</span>
+                      <span>250 m²</span>
+                      <span>500 m²</span>
+                      <span>1,000 m²</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => onChange('area_m2', Math.max(0.1, Number((formData.area_m2 - 5).toFixed(2))))}
+                      className="px-2 py-1.5 rounded-lg border border-slate-300 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold cursor-pointer transition-colors"
+                      title="Restar 5 m²"
+                    >
+                      -5
                     </button>
-                  );
-                })}
+                    <button
+                      type="button"
+                      onClick={() => onChange('area_m2', Math.max(0.1, Number((formData.area_m2 - 1).toFixed(2))))}
+                      className="w-8 h-9 rounded-lg border border-slate-300 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold flex items-center justify-center cursor-pointer transition-colors text-xs"
+                      title="Restar 1 m²"
+                    >
+                      -1
+                    </button>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        step="any"
+                        min="0.1"
+                        placeholder="0"
+                        value={formData.area_m2 === 0 ? '' : formData.area_m2}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (val === '') {
+                            onChange('area_m2', 0);
+                          } else {
+                            const parsed = parseFloat(val);
+                            if (!isNaN(parsed)) {
+                              onChange('area_m2', parsed);
+                            }
+                          }
+                        }}
+                        className="w-28 text-center font-black text-lg p-2 rounded-xl border-2 border-[#004B93] bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#004B93]/30 shadow-inner"
+                      />
+                      <span className="absolute right-2.5 top-2.5 text-xs text-slate-500 font-bold pointer-events-none">m²</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => onChange('area_m2', Number((formData.area_m2 + 1).toFixed(2)))}
+                      className="w-8 h-9 rounded-lg border border-slate-300 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold flex items-center justify-center cursor-pointer transition-colors text-xs"
+                      title="Sumar 1 m²"
+                    >
+                      +1
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onChange('area_m2', Number((formData.area_m2 + 5).toFixed(2)))}
+                      className="px-2 py-1.5 rounded-lg border border-slate-300 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold cursor-pointer transition-colors"
+                      title="Sumar 5 m²"
+                    >
+                      +5
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-100 text-[11px] text-slate-600">
+                  <div className="flex items-center gap-1.5">
+                    <span className="inline-block w-2 h-2 rounded-full bg-emerald-500"></span>
+                    <span>
+                      Puedes ingresar directamente cualquier valor exacto entero o decimal (ej. <strong className="text-slate-800 font-mono">443 m²</strong>, <strong className="text-slate-800 font-mono">12 m²</strong> o <strong className="text-slate-800 font-mono">18.5 m²</strong>). Sin restricciones de múltiplos.
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Atajos de metraje sugeridos */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-2">
+                  O selecciona un atajo de metraje sugerido según tu ambiente:
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  {currentAreaContext.shortcuts.map((shortcut) => {
+                    const isSelected = formData.area_m2 === shortcut.area;
+                    return (
+                      <button
+                        key={shortcut.id}
+                        type="button"
+                        onClick={() => onChange('area_m2', shortcut.area)}
+                        className={`p-3.5 rounded-2xl border-2 text-left transition-all cursor-pointer flex flex-col justify-between group hover:-translate-y-0.5 ${
+                          isSelected
+                            ? 'border-[#004B93] bg-blue-50/80 shadow-xs ring-1 ring-[#004B93]/20'
+                            : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/80'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <span className={`text-xs font-mono font-black px-2.5 py-1 rounded-xl transition-colors ${
+                            isSelected 
+                              ? 'bg-[#004B93] text-white shadow-2xs' 
+                              : 'bg-slate-100 text-slate-800 group-hover:bg-blue-100 group-hover:text-blue-900'
+                          }`}>
+                            ~{shortcut.area} m²
+                          </span>
+                          {isSelected && (
+                            <span className="w-5 h-5 rounded-full bg-[#004B93] text-white flex items-center justify-center text-[10px] font-bold">
+                              ✓
+                            </span>
+                          )}
+                        </div>
+                        <div>
+                          <h5 className={`font-extrabold text-xs leading-tight transition-colors ${
+                            isSelected ? 'text-[#004B93]' : 'text-slate-900'
+                          }`}>
+                            {shortcut.label}
+                          </h5>
+                          <p className="text-[10px] text-slate-500 mt-1 leading-snug">
+                            {shortcut.desc}
+                          </p>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               {/* Si se seleccionó Otro / Proyecto Personalizado en Paso 1, mostrar campo de especificación */}
@@ -2658,153 +2831,6 @@ export const FMVForm: React.FC<FMVFormProps> = ({
                   />
                 </div>
               )}
-            </div>
-
-            {/* INGRESO DIRECTO / AJUSTE FINO DE METROS CUADRADOS */}
-            <div className="p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div>
-                  <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                    Ajuste fino del metraje o cálculo por dimensiones
-                  </span>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Medida real de las paredes a cubrir. El cálculo aplicará 2 manos por norma técnica NTC 1335.
-                  </p>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => setShowDimensionCalc(!showDimensionCalc)}
-                  className="text-xs font-bold text-[#004B93] hover:underline flex items-center gap-1 cursor-pointer self-start sm:self-auto"
-                >
-                  <Sliders className="w-3.5 h-3.5" />
-                  <span>{showDimensionCalc ? 'Ocultar calculadora de dimensiones' : '¿Calcular con Ancho × Alto?'}</span>
-                </button>
-              </div>
-
-              {/* Dimension Calculator Accordion */}
-              {showDimensionCalc && (
-                <div className="p-4 rounded-xl bg-blue-50/60 border border-blue-200/70 space-y-3">
-                  <div className="flex items-center gap-2 text-xs font-bold text-[#004B93]">
-                    <Info className="w-4 h-4" />
-                    <span>Calculadora rápida de paredes (Ancho × Alto × Número de muros)</span>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div>
-                      <label className="text-[11px] font-semibold text-slate-700 block mb-1">Ancho por pared (m)</label>
-                      <input
-                        type="number"
-                        min="1"
-                        step="0.5"
-                        value={dimAncho}
-                        onChange={(e) => setDimAncho(Math.max(1, Number(e.target.value)))}
-                        className="w-full text-xs font-bold p-2 rounded-lg border border-slate-300 bg-white"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[11px] font-semibold text-slate-700 block mb-1">Alto de techo (m)</label>
-                      <input
-                        type="number"
-                        min="1"
-                        step="0.1"
-                        value={dimAlto}
-                        onChange={(e) => setDimAlto(Math.max(1, Number(e.target.value)))}
-                        className="w-full text-xs font-bold p-2 rounded-lg border border-slate-300 bg-white"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[11px] font-semibold text-slate-700 block mb-1">Número de paredes</label>
-                      <input
-                        type="number"
-                        min="1"
-                        value={dimParedes}
-                        onChange={(e) => setDimParedes(Math.max(1, Number(e.target.value)))}
-                        className="w-full text-xs font-bold p-2 rounded-lg border border-slate-300 bg-white"
-                      />
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between pt-1">
-                    <span className="text-xs text-slate-600">
-                      Resultado estimado: <strong>{Number((dimAncho * dimAlto * dimParedes).toFixed(2))} m²</strong>
-                    </span>
-                    <button
-                      type="button"
-                      onClick={applyDimensionsCalc}
-                      className="px-3.5 py-1.5 rounded-lg bg-[#004B93] text-white text-xs font-bold shadow-xs hover:bg-[#003B75] transition-colors cursor-pointer"
-                    >
-                      Aplicar al cálculo
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Slider and Manual Input - Totalmente flexible para cualquier entero o decimal */}
-              <div className="flex flex-col sm:flex-row sm:items-center gap-4 pt-1">
-                <div className="flex-1">
-                  <input
-                    type="range"
-                    min="1"
-                    max="1000"
-                    step="1"
-                    value={formData.area_m2 || 1}
-                    onChange={(e) => onChange('area_m2', Math.max(0.1, Number(e.target.value)))}
-                    className="w-full h-2.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-[#004B93]"
-                  />
-                  <div className="flex justify-between text-[11px] text-slate-400 font-mono mt-1">
-                    <span>1 m²</span>
-                    <span>100 m²</span>
-                    <span>250 m²</span>
-                    <span>500 m²</span>
-                    <span>1,000 m²</span>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => onChange('area_m2', Math.max(0.1, Number((formData.area_m2 - 1).toFixed(2))))}
-                    className="w-9 h-9 rounded-xl border border-slate-300 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold flex items-center justify-center cursor-pointer transition-colors"
-                    title="Restar 1 m²"
-                  >
-                    -1
-                  </button>
-                  <div className="relative">
-                    <input
-                      type="number"
-                      step="any"
-                      min="0.1"
-                      placeholder="0"
-                      value={formData.area_m2 === 0 ? '' : formData.area_m2}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        if (val === '') {
-                          onChange('area_m2', 0);
-                        } else {
-                          const parsed = parseFloat(val);
-                          if (!isNaN(parsed)) {
-                            onChange('area_m2', parsed);
-                          }
-                        }
-                      }}
-                      className="w-28 text-center font-black text-lg p-2 rounded-xl border-2 border-[#004B93] bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#004B93]/30"
-                    />
-                    <span className="absolute right-2.5 top-2.5 text-xs text-slate-500 font-bold pointer-events-none">m²</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => onChange('area_m2', Number((formData.area_m2 + 1).toFixed(2)))}
-                    className="w-9 h-9 rounded-xl border border-slate-300 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold flex items-center justify-center cursor-pointer transition-colors"
-                    title="Sumar 1 m²"
-                  >
-                    +1
-                  </button>
-                </div>
-              </div>
-              <p className="text-[11px] text-slate-500 flex items-center gap-1.5 pt-0.5">
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                Puedes ingresar cualquier valor exacto entero o decimal (ej. <strong className="text-slate-700 font-mono">443 m²</strong>, <strong className="text-slate-700 font-mono">12 m²</strong> o <strong className="text-slate-700 font-mono">18.5 m²</strong>).
-              </p>
-
             </div>
 
             {/* 2.3 SELECCIÓN DINÁMICA DE COLOR SEGÚN EL TIPO DE PINTURA */}

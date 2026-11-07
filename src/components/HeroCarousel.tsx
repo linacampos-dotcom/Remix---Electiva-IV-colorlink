@@ -373,7 +373,7 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
                         Paga sin interés con nuestros bancos aliados
                       </h2>
                       <p className="text-xs sm:text-sm text-slate-200 leading-relaxed font-normal max-w-2xl pt-1">
-                        Financia tus compras con tarjetas de crédito de nuestros bancos aliados en Colombia sin costos financieros adicionales.
+                        Financia tus compras con tarjetas de crédito de nuestros bancos aliados en Colombia.
                       </p>
                     </div>
 
@@ -416,11 +416,11 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
                             e.stopPropagation();
                             handleOpenInstallments();
                           }}
-                          className="bg-white hover:bg-sky-50 text-[#001D3D] font-extrabold shadow-lg shadow-blue-950/40 rounded-xl px-5 sm:px-6 py-2.5 sm:py-3 transition-all duration-300 transform hover:-translate-y-0.5 active:scale-95 cursor-pointer inline-flex items-center gap-2 text-xs sm:text-sm group/btn border border-white/80"
+                          className="bg-gradient-to-r from-blue-700 via-blue-600 to-cyan-600 hover:from-blue-600 hover:to-cyan-500 text-white font-extrabold shadow-lg shadow-blue-950/50 rounded-xl px-5 sm:px-6 py-2.5 sm:py-3 transition-all duration-300 transform hover:-translate-y-0.5 active:scale-95 cursor-pointer inline-flex items-center gap-2 text-xs sm:text-sm group/btn border border-sky-400/30"
                         >
-                          <Calculator className="w-4 h-4 text-sky-600" />
+                          <Calculator className="w-4 h-4 text-white" />
                           <span>Abrir calculadora de cuotas</span>
-                          <ArrowRight className="w-4 h-4 text-sky-600 group-hover/btn:translate-x-1 transition-transform" />
+                          <ArrowRight className="w-4 h-4 text-white group-hover/btn:translate-x-1 transition-transform" />
                         </button>
 
                         <button

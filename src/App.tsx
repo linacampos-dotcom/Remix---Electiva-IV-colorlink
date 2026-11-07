@@ -1557,6 +1557,7 @@ export default function App() {
       <CustomerInquiryModal
         isOpen={isCustomerInquiryOpen}
         onClose={() => setIsCustomerInquiryOpen(false)}
+        userSession={userSession}
       />
 
       <NLPExtractorModal
