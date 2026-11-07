@@ -1111,6 +1111,159 @@ export function getContextualToolRecommendations(
   }).sort((a, b) => b.matchScore - a.matchScore);
 }
 
+export interface PaintLineOptionItem {
+  id: string;
+  nombre: string;
+  titulo: string;
+  subtitulo: string;
+  icono: string;
+  precio: string;
+  tag: string;
+  tagColor: string;
+  badge: string;
+  descripcion: string;
+  familia: string;
+}
+
+export const PAINT_LINE_OPTIONS: Record<'interiores' | 'exteriores' | 'especiales', PaintLineOptionItem[]> = {
+  interiores: [
+    {
+      id: 'viniltex-avanzado',
+      nombre: 'Viniltex Avanzado Máxima Lavabilidad',
+      titulo: 'Viniltex Avanzado',
+      subtitulo: 'Paredes Interiores, Salas y Alcobas',
+      icono: '🎨',
+      precio: '$84.900/GL',
+      tag: 'Más Popular • NTC 1335 Tipo 1',
+      tagColor: 'bg-emerald-100 text-emerald-800',
+      badge: 'Tonos pastel, neutros y vivos',
+      descripcion: 'Vinilo acrílico Tipo 1 de alta resistencia, máxima lavabilidad (+20.000 ciclos), bajo olor y cero VOC.',
+      familia: 'viniltex'
+    },
+    {
+      id: 'intervinil-cielos',
+      nombre: 'Intervinil Cielos Mate Antirreflejo',
+      titulo: 'Intervinil Cielos',
+      subtitulo: 'Cielorrasos, Techos y Drywall',
+      icono: '☁️',
+      precio: '$54.900/GL',
+      tag: 'Mate Antirreflejo',
+      tagColor: 'bg-blue-100 text-[#004B93]',
+      badge: 'Blanco Puro y Tonos Suaves',
+      descripcion: 'Formulación de acabado ultragraso mate que disimula imperfecciones por luz rasante en techos y placas de yeso.',
+      familia: 'viniltex'
+    },
+    {
+      id: 'viniltex-banos',
+      nombre: 'Viniltex Baños y Cocinas Antibacterial',
+      titulo: 'Viniltex Baños y Cocinas',
+      subtitulo: 'Zonas Húmedas Interiores',
+      icono: '🚿',
+      precio: '$96.900/GL',
+      tag: 'Fungicida Activo',
+      tagColor: 'bg-teal-100 text-teal-800',
+      badge: 'Resistencia a Vapor y Grasa',
+      descripcion: 'Película protectora antibacterial y antihongos, resistente a condensación de vapor y lavado frecuente.',
+      familia: 'viniltex'
+    }
+  ],
+  exteriores: [
+    {
+      id: 'koraza-doble-vida',
+      nombre: 'Koraza Doble Vida Protección Clima Extremo',
+      titulo: 'Koraza Doble Vida',
+      subtitulo: 'Fachadas, Muros Exteriores y Balcones',
+      icono: '🛡️',
+      precio: '$142.000/GL',
+      tag: '10 Años Garantía',
+      tagColor: 'bg-blue-100 text-[#004B93]',
+      badge: 'Tonos resistentes exterior',
+      descripcion: 'Pintura 100% acrílica hidrorrepelente para intemperie. Protección extrema contra rayos UV, lluvia ácida y hongos.',
+      familia: 'koraza'
+    },
+    {
+      id: 'pintulux-esmalte',
+      nombre: 'Pintulux Esmalte Sintético Anticorrosivo',
+      titulo: 'Pintulux / Esmalte',
+      subtitulo: 'Rejas, Portones, Metales y Maderas',
+      icono: '⚙️',
+      precio: '$68.900/GL',
+      tag: 'Anticorrosivo Alquídico',
+      tagColor: 'bg-amber-100 text-amber-900',
+      badge: 'Brillante y Semibrillante',
+      descripcion: 'Esmalte sintético de secado rápido con acción inhibidora del óxido y acabado brillante para cerramientos y carpintería.',
+      familia: 'pintulux'
+    },
+    {
+      id: 'koraza-siliconada',
+      nombre: 'Koraza Siliconada Protección Superior',
+      titulo: 'Koraza Siliconada',
+      subtitulo: 'Fachadas con Autolimpieza por Lluvia',
+      icono: '🏰',
+      precio: '$158.000/GL',
+      tag: 'Efecto Hidrofóbico Loto',
+      tagColor: 'bg-sky-100 text-sky-800',
+      badge: 'Fachadas Siempre Limpias',
+      descripcion: 'Nanotecnología siliconada que repele el polvo y el agua mediante el lavado natural de las lluvias sin decolorarse.',
+      familia: 'koraza'
+    }
+  ],
+  especiales: [
+    {
+      id: 'aquablock-bloqueador',
+      nombre: 'Aquablock Sellador Antihumedad Bloqueador',
+      titulo: 'Aquablock Antihumedad',
+      subtitulo: 'Techos, Terrazas, Muros y Fisuras',
+      icono: '💧',
+      precio: '$118.900/GL',
+      tag: 'Barrera Bloqueadora Activa',
+      tagColor: 'bg-cyan-100 text-cyan-900',
+      badge: 'Tonos Elastoméricos Barrera Solar',
+      descripcion: 'Impermeabilizante fibrado que frena goteras, humedad por capilaridad y sella fisuras en techos y cubiertas.',
+      familia: 'aquablock'
+    },
+    {
+      id: 'viniltex-banos-esp',
+      nombre: 'Viniltex Baños y Cocinas Antibacterial',
+      titulo: 'Viniltex Baños y Cocinas',
+      subtitulo: 'Zonas de Vapor y Humedad Crítica',
+      icono: '🛁',
+      precio: '$96.900/GL',
+      tag: 'Antihongos & Antibacterial',
+      tagColor: 'bg-teal-100 text-teal-800',
+      badge: 'Resiste Vapor y Lavado Químico',
+      descripcion: 'Protección con biocida contra moho para muros y techos con vapor constante en baños y cocinas.',
+      familia: 'viniltex'
+    },
+    {
+      id: 'pintutrafico-pisos',
+      nombre: 'Pintutráfico Base Solvente Alto Desempeño',
+      titulo: 'Pintutráfico Pisos y Vías',
+      subtitulo: 'Canchas, Parqueaderos y Pavimentos',
+      icono: '🚜',
+      precio: '$125.000/GL',
+      tag: 'Norma NTC 1360',
+      tagColor: 'bg-amber-100 text-amber-900',
+      badge: 'Colores Reglamentarios',
+      descripcion: 'Pintura acrílica para concreto y asfalto de secado ultrarrápido y máxima resistencia al desgaste por fricción pesada.',
+      familia: 'trafico'
+    },
+    {
+      id: 'maderas-barnices',
+      nombre: 'Línea Maderas y Barnices Pintuco',
+      titulo: 'Maderas y Barnices',
+      subtitulo: 'Puertas, Muebles, Pérgolas y Decks',
+      icono: '🪵',
+      precio: '$79.900/GL',
+      tag: 'Filtro Solar UV',
+      tagColor: 'bg-orange-100 text-orange-900',
+      badge: 'Tonos Naturales de Madera',
+      descripcion: 'Barniz uretanado y tintes protectores que realzan la veta natural de la madera con máxima elasticidad contra la intemperie.',
+      familia: 'madera'
+    }
+  ]
+};
+
 export interface FMVFormProps {
   formData: FMVFormData;
   onChange: (field: keyof FMVFormData, value: any) => void;
@@ -1158,8 +1311,17 @@ export const FMVForm: React.FC<FMVFormProps> = ({
   onOpenPrintable,
   onOpenChat,
 }) => {
-  // Wizard current active step (1: ¿Qué vas a pintar?, 2: ¿Cuánto mide tu espacio?, 3: Entrega y Cotización)
-  const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
+  // Wizard current active step (1: ¿Qué vas a pintar?, 2: Medidas y Color, 3: Datos y Forma de Entrega, 4: Resumen y Consejo)
+  const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4>(1);
+
+  // Pestaña rápida activa en 2.1 (Interiores | Exteriores | Zonas Húmedas / Especiales)
+  const [paintFilterTab, setPaintFilterTab] = useState<'interiores' | 'exteriores' | 'especiales'>('interiores');
+
+  // Tools descartadas voluntariamente ("No me interesa / Omitir")
+  const [dismissedTools, setDismissedTools] = useState<Record<string, boolean>>({});
+
+  // Indicador si los datos de entrega fueron autocompletados desde el perfil del usuario autenticado
+  const [autocompletedFromProfile, setAutocompletedFromProfile] = useState<boolean>(false);
 
   // Quick dimension calculator state in Step 2 (Ancho x Alto)
   const [showDimensionCalc, setShowDimensionCalc] = useState(false);
@@ -1188,6 +1350,57 @@ export const FMVForm: React.FC<FMVFormProps> = ({
 
   // Herramientas complementarias sugeridas que el cliente agregue voluntariamente
   const [selectedTools, setSelectedTools] = useState<Record<string, number>>({});
+
+  // Autocompletar datos de entrega y facturación utilizando el perfil del usuario autenticado (Paso 3)
+  useEffect(() => {
+    if (userSession && userSession.isLoggedIn) {
+      let filledAny = false;
+      if (userSession.nombre && (!formData.nombre_razon_social || formData.nombre_razon_social.trim() === '')) {
+        onChange('nombre_razon_social', userSession.nombre);
+        filledAny = true;
+      }
+      if ((userSession.documento || userSession.cedula) && (!formData.documento || formData.documento.trim() === '')) {
+        onChange('documento', userSession.documento || userSession.cedula || '');
+        filledAny = true;
+      }
+      if (userSession.tipoDocumento && !formData.tipo_documento) {
+        onChange('tipo_documento', userSession.tipoDocumento);
+        filledAny = true;
+      }
+      if (userSession.telefono && (!formData.telefono || formData.telefono.trim() === '')) {
+        onChange('telefono', userSession.telefono);
+        filledAny = true;
+      }
+      if (userSession.email && (!formData.correo_electronico || formData.correo_electronico.trim() === '')) {
+        onChange('correo_electronico', userSession.email);
+        filledAny = true;
+      }
+
+      // Dirección guardada en el perfil
+      const defaultAddr = userSession.direcciones?.find(d => d.esPredeterminada) || userSession.direcciones?.[0];
+      const savedAddr = defaultAddr?.direccion || userSession.direccion || userSession.address;
+      if (savedAddr && (!formData.direccion_obra || formData.direccion_obra.trim() === '')) {
+        onChange('direccion_obra', savedAddr);
+        filledAny = true;
+      }
+
+      const savedCity = defaultAddr?.ciudad || userSession.ciudad;
+      if (savedCity && (!formData.ciudad || formData.ciudad === 'Bogotá D.C.')) {
+        onChange('ciudad', savedCity);
+        filledAny = true;
+      }
+
+      const savedDepto = defaultAddr?.departamento || userSession.departamento;
+      if (savedDepto && !formData.departamento) {
+        onChange('departamento', savedDepto);
+        filledAny = true;
+      }
+
+      if (filledAny) {
+        setAutocompletedFromProfile(true);
+      }
+    }
+  }, [userSession]);
 
   // Sincronizar cantidades de pintura y conservar estado del sellador sugerido
   useEffect(() => {
@@ -1264,6 +1477,120 @@ export const FMVForm: React.FC<FMVFormProps> = ({
       }
       return { ...prev, [toolId]: newQty };
     });
+  };
+
+  const handleDismissTool = (toolId: string) => {
+    setDismissedTools(prev => ({ ...prev, [toolId]: true }));
+    setSelectedTools(prev => {
+      if (prev[toolId]) {
+        const copy = { ...prev };
+        delete copy[toolId];
+        return copy;
+      }
+      return prev;
+    });
+  };
+
+  const handleRestoreTool = (toolId: string) => {
+    setDismissedTools(prev => {
+      const copy = { ...prev };
+      delete copy[toolId];
+      return copy;
+    });
+  };
+
+  // Consejo Pintuco 100% dinámico y reactivo a la compra actual
+  const activeDynamicConsejo = useMemo(() => {
+    return getDynamicConsejoPintuco(formData, calculation);
+  }, [formData, calculation]);
+
+  // Recomendaciones inteligentes de complementos según lo que lleva el carrito
+  const contextualRecommendations = useMemo(() => {
+    return getContextualToolRecommendations(formData, calculation, selectedTools);
+  }, [formData, calculation, selectedTools]);
+
+  // Sincronización total de cantidades de pintura, sellador, herramientas y datos de despacho al Carrito
+  const handleSyncToCart = (proceedToCheckout: boolean) => {
+    const toolsPayload = Object.entries(selectedTools)
+      .filter(([_, qty]) => qty > 0)
+      .map(([toolId, qty]) => {
+        const tool = RECOMMENDED_PROJECT_TOOLS.find(t => t.id === toolId)!;
+        return {
+          id: tool.id,
+          nombre: tool.nombre,
+          presentacion: tool.presentacion,
+          cantidad: qty,
+          precioUnitario: tool.precio,
+          sku: tool.sku,
+          imagenUrl: tool.imagenUrl,
+        };
+      });
+
+    const deliveryPayload = {
+      isDefined: true,
+      modalidad: currentModalidad,
+      departamento: activeDepartamentoName,
+      ciudad: formData.ciudad || activeDeptoObj.capital,
+      sede: currentModalidad === 'retiro_tienda' ? (formData.sede_retiro || (availableStores[0]?.nombre ?? '')) : undefined,
+      direccion: currentModalidad === 'retiro_tienda'
+        ? (formData.direccion_obra || `Retiro en Tienda: ${formData.sede_retiro || (availableStores[0]?.nombre ?? '')}`)
+        : (formData.direccion_obra || ''),
+      nombre: formData.nombre_razon_social || '',
+      documento: formData.documento || '',
+      tipoDocumento: formData.tipo_documento || 'CC',
+      telefono: formData.telefono || '',
+      email: formData.correo_electronico || userSession?.email || '',
+      costoFlete: liveShipping.costoFlete,
+      hubDespacho: liveShipping.hubDespacho,
+      timestamp: Date.now(),
+    };
+
+    try {
+      localStorage.setItem('colorlink_quote_delivery', JSON.stringify(deliveryPayload));
+      if (deliveryPayload.direccion) {
+        localStorage.setItem('shippingAddress', deliveryPayload.direccion);
+        localStorage.setItem('colorlink_shipping_address', deliveryPayload.direccion);
+        localStorage.setItem('colorlink_user_address', deliveryPayload.direccion);
+      }
+      if (deliveryPayload.ciudad) {
+        localStorage.setItem('colorlink_shipping_city', deliveryPayload.ciudad);
+      }
+      if (deliveryPayload.departamento) {
+        localStorage.setItem('colorlink_shipping_depto', deliveryPayload.departamento);
+      }
+      if (deliveryPayload.modalidad) {
+        localStorage.setItem('colorlink_shipping_modalidad', deliveryPayload.modalidad);
+      }
+      if (deliveryPayload.nombre) {
+        localStorage.setItem('colorlink_customer_name', deliveryPayload.nombre);
+      }
+      if (deliveryPayload.documento) {
+        localStorage.setItem('colorlink_customer_doc', deliveryPayload.documento);
+      }
+      if (deliveryPayload.telefono) {
+        localStorage.setItem('colorlink_customer_phone', deliveryPayload.telefono);
+      }
+
+      window.dispatchEvent(new CustomEvent('colorlink_quote_delivery_updated', { detail: deliveryPayload }));
+      window.dispatchEvent(new CustomEvent('colorlink_shipping_address_updated', {
+        detail: { address: deliveryPayload.direccion, city: deliveryPayload.ciudad }
+      }));
+      window.dispatchEvent(new Event('storage'));
+    } catch (e) {
+      console.warn('Error saving delivery data to localStorage:', e);
+    }
+
+    if (proceedToCheckout) {
+      try {
+        sessionStorage.setItem('colorlink_open_checkout_step', 'true');
+      } catch {}
+    }
+
+    if (onAddToCart) {
+      onAddToCart(editedQuantities, proceedToCheckout, toolsPayload, deliveryPayload);
+    } else if (onSaveOrder) {
+      onSaveOrder(proceedToCheckout ? 'pedido' : 'cotizacion');
+    }
   };
 
   // Superficies mapping with human-friendly details
@@ -1454,6 +1781,55 @@ export const FMVForm: React.FC<FMVFormProps> = ({
     }
   };
 
+  // Sincronización inteligente de pinturas según lo elegido en el Paso 1 (Espacio, Superficie y Condición)
+  const lastStep1Signature = useRef<string>('');
+  useEffect(() => {
+    const currentSig = `${formData.ambiente}|${formData.superficie}|${formData.condicion}`;
+    if (lastStep1Signature.current !== currentSig) {
+      lastStep1Signature.current = currentSig;
+
+      const cond = (formData.condicion || '').toLowerCase();
+      const amb = (formData.ambiente || '').toLowerCase();
+      const sup = (formData.superficie || '').toLowerCase();
+
+      // 1. Humedad / Fisuras -> Preseleccionar Aquablock
+      if (cond.includes('humedad') || cond.includes('fisura')) {
+        setPaintFilterTab('especiales');
+        handleSelectPaintType('Aquablock Sellador Antihumedad Bloqueador');
+      } 
+      // 2. Fachadas / Exteriores -> Preseleccionar Koraza
+      else if (amb.includes('exterior') || amb.includes('fachada')) {
+        setPaintFilterTab('exteriores');
+        handleSelectPaintType('Koraza Doble Vida Protección Clima Extremo');
+      } 
+      // 3. Estructuras Metálicas -> Preseleccionar Pintulux Esmalte
+      else if (sup.includes('metal')) {
+        setPaintFilterTab('exteriores');
+        handleSelectPaintType('Pintulux Esmalte Sintético Anticorrosivo');
+      } 
+      // 4. Maderas -> Preseleccionar Línea Maderas y Barnices
+      else if (sup.includes('madera')) {
+        setPaintFilterTab('especiales');
+        handleSelectPaintType('Línea Maderas y Barnices Pintuco');
+      } 
+      // 5. Zonas Húmedas / Baños y Cocinas -> Preseleccionar Viniltex Baños y Cocinas
+      else if (amb.includes('baño') || amb.includes('cocina') || amb.includes('húmeda')) {
+        setPaintFilterTab('especiales');
+        handleSelectPaintType('Viniltex Baños y Cocinas Antibacterial');
+      } 
+      // 6. Techos / Cielorrasos -> Preseleccionar Intervinil Cielos Mate
+      else if (amb.includes('techo') || amb.includes('cielo')) {
+        setPaintFilterTab('interiores');
+        handleSelectPaintType('Intervinil Cielos Mate Antirreflejo');
+      } 
+      // 7. Interiores (Default) -> Viniltex Avanzado
+      else {
+        setPaintFilterTab('interiores');
+        handleSelectPaintType('Viniltex Avanzado Máxima Lavabilidad');
+      }
+    }
+  }, [formData.ambiente, formData.superficie, formData.condicion]);
+
   // Sincronizar y resetear automáticamente el color seleccionado al primer tono cuando cambia la paleta del tipo de pintura
   const lastPaletteTypeRef = useRef<string>(activePaintCategory.type);
   useEffect(() => {
@@ -1481,7 +1857,7 @@ export const FMVForm: React.FC<FMVFormProps> = ({
     return calculateShipping(
       activeDepartamentoName,
       formData.ciudad || activeDeptoObj.capital,
-      Math.max(5, Math.ceil((formData.area_m2 || 100) / 30 * 1.05)),
+      Math.max(1, Math.ceil((formData.area_m2 || 10) / 30 * 1.05)),
       currentModalidad,
       650000
     );
@@ -1504,8 +1880,8 @@ export const FMVForm: React.FC<FMVFormProps> = ({
   };
 
   const applyDimensionsCalc = () => {
-    const calculatedArea = Math.round(dimAncho * dimAlto * dimParedes);
-    onChange('area_m2', Math.max(5, calculatedArea));
+    const calculatedArea = Number((dimAncho * dimAlto * dimParedes).toFixed(2));
+    onChange('area_m2', Math.max(0.1, calculatedArea));
     setShowDimensionCalc(false);
   };
 
@@ -1581,14 +1957,14 @@ export const FMVForm: React.FC<FMVFormProps> = ({
           </div>
         </div>
 
-        {/* Wizard Stepper Pills Bar */}
-        <div className="grid grid-cols-3 gap-2 sm:gap-3 bg-black/20 p-1.5 sm:p-2 rounded-2xl backdrop-blur-sm border border-white/10">
+        {/* Wizard Stepper Pills Bar (4 Pasos Oficiales) */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-black/20 p-1.5 sm:p-2 rounded-2xl backdrop-blur-sm border border-white/10">
           
           {/* Step 1 Pill */}
           <button
             type="button"
             onClick={() => setCurrentStep(1)}
-            className={`flex items-center justify-center gap-2 py-2 px-2 sm:px-4 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+            className={`flex items-center justify-center gap-1.5 sm:gap-2 py-2 px-2 sm:px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
               currentStep === 1
                 ? 'bg-white text-[#004B93] shadow-md shadow-black/20 scale-[1.01]'
                 : currentStep > 1
@@ -1612,7 +1988,7 @@ export const FMVForm: React.FC<FMVFormProps> = ({
           <button
             type="button"
             onClick={() => setCurrentStep(2)}
-            className={`flex items-center justify-center gap-2 py-2 px-2 sm:px-4 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+            className={`flex items-center justify-center gap-1.5 sm:gap-2 py-2 px-2 sm:px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
               currentStep === 2
                 ? 'bg-white text-[#004B93] shadow-md shadow-black/20 scale-[1.01]'
                 : currentStep > 2
@@ -1629,27 +2005,51 @@ export const FMVForm: React.FC<FMVFormProps> = ({
             }`}>
               {currentStep > 2 ? '✓' : '2'}
             </span>
-            <span className="truncate">2. Pintura, Medidas y Color</span>
+            <span className="truncate">2. Pintura y Medidas</span>
           </button>
 
           {/* Step 3 Pill */}
           <button
             type="button"
             onClick={() => setCurrentStep(3)}
-            className={`flex items-center justify-center gap-2 py-2 px-2 sm:px-4 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+            className={`flex items-center justify-center gap-1.5 sm:gap-2 py-2 px-2 sm:px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
               currentStep === 3
                 ? 'bg-white text-[#004B93] shadow-md shadow-black/20 scale-[1.01]'
+                : currentStep > 3
+                ? 'bg-white/15 text-white hover:bg-white/25'
                 : 'text-blue-200/70 hover:text-white hover:bg-white/10'
             }`}
           >
             <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-black ${
               currentStep === 3
                 ? 'bg-[#004B93] text-white'
+                : currentStep > 3
+                ? 'bg-emerald-400 text-slate-950'
                 : 'bg-white/20 text-white'
             }`}>
-              3
+              {currentStep > 3 ? '✓' : '3'}
             </span>
-            <span className="truncate">3. Entrega y Cotización</span>
+            <span className="truncate">3. Datos y Entrega</span>
+          </button>
+
+          {/* Step 4 Pill */}
+          <button
+            type="button"
+            onClick={() => setCurrentStep(4)}
+            className={`flex items-center justify-center gap-1.5 sm:gap-2 py-2 px-2 sm:px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              currentStep === 4
+                ? 'bg-white text-[#004B93] shadow-md shadow-black/20 scale-[1.01]'
+                : 'text-blue-200/70 hover:text-white hover:bg-white/10'
+            }`}
+          >
+            <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-black ${
+              currentStep === 4
+                ? 'bg-[#004B93] text-white'
+                : 'bg-white/20 text-white'
+            }`}>
+              4
+            </span>
+            <span className="truncate">4. Resumen y Consejo</span>
           </button>
 
         </div>
@@ -1670,7 +2070,7 @@ export const FMVForm: React.FC<FMVFormProps> = ({
             {/* Step Header */}
             <div className="border-b border-slate-200/80 pb-4">
               <span className="text-[11px] font-bold text-[#004B93] uppercase tracking-wider">
-                Paso 1 de 3 • Identificación del Espacio
+                Paso 1 de 4 • Identificación del Espacio
               </span>
               <h3 className="text-lg sm:text-xl font-extrabold text-slate-900 mt-1">
                 ¿Qué tipo de espacio vas a transformar hoy?
@@ -2042,7 +2442,7 @@ export const FMVForm: React.FC<FMVFormProps> = ({
             {/* Step Header */}
             <div className="border-b border-slate-200/80 pb-4">
               <span className="text-[11px] font-bold text-[#004B93] uppercase tracking-wider">
-                Paso 2 de 3 • Tipo de Pintura, Medidas y Color
+                Paso 2 de 4 • Tipo de Pintura, Medidas y Color
               </span>
               <h3 className="text-lg sm:text-xl font-extrabold text-slate-900 mt-1">
                 ¿Qué tipo de pintura prefieres, cuánto mide tu espacio y qué color deseas?
@@ -2052,8 +2452,8 @@ export const FMVForm: React.FC<FMVFormProps> = ({
               </p>
             </div>
 
-            {/* 2.1 SELECCIÓN DE TIPO DE PINTURA PINTUCO */}
-            <div className="space-y-3">
+            {/* 2.1 SELECCIÓN DE TIPO DE PINTURA PINTUCO CON FILTRADO INTELIGENTE */}
+            <div className="space-y-3.5">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div>
                   <div className="flex items-center gap-2">
@@ -2065,211 +2465,110 @@ export const FMVForm: React.FC<FMVFormProps> = ({
                     </span>
                   </div>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    Selecciona la formulación técnica. La carta de color (2.3) se adaptará automáticamente a tu elección:
+                    Filtrado inteligente según tu espacio ({formData.ambiente} • {formData.superficie}). Puedes cambiar de categoría con las pestañas:
                   </p>
                 </div>
+
+                <span className="text-[11px] font-bold text-[#004B93] bg-blue-50 border border-blue-200 px-3 py-1 rounded-xl w-fit">
+                  Pintura activa: <strong className="text-slate-900 font-extrabold">{formData.producto_deseado || 'Viniltex Avanzado'}</strong>
+                </span>
               </div>
 
-              {/* Tarjetas interactivas de Viniltex, Koraza y Pintulux / Esmalte */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                {/* Viniltex */}
-                <div
-                  onClick={() => handleSelectPaintType('Viniltex Avanzado Máxima Lavabilidad')}
-                  className={`p-4 rounded-2xl border-2 transition-all cursor-pointer flex flex-col justify-between group ${
-                    selectedPaintFamilyKey === 'viniltex'
-                      ? 'border-[#004B93] bg-blue-50/80 shadow-xs ring-1 ring-[#004B93]/20'
-                      : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/50'
-                  }`}
-                >
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <span className="text-2xl">🎨</span>
-                        <div>
-                          <h4 className="font-extrabold text-sm text-slate-900 group-hover:text-[#004B93] transition-colors">
-                            Viniltex
-                          </h4>
-                          <span className="text-[10px] font-bold text-slate-500">Paredes Interiores</span>
-                        </div>
-                      </div>
-                      {selectedPaintFamilyKey === 'viniltex' ? (
-                        <span className="w-5 h-5 rounded-full bg-[#004B93] text-white flex items-center justify-center text-xs font-bold shadow-2xs">
-                          ✓
-                        </span>
-                      ) : (
-                        <span className="text-[10px] font-mono font-bold text-slate-400">$84.900/GL</span>
-                      )}
-                    </div>
-                    <p className="text-[11px] text-slate-600 leading-snug">
-                      Vinilo acrílico Tipo 1 para salas, alcobas y drywall. Máxima lavabilidad (+20.000 ciclos), bajo olor y cero VOC.
-                    </p>
-                  </div>
-
-                  <div className="mt-3 pt-2.5 border-t border-slate-200/60 flex items-center justify-between">
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800">
-                      Tonos pastel, neutros y vivos
-                    </span>
-                    <span className="text-[10px] font-semibold text-slate-500">NTC 1335</span>
-                  </div>
-                </div>
-
-                {/* Koraza */}
-                <div
-                  onClick={() => handleSelectPaintType('Koraza Doble Vida Protección Clima Extremo')}
-                  className={`p-4 rounded-2xl border-2 transition-all cursor-pointer flex flex-col justify-between group ${
-                    selectedPaintFamilyKey === 'koraza'
-                      ? 'border-[#004B93] bg-blue-50/80 shadow-xs ring-1 ring-[#004B93]/20'
-                      : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/50'
-                  }`}
-                >
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <span className="text-2xl">🛡️</span>
-                        <div>
-                          <h4 className="font-extrabold text-sm text-slate-900 group-hover:text-[#004B93] transition-colors">
-                            Koraza
-                          </h4>
-                          <span className="text-[10px] font-bold text-slate-500">Fachadas e Intemperie</span>
-                        </div>
-                      </div>
-                      {selectedPaintFamilyKey === 'koraza' ? (
-                        <span className="w-5 h-5 rounded-full bg-[#004B93] text-white flex items-center justify-center text-xs font-bold shadow-2xs">
-                          ✓
-                        </span>
-                      ) : (
-                        <span className="text-[10px] font-mono font-bold text-slate-400">$142.000/GL</span>
-                      )}
-                    </div>
-                    <p className="text-[11px] text-slate-600 leading-snug">
-                      Acrílico hidrorrepelente para muros exteriores y balcones. Protección extrema contra rayos UV, lluvia ácida y hongos.
-                    </p>
-                  </div>
-
-                  <div className="mt-3 pt-2.5 border-t border-slate-200/60 flex items-center justify-between">
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-blue-100 text-[#004B93]">
-                      Tonos resistentes exterior
-                    </span>
-                    <span className="text-[10px] font-semibold text-slate-500">10 Años Garantía</span>
-                  </div>
-                </div>
-
-                {/* Pintulux / Esmalte */}
-                <div
-                  onClick={() => handleSelectPaintType('Pintulux Esmalte Sintético Anticorrosivo')}
-                  className={`p-4 rounded-2xl border-2 transition-all cursor-pointer flex flex-col justify-between group ${
-                    selectedPaintFamilyKey === 'pintulux'
-                      ? 'border-[#004B93] bg-blue-50/80 shadow-xs ring-1 ring-[#004B93]/20'
-                      : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/50'
-                  }`}
-                >
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <span className="text-2xl">⚙️</span>
-                        <div>
-                          <h4 className="font-extrabold text-sm text-slate-900 group-hover:text-[#004B93] transition-colors">
-                            Pintulux / Esmalte
-                          </h4>
-                          <span className="text-[10px] font-bold text-slate-500">Metales y Maderas</span>
-                        </div>
-                      </div>
-                      {selectedPaintFamilyKey === 'pintulux' ? (
-                        <span className="w-5 h-5 rounded-full bg-[#004B93] text-white flex items-center justify-center text-xs font-bold shadow-2xs">
-                          ✓
-                        </span>
-                      ) : (
-                        <span className="text-[10px] font-mono font-bold text-slate-400">$68.900/GL</span>
-                      )}
-                    </div>
-                    <p className="text-[11px] text-slate-600 leading-snug">
-                      Esmalte sintético anticorrosivo para rejas, portones, marcos de puertas, muebles y estructuras metálicas.
-                    </p>
-                  </div>
-
-                  <div className="mt-3 pt-2.5 border-t border-slate-200/60 flex items-center justify-between">
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-100 text-amber-900">
-                      Brillante y Semibrillante
-                    </span>
-                    <span className="text-[10px] font-semibold text-slate-500">Anticorrosivo</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Botón y desplegable para otras líneas especializadas Pintuco */}
-              <div className="pt-1">
+              {/* Pestañas de Filtrado Rápido: Interiores | Exteriores | Zonas Húmedas / Especiales */}
+              <div className="flex items-center gap-1.5 p-1 bg-slate-100/90 rounded-2xl w-full sm:w-fit border border-slate-200 flex-wrap">
                 <button
                   type="button"
-                  onClick={() => setShowCatalogSelector(!showCatalogSelector)}
-                  className="text-xs font-bold text-slate-600 hover:text-[#004B93] flex items-center gap-1.5 cursor-pointer py-1"
+                  onClick={() => setPaintFilterTab('interiores')}
+                  className={`flex-1 sm:flex-initial px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                    paintFilterTab === 'interiores'
+                      ? 'bg-[#004B93] text-white shadow-xs ring-1 ring-[#004B93]'
+                      : 'text-slate-700 hover:text-slate-900 hover:bg-slate-200/70'
+                  }`}
                 >
-                  <Sliders className="w-3.5 h-3.5" />
-                  <span>{showCatalogSelector ? 'Ocultar otras formulaciones especializadas' : '¿Buscas otra formulación técnica? (Aquablock Impermeabilizante, Pintutráfico o Maderas)'}</span>
-                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showCatalogSelector ? 'rotate-180' : ''}`} />
+                  <span>🏠</span>
+                  <span>Interiores</span>
+                  <span className="text-[10px] opacity-80 hidden md:inline font-normal">(Viniltex, Cielos)</span>
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setPaintFilterTab('exteriores')}
+                  className={`flex-1 sm:flex-initial px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                    paintFilterTab === 'exteriores'
+                      ? 'bg-[#004B93] text-white shadow-xs ring-1 ring-[#004B93]'
+                      : 'text-slate-700 hover:text-slate-900 hover:bg-slate-200/70'
+                  }`}
+                >
+                  <span>☀️</span>
+                  <span>Exteriores</span>
+                  <span className="text-[10px] opacity-80 hidden md:inline font-normal">(Koraza, Esmaltes)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPaintFilterTab('especiales')}
+                  className={`flex-1 sm:flex-initial px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                    paintFilterTab === 'especiales'
+                      ? 'bg-[#004B93] text-white shadow-xs ring-1 ring-[#004B93]'
+                      : 'text-slate-700 hover:text-slate-900 hover:bg-slate-200/70'
+                  }`}
+                >
+                  <span>💧</span>
+                  <span>Zonas Húmedas / Especiales</span>
+                  <span className="text-[10px] opacity-80 hidden md:inline font-normal">(Aquablock, Tráfico, Maderas)</span>
+                </button>
+              </div>
 
-                {showCatalogSelector && (
-                  <div className="p-3.5 rounded-2xl bg-white border border-slate-200 mt-2 space-y-2 animate-fadeIn shadow-2xs">
-                    <span className="text-xs font-bold text-slate-700 block">
-                      Selecciona una línea técnica especializada:
-                    </span>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-                      {[
-                        {
-                          id: 'aquablock',
-                          nombre: 'Aquablock Sellador Antihumedad Bloqueador',
-                          linea: 'Impermeabilizantes',
-                          desc: 'Techos, terrazas y filtraciones'
-                        },
-                        {
-                          id: 'trafico',
-                          nombre: 'Pintutráfico Base Solvente Alto Desempeño',
-                          linea: 'Pisos y Señalización',
-                          desc: 'Canchas, garajes y alto tráfico'
-                        },
-                        {
-                          id: 'madera',
-                          nombre: 'Línea Maderas y Barnices Pintuco',
-                          linea: 'Maderas Nobles',
-                          desc: 'Barnices y tintes traslúcidos'
-                        },
-                        {
-                          id: 'banos',
-                          nombre: 'Viniltex Baños y Cocinas Antibacterial',
-                          linea: 'Zonas Húmedas',
-                          desc: 'Resistencia a vapor y hongos'
-                        },
-                        {
-                          id: 'cielos',
-                          nombre: 'Intervinil Cielos Mate Antirreflejo',
-                          linea: 'Cielorrasos',
-                          desc: 'Línea mate antirreflejo'
-                        }
-                      ].map((item) => (
-                        <button
-                          key={item.id}
-                          type="button"
-                          onClick={() => {
-                            handleSelectPaintType(item.nombre);
-                            setShowCatalogSelector(false);
-                          }}
-                          className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
-                            formData.producto_deseado === item.nombre
-                              ? 'border-[#004B93] bg-blue-50/80 font-bold'
-                              : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
-                          }`}
-                        >
-                          <span className="font-bold text-xs text-slate-900 block leading-tight">
-                            {item.nombre}
-                          </span>
-                          <span className="text-[10px] text-slate-500 mt-0.5 block">
-                            {item.linea} • {item.desc}
-                          </span>
-                        </button>
-                      ))}
+              {/* Cuadrícula de Pinturas Filtradas según la Pestaña Activa */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 animate-fadeIn">
+                {PAINT_LINE_OPTIONS[paintFilterTab].map((item) => {
+                  const isSelected = (formData.producto_deseado || '').toLowerCase().includes(item.familia) || 
+                                     formData.producto_deseado === item.nombre;
+                  return (
+                    <div
+                      key={item.id}
+                      onClick={() => handleSelectPaintType(item.nombre)}
+                      className={`p-4 rounded-2xl border-2 transition-all cursor-pointer flex flex-col justify-between group ${
+                        isSelected
+                          ? 'border-[#004B93] bg-blue-50/80 shadow-xs ring-1 ring-[#004B93]/20'
+                          : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/50'
+                      }`}
+                    >
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-2xl">{item.icono}</span>
+                            <div>
+                              <h4 className={`font-extrabold text-sm transition-colors ${
+                                isSelected ? 'text-[#004B93]' : 'text-slate-900 group-hover:text-[#004B93]'
+                              }`}>
+                                {item.titulo}
+                              </h4>
+                              <span className="text-[10px] font-bold text-slate-500">{item.subtitulo}</span>
+                            </div>
+                          </div>
+                          {isSelected ? (
+                            <span className="w-5 h-5 rounded-full bg-[#004B93] text-white flex items-center justify-center text-xs font-bold shadow-2xs">
+                              ✓
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-mono font-bold text-slate-400">{item.precio}</span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-slate-600 leading-snug">
+                          {item.descripcion}
+                        </p>
+                      </div>
+
+                      <div className="mt-3 pt-2.5 border-t border-slate-200/60 flex items-center justify-between">
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700">
+                          {item.badge}
+                        </span>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${item.tagColor}`}>
+                          {item.tag}
+                        </span>
+                      </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })}
               </div>
             </div>
 
@@ -2426,12 +2725,12 @@ export const FMVForm: React.FC<FMVFormProps> = ({
                   </div>
                   <div className="flex items-center justify-between pt-1">
                     <span className="text-xs text-slate-600">
-                      Resultado estimado: <strong>{Math.round(dimAncho * dimAlto * dimParedes)} m²</strong>
+                      Resultado estimado: <strong>{Number((dimAncho * dimAlto * dimParedes).toFixed(2))} m²</strong>
                     </span>
                     <button
                       type="button"
                       onClick={applyDimensionsCalc}
-                      className="px-3.5 py-1.5 rounded-lg bg-[#004B93] text-white text-xs font-bold shadow-xs hover:bg-[#003B75] transition-colors"
+                      className="px-3.5 py-1.5 rounded-lg bg-[#004B93] text-white text-xs font-bold shadow-xs hover:bg-[#003B75] transition-colors cursor-pointer"
                     >
                       Aplicar al cálculo
                     </button>
@@ -2439,53 +2738,72 @@ export const FMVForm: React.FC<FMVFormProps> = ({
                 </div>
               )}
 
-              {/* Slider and Manual Input */}
+              {/* Slider and Manual Input - Totalmente flexible para cualquier entero o decimal */}
               <div className="flex flex-col sm:flex-row sm:items-center gap-4 pt-1">
                 <div className="flex-1">
                   <input
                     type="range"
-                    min="5"
-                    max="500"
-                    step="5"
-                    value={formData.area_m2}
-                    onChange={(e) => onChange('area_m2', Math.max(5, Number(e.target.value)))}
+                    min="1"
+                    max="1000"
+                    step="1"
+                    value={formData.area_m2 || 1}
+                    onChange={(e) => onChange('area_m2', Math.max(0.1, Number(e.target.value)))}
                     className="w-full h-2.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-[#004B93]"
                   />
                   <div className="flex justify-between text-[11px] text-slate-400 font-mono mt-1">
-                    <span>5 m²</span>
+                    <span>1 m²</span>
                     <span>100 m²</span>
                     <span>250 m²</span>
                     <span>500 m²</span>
+                    <span>1,000 m²</span>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-2 shrink-0">
                   <button
                     type="button"
-                    onClick={() => onChange('area_m2', Math.max(5, formData.area_m2 - 10))}
-                    className="w-9 h-9 rounded-xl border border-slate-300 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold flex items-center justify-center cursor-pointer"
+                    onClick={() => onChange('area_m2', Math.max(0.1, Number((formData.area_m2 - 1).toFixed(2))))}
+                    className="w-9 h-9 rounded-xl border border-slate-300 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold flex items-center justify-center cursor-pointer transition-colors"
+                    title="Restar 1 m²"
                   >
-                    -10
+                    -1
                   </button>
                   <div className="relative">
                     <input
                       type="number"
-                      min="1"
-                      value={formData.area_m2}
-                      onChange={(e) => onChange('area_m2', Math.max(1, Number(e.target.value)))}
-                      className="w-24 text-center font-black text-lg p-2 rounded-xl border-2 border-[#004B93] bg-white text-slate-900"
+                      step="any"
+                      min="0.1"
+                      placeholder="0"
+                      value={formData.area_m2 === 0 ? '' : formData.area_m2}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val === '') {
+                          onChange('area_m2', 0);
+                        } else {
+                          const parsed = parseFloat(val);
+                          if (!isNaN(parsed)) {
+                            onChange('area_m2', parsed);
+                          }
+                        }
+                      }}
+                      className="w-28 text-center font-black text-lg p-2 rounded-xl border-2 border-[#004B93] bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#004B93]/30"
                     />
-                    <span className="absolute right-2 top-2.5 text-xs text-slate-500 font-bold">m²</span>
+                    <span className="absolute right-2.5 top-2.5 text-xs text-slate-500 font-bold pointer-events-none">m²</span>
                   </div>
                   <button
                     type="button"
-                    onClick={() => onChange('area_m2', formData.area_m2 + 10)}
-                    className="w-9 h-9 rounded-xl border border-slate-300 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold flex items-center justify-center cursor-pointer"
+                    onClick={() => onChange('area_m2', Number((formData.area_m2 + 1).toFixed(2)))}
+                    className="w-9 h-9 rounded-xl border border-slate-300 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold flex items-center justify-center cursor-pointer transition-colors"
+                    title="Sumar 1 m²"
                   >
-                    +10
+                    +1
                   </button>
                 </div>
               </div>
+              <p className="text-[11px] text-slate-500 flex items-center gap-1.5 pt-0.5">
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                Puedes ingresar cualquier valor exacto entero o decimal (ej. <strong className="text-slate-700 font-mono">443 m²</strong>, <strong className="text-slate-700 font-mono">12 m²</strong> o <strong className="text-slate-700 font-mono">18.5 m²</strong>).
+              </p>
 
             </div>
 
@@ -2621,7 +2939,7 @@ export const FMVForm: React.FC<FMVFormProps> = ({
                 onClick={() => setCurrentStep(3)}
                 className="w-full sm:w-auto px-7 py-3.5 rounded-2xl bg-[#004B93] hover:bg-[#003B75] text-white font-black text-sm shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer hover:scale-[1.01]"
               >
-                <span>Continuar a Entrega y Cotización (Paso 3)</span>
+                <span>Continuar a Datos y Forma de Entrega (Paso 3)</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
             </div>
@@ -2630,7 +2948,7 @@ export const FMVForm: React.FC<FMVFormProps> = ({
         )}
 
         {/* -------------------------------------------------------------------
-            PASO 3: ENTREGA Y COTIZACIÓN FINAL (Ubicación, Contacto, Resumen y CTA)
+            PASO 3: DATOS Y FORMA DE ENTREGA (Exclusivo Despacho y Ubicación)
         -------------------------------------------------------------------- */}
         {currentStep === 3 && (
           <div className="space-y-7 animate-fadeIn">
@@ -2638,15 +2956,67 @@ export const FMVForm: React.FC<FMVFormProps> = ({
             {/* Step Header */}
             <div className="border-b border-slate-200/80 pb-4">
               <span className="text-[11px] font-bold text-[#004B93] uppercase tracking-wider">
-                Paso 3 de 3 • Despacho y Cotización Oficial
+                Paso 3 de 4 • Datos y Forma de Entrega
               </span>
               <h3 className="text-lg sm:text-xl font-extrabold text-slate-900 mt-1">
-                Lugar de entrega y cálculo final de materiales
+                Lugar de entrega y datos de despacho
               </h3>
               <p className="text-xs sm:text-sm text-slate-600 mt-1">
-                Especifica la ciudad de destino y revisa los galones y cuñetes oficiales para radicar tu pedido.
+                Configura la modalidad de envío, tu dirección u obra y confirma los datos de contacto para la entrega oficial.
               </p>
             </div>
+
+            {/* Banner de Autocompletado con Perfil del Usuario Autenticado */}
+            {userSession && userSession.isLoggedIn && (
+              <div className="p-4 rounded-2xl bg-gradient-to-r from-blue-50/90 to-sky-50 border border-blue-200 text-blue-950 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+                <div className="flex items-start sm:items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-[#004B93] text-white flex items-center justify-center font-bold text-sm shrink-0 shadow-xs">
+                    <User className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-extrabold text-xs text-[#004B93]">
+                        Datos autocompletados desde tu perfil oficial Pintuco
+                      </span>
+                      <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
+                        {userSession.userType || 'Cliente'} Verificado
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-600 mt-0.5">
+                      Titular: <strong>{formData.nombre_razon_social || userSession.nombre}</strong> • Tel: <strong>{formData.telefono || userSession.telefono || 'Sin teléfono'}</strong> • Doc: <strong>{formData.documento || userSession.documento || 'Sin doc'}</strong>
+                    </p>
+                  </div>
+                </div>
+
+                {/* Selector rápido de direcciones guardadas en el perfil */}
+                {userSession.direcciones && userSession.direcciones.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Tus Direcciones:</span>
+                    {userSession.direcciones.map((d) => (
+                      <button
+                        key={d.id}
+                        type="button"
+                        onClick={() => {
+                          onChange('modalidad_entrega', 'domicilio');
+                          onChange('direccion_obra', d.direccion);
+                          if (d.ciudad) onChange('ciudad', d.ciudad);
+                          if (d.departamento) handleDeptoChange(d.departamento);
+                        }}
+                        className={`text-[10px] font-bold px-2.5 py-1 rounded-xl border transition-all cursor-pointer flex items-center gap-1 ${
+                          formData.direccion_obra === d.direccion
+                            ? 'bg-[#004B93] text-white border-[#004B93]'
+                            : 'bg-white hover:bg-blue-50 text-slate-700 border-slate-300'
+                        }`}
+                        title={d.direccion}
+                      >
+                        <MapPin className="w-3 h-3" />
+                        <span>{d.etiqueta}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* 3.1 MODALIDAD Y UBICACIÓN DE ENTREGA */}
             <div className="space-y-4 p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs">
@@ -2777,44 +3147,7 @@ export const FMVForm: React.FC<FMVFormProps> = ({
                     ))}
                   </select>
 
-                  {/* Cuadrícula de Tarjetas Interactivas de Tiendas Pintuco */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
-                    {availableStores.map((store) => {
-                      const isStoreSelected = (formData.sede_retiro === store.nombre) || (!formData.sede_retiro && store.id === availableStores[0]?.id);
-                      return (
-                        <div
-                          key={store.id}
-                          onClick={() => {
-                            onChange('sede_retiro', store.nombre);
-                            onChange('direccion_obra', `Retiro en Tienda: ${store.nombre} - ${store.direccion}`);
-                          }}
-                          className={`p-3 rounded-xl border-2 transition-all cursor-pointer flex flex-col justify-between ${
-                            isStoreSelected
-                              ? 'border-[#004B93] bg-blue-50/80 shadow-xs ring-1 ring-[#004B93]'
-                              : 'border-slate-200 bg-white hover:border-slate-300'
-                          }`}
-                        >
-                          <div className="flex items-start justify-between gap-1.5 mb-1.5">
-                            <div>
-                              <h6 className="font-extrabold text-xs text-slate-900">{store.nombre}</h6>
-                              <span className="text-[10px] text-slate-500 font-semibold">{store.badge || 'Punto Oficial Pintuco'}</span>
-                            </div>
-                            {isStoreSelected && (
-                              <span className="w-5 h-5 rounded-full bg-[#004B93] text-white flex items-center justify-center shrink-0">
-                                <Check className="w-3 h-3" />
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-[11px] text-slate-600 line-clamp-1 flex items-center gap-1">
-                            <MapPin className="w-3 h-3 text-[#004B93] shrink-0" />
-                            <span>{store.direccion}</span>
-                          </p>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  {/* Tarjeta Visual de Información de la Tienda Seleccionada */}
+                  {/* Tarjeta Resumen de la Tienda Seleccionada */}
                   {selectedStore && (
                     <div className="p-4 rounded-2xl bg-gradient-to-r from-blue-50/90 to-slate-50 border border-blue-200/90 space-y-2.5">
                       <div className="flex items-start justify-between gap-2">
@@ -3006,26 +3339,97 @@ export const FMVForm: React.FC<FMVFormProps> = ({
               )}
             </div>
 
-            {/* 3.4 RESUMEN OFICIAL DE MATERIALES Y CÁLCULO NTC 1335 (TEMA CLARO / LIGHT MODE) */}
+            {/* BOTONES NAVEGACIÓN PASO 3 */}
+            <div className="pt-4 flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-slate-200">
+              <button
+                type="button"
+                onClick={() => setCurrentStep(2)}
+                className="w-full sm:w-auto px-5 py-3 rounded-2xl border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 font-bold text-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span>Volver a Pintura y Medidas (Paso 2)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setCurrentStep(4)}
+                className="w-full sm:w-auto px-7 py-3.5 rounded-2xl bg-[#004B93] hover:bg-[#003B75] text-white font-black text-sm shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer hover:scale-[1.01]"
+              >
+                <span>Continuar a Resumen y Consejo Pintuco (Paso 4)</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
+
+          </div>
+        )}
+
+        {/* -------------------------------------------------------------------
+            PASO 4: RESUMEN DE PRODUCTOS, CONSEJO CONTEXTUAL Y COMPLEMENTOS
+        -------------------------------------------------------------------- */}
+        {currentStep === 4 && (
+          <div className="space-y-7 animate-fadeIn">
+            
+            {/* Step Header */}
+            <div className="border-b border-slate-200/80 pb-4">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-[#004B93] uppercase tracking-wider">
+                  Paso 4 de 4 • Resumen de Productos y Consejo Contextual
+                </span>
+                <span className="text-[10px] font-extrabold bg-blue-50 text-[#004B93] px-2.5 py-0.5 rounded-full border border-blue-200">
+                  Norma NTC 1335
+                </span>
+              </div>
+              <h3 className="text-lg sm:text-xl font-extrabold text-slate-900 mt-1">
+                Resumen final de compra, asesoría técnica y complementos
+              </h3>
+              <p className="text-xs sm:text-sm text-slate-600 mt-1">
+                Revisa los productos calculados, aprovecha las recomendaciones de nuestros expertos y añade los accesorios compatibles antes de continuar.
+              </p>
+            </div>
+
+            {/* 4.1 RESUMEN VOLUMÉTRICO OFICIAL NTC 1335 */}
             <div className="p-6 rounded-3xl bg-white text-slate-900 border border-slate-200/90 shadow-xl shadow-slate-200/50 space-y-5">
               
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-4">
                 <div>
-                  <span className="text-[11px] font-bold text-[#004B93] uppercase tracking-wider block">
-                    Resumen Volumétrico Oficial NTC 1335
-                  </span>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[11px] font-bold text-[#004B93] uppercase tracking-wider block">
+                      Resumen Volumétrico Oficial NTC 1335
+                    </span>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200">
+                      Área total: {formData.area_m2} m²
+                    </span>
+                  </div>
                   <h4 className="text-xl font-black text-slate-900 mt-0.5">
                     {calculation.productoSugerido}
                   </h4>
-                  <p className="text-xs text-slate-600 mt-0.5">
-                    Color: <strong className="text-slate-900">{formData.color_acabado}</strong> • Área total: <strong className="text-slate-900">{formData.area_m2} m²</strong> en <strong className="text-slate-900">{formData.ciudad}</strong>.
-                  </p>
+                  <div className="flex items-center gap-2 text-xs text-slate-600 mt-1 flex-wrap">
+                    <div className="flex items-center gap-1.5">
+                      <div 
+                        className="w-3.5 h-3.5 rounded-full border border-black/20 shrink-0" 
+                        style={{ backgroundColor: selectedColorObj.hex }} 
+                      />
+                      <span>Color: <strong className="text-slate-900">{formData.color_acabado}</strong></span>
+                    </div>
+                    <span>•</span>
+                    <span className="text-slate-600">
+                      Destino: <strong className="text-slate-900">
+                        {currentModalidad === 'retiro_tienda' 
+                          ? `Retiro en ${formData.sede_retiro || selectedStore?.nombre || 'Tienda Pintuco'} (${formData.ciudad})`
+                          : `${formData.direccion_obra || 'Dirección registrada'} (${formData.ciudad})`
+                        }
+                      </strong>
+                    </span>
+                  </div>
                 </div>
 
-                <div className="text-left sm:text-right">
+                <div className="text-left sm:text-right shrink-0">
                   <span className="text-[10px] text-slate-500 block uppercase font-bold">Valor Estimado COP</span>
                   <span className="text-2xl font-black text-emerald-600 font-mono">
                     ${liveSummaryTotals.totalCOP.toLocaleString('es-CO')}
+                  </span>
+                  <span className="text-[10px] text-slate-500 block">
+                    {liveShipping.costoFlete === 0 ? 'Flete $0 COP (Bonificado)' : `Flete est.: $${liveShipping.costoFlete.toLocaleString('es-CO')}`}
                   </span>
                 </div>
               </div>
@@ -3090,20 +3494,20 @@ export const FMVForm: React.FC<FMVFormProps> = ({
 
               </div>
 
-              {/* 3.5 DESGLOSE DE PRODUCTOS Y CANTIDADES EDITABLES (ESTRICTAMENTE PINTURAS Y SELLADOR CALCULADOS) */}
+              {/* 4.2 DESGLOSE DE PRODUCTOS Y CANTIDADES EDITABLES */}
               <div className="bg-slate-50 rounded-2xl p-4 sm:p-5 border border-slate-200 space-y-3.5 shadow-xs">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-3">
                   <div>
                     <h5 className="text-xs sm:text-sm font-extrabold text-slate-900 flex items-center gap-2">
                       <ShoppingBag className="w-4 h-4 text-[#004B93]" />
-                      <span>Resumen de Pintura y Sellador Calculados</span>
+                      <span>Desglose de Pintura y Sellador Calculados</span>
                     </h5>
                     <p className="text-[11px] text-slate-600 mt-0.5">
-                      Productos técnicos calculados según tu área. Puedes ajustar las cantidades exactas requeridas:
+                      Ajusta con los botones +/- la cantidad exacta de unidades antes de enviar al carrito:
                     </p>
                   </div>
                   <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-blue-50 text-blue-800 border border-blue-200 w-fit">
-                    Norma NTC 1335
+                    Ajuste Fino
                   </span>
                 </div>
 
@@ -3208,18 +3612,18 @@ export const FMVForm: React.FC<FMVFormProps> = ({
                     </div>
                   </div>
 
-                  {/* Ítem 3: Sellador Fijador / Imprimante con Sugerencia Educativa */}
+                  {/* Ítem 3: Sellador Fijador / Imprimante */}
                   {editedQuantities.sellador > 0 ? (
                     <div className="p-3 rounded-xl bg-white border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-fadeIn">
                       <div className="min-w-0">
                         <div className="text-xs font-bold text-slate-900 truncate flex items-center gap-2">
                           <span>Sellador Antialcalino / Fijador Imprimante (1 Gal)</span>
                           <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-300 font-bold">
-                            💡 Consejo Pintuco agregado
+                            💡 Sellador agregado
                           </span>
                         </div>
                         <div className="text-[11px] text-slate-500">
-                          ${unitPrices.selladorPrice.toLocaleString('es-CO')} COP / galón • Sellado de poros y máxima durabilidad
+                          ${unitPrices.selladorPrice.toLocaleString('es-CO')} COP / galón • Sella poros y previene alcalinidad
                         </div>
                       </div>
 
@@ -3271,23 +3675,12 @@ export const FMVForm: React.FC<FMVFormProps> = ({
                       </div>
                     </div>
                   ) : (
-                    /* RECOMENDACIÓN CERCANA Y EDUCATIVA (CONSEJO PINTUCO) */
-                    <div className="p-4 rounded-2xl bg-amber-50/80 border border-amber-300 text-amber-950 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs animate-fadeIn">
-                      <div className="flex items-start gap-3">
-                        <span className="text-2xl shrink-0" role="img" aria-label="consejo">💡</span>
-                        <div className="space-y-1">
-                          <h6 className="font-extrabold text-xs text-amber-900 flex items-center gap-1.5">
-                            <span>Consejo Pintuco</span>
-                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300">
-                              Recomendación para tu proyecto
-                            </span>
-                          </h6>
-                          <p className="text-[11px] text-slate-700 leading-relaxed">
-                            Para que el color de tu pintura resalte más, se adhiera mejor y dure años, te sugerimos aplicar un Sellador Antialcalino. ¿Deseas agregarlo?
-                          </p>
-                          <span className="text-[10px] text-amber-900/90 font-medium block">
-                            Cantidad calculada para tus {formData.area_m2} m²: ~{calculation.galonesSellador || 1} galón{(calculation.galonesSellador || 1) > 1 ? 'es' : ''} (${(78000 * (calculation.galonesSellador || 1)).toLocaleString('es-CO')} COP)
-                          </span>
+                    <div className="p-3 rounded-xl bg-amber-50/70 border border-amber-200 flex items-center justify-between gap-3 text-xs">
+                      <div className="flex items-center gap-2">
+                        <span className="text-base">🛡️</span>
+                        <div>
+                          <span className="font-bold text-amber-900">¿Deseas incluir Sellador Antialcalino?</span>
+                          <span className="text-[11px] text-amber-800/80 block">Recomendado para sellar poros y garantizar 100% de adherencia del color.</span>
                         </div>
                       </div>
                       <button
@@ -3298,10 +3691,9 @@ export const FMVForm: React.FC<FMVFormProps> = ({
                             sellador: Math.max(1, calculation.galonesSellador || 1),
                           }));
                         }}
-                        className="shrink-0 px-4 py-2.5 rounded-xl text-xs font-black bg-[#FFD100] hover:bg-[#F5C800] active:scale-95 text-slate-950 transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-sm hover:shadow"
+                        className="px-3 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-xs shrink-0 cursor-pointer shadow-2xs"
                       >
-                        <Plus className="w-4 h-4 text-slate-950" />
-                        <span>+ Agregar Sellador a mi pedido</span>
+                        + Agregar Sellador ($78.000 COP)
                       </button>
                     </div>
                   )}
@@ -3316,169 +3708,73 @@ export const FMVForm: React.FC<FMVFormProps> = ({
                 </div>
               </div>
 
-              {/* 3.6 SECCIÓN DE PRODUCTOS COMPLEMENTARIOS (SUGERIDOS / HERRAMIENTAS) */}
-              <div className="bg-slate-50 rounded-2xl p-4 sm:p-5 border border-slate-200 space-y-3.5 shadow-xs">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-3">
-                  <div>
-                    <h5 className="text-xs sm:text-sm font-black text-slate-900 flex items-center gap-2">
-                      <Sparkles className="w-4 h-4 text-amber-500" />
-                      <span>¿Te gustaría agregar esto para que tu proyecto quede perfecto?</span>
-                    </h5>
-                    <p className="text-[11px] text-slate-600 mt-0.5">
-                      Recomendados Pintuco para facilitar tu trabajo y lograr un acabado profesional de primera:
-                    </p>
+              {/* 4.3 CONSEJO PINTUCO 100% DINÁMICO SEGÚN LA COMPRA ACTUAL */}
+              <div className="rounded-2xl border-2 border-blue-200/90 bg-gradient-to-br from-blue-50/90 via-sky-50/60 to-white p-5 space-y-3.5 shadow-sm">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-blue-200/80 pb-3">
+                  <div className="flex items-center gap-2.5">
+                    <span className="text-2xl" role="img" aria-label="consejo">{activeDynamicConsejo.icono}</span>
+                    <div>
+                      <span className="text-[10px] font-black uppercase text-[#004B93] tracking-wider block">
+                        Asesoría Técnica Oficial Pintuco
+                      </span>
+                      <h5 className="font-black text-sm text-slate-900 mt-0.5">
+                        {activeDynamicConsejo.titulo}
+                      </h5>
+                    </div>
                   </div>
-                  <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 w-fit">
-                    Recomendados Pintuco
+                  <span className={`text-[10px] font-black uppercase px-2.5 py-1 rounded-full border ${activeDynamicConsejo.badgeColor} w-fit shadow-2xs`}>
+                    {activeDynamicConsejo.badge}
                   </span>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {RECOMMENDED_PROJECT_TOOLS.map((tool) => {
-                    const isAdded = (selectedTools[tool.id] || 0) > 0;
-                    const qty = selectedTools[tool.id] || 0;
-                    return (
-                      <div
-                        key={tool.id}
-                        className={`rounded-xl p-3 border transition-all flex flex-col justify-between gap-3 shadow-xs ${
-                          isAdded
-                            ? 'bg-amber-50/70 border-amber-300 ring-1 ring-amber-300/50'
-                            : 'bg-white border-slate-200 hover:border-slate-300'
-                        }`}
-                      >
-                        <div className="flex items-start gap-3">
-                          <img
-                            src={tool.imagenUrl}
-                            alt={tool.nombre}
-                            className="w-14 h-14 rounded-lg object-cover bg-slate-100 border border-slate-200 shrink-0"
-                            onError={(e) => {
-                              const target = e.currentTarget;
-                              const currentSrc = target.getAttribute('src') || '';
-                              if (currentSrc.includes('/src/assets/images/')) {
-                                target.src = currentSrc.replace('/src/assets/images/', '/images/');
-                              } else if (currentSrc.includes('/images/')) {
-                                target.src = currentSrc.replace('/images/', '/src/assets/images/');
-                              }
-                            }}
-                          />
-                          <div className="min-w-0 flex-1">
-                            <span className="text-[9px] font-bold uppercase text-amber-800 tracking-wider block">
-                              {tool.categoria}
-                            </span>
-                            <h6 className="text-xs font-bold text-slate-900 leading-snug line-clamp-2">
-                              {tool.nombre}
-                            </h6>
-                            <p className="text-[10px] text-slate-600 mt-0.5 line-clamp-2">
-                              {tool.descripcion}
-                            </p>
-                            <span className="text-xs font-mono font-black text-slate-900 mt-1 block">
-                              ${tool.precio.toLocaleString('es-CO')} COP
-                            </span>
-                          </div>
-                        </div>
+                <p className="text-xs text-slate-700 leading-relaxed font-medium">
+                  {activeDynamicConsejo.parrafoPrincipal}
+                </p>
 
-                        {/* Botón de acción: + Añadir por $... o Contador de Cantidad */}
-                        <div>
-                          {!isAdded ? (
-                            <button
-                              type="button"
-                              onClick={() => handleToggleTool(tool.id)}
-                              className="w-full py-2 px-3 rounded-lg text-xs font-black bg-white hover:bg-amber-50 text-slate-800 hover:text-amber-950 border border-slate-300 hover:border-amber-300 transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-xs active:scale-95"
-                            >
-                              <Plus className="w-3.5 h-3.5" />
-                              <span>+ Añadir por ${tool.precio.toLocaleString('es-CO')}</span>
-                            </button>
-                          ) : (
-                            <div className="flex items-center justify-between gap-2 p-1 rounded-lg bg-white border border-amber-300 shadow-xs">
-                              <div className="flex items-center">
-                                <button
-                                  type="button"
-                                  onClick={() => handleUpdateToolQty(tool.id, qty - 1)}
-                                  className="w-7 h-7 rounded text-slate-700 hover:bg-slate-100 flex items-center justify-center cursor-pointer transition-colors"
-                                  title="Disminuir"
-                                >
-                                  <Minus className="w-3 h-3" />
-                                </button>
-                                <span className="w-8 text-center text-xs font-black text-slate-900 font-mono">
-                                  {qty}
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() => handleUpdateToolQty(tool.id, qty + 1)}
-                                  className="w-7 h-7 rounded text-slate-700 hover:bg-slate-100 flex items-center justify-center cursor-pointer transition-colors"
-                                  title="Aumentar"
-                                >
-                                  <Plus className="w-3 h-3" />
-                                </button>
-                              </div>
-                              <span className="text-[11px] font-mono font-bold text-amber-900 pr-2">
-                                ${(tool.precio * qty).toLocaleString('es-CO')}
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
+                <div className="space-y-2 pt-1 bg-white/70 p-3.5 rounded-xl border border-blue-100">
+                  <span className="text-[11px] font-extrabold text-slate-900 uppercase tracking-wider block mb-1">
+                    Tips Claves para tu Proyecto:
+                  </span>
+                  {activeDynamicConsejo.tips.map((tip, idx) => (
+                    <div key={idx} className="flex items-start gap-2 text-xs text-slate-800">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                      <span className="leading-snug">{tip}</span>
+                    </div>
+                  ))}
                 </div>
 
-                {/* Subtotal Herramientas Seleccionadas */}
-                {liveSummaryTotals.subtotalTools > 0 && (
-                  <div className="pt-2 flex justify-between items-center text-xs text-amber-900 border-t border-amber-200">
-                    <span>Herramientas sugeridas añadidas ({Object.values(selectedTools).reduce((a, b) => a + b, 0)} ítems):</span>
-                    <span className="font-mono font-bold text-amber-950 text-sm">
-                      +${liveSummaryTotals.subtotalTools.toLocaleString('es-CO')} COP
-                    </span>
-                  </div>
-                )}
+                <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1 border-t border-blue-100">
+                  <span className="flex items-center gap-1.5 font-medium">
+                    <ShieldCheck className="w-3.5 h-3.5 text-[#004B93]" />
+                    <span>{activeDynamicConsejo.normaReferencia}</span>
+                  </span>
+                  <span className="font-bold text-slate-700 hidden sm:inline">
+                    Pintuco • Grupo AkzoNobel
+                  </span>
+                </div>
               </div>
 
-              {/* TOTAL GENERAL RECALCULADO EN TIEMPO REAL */}
+              {/* 4.4 TOTAL ESTIMADO DE PINTURAS Y ENTREGA */}
               <div className="pt-3 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div>
-                  <span className="font-extrabold text-slate-900 text-xs sm:text-sm">Total de Compra Recalculado:</span>
+                  <span className="font-extrabold text-slate-900 text-xs sm:text-sm">Total Estimado de tu Cotización:</span>
                   <span className="text-[11px] text-slate-600 block">
-                    {liveSummaryTotals.subtotalTools > 0
-                      ? `Incluye pinturas, sellador y ${Object.values(selectedTools).reduce((a, b) => a + b, 0)} herramientas sugeridas`
-                      : 'Incluye estrictamente pinturas y sellador calculados (0 herramientas)'}
+                    Calculado para {formData.area_m2} m² • {currentModalidad === 'retiro_tienda' ? `Retiro en ${formData.sede_retiro || selectedStore?.nombre || 'Tienda Pintuco'}` : `Envío a domicilio en ${formData.ciudad}`}
                   </span>
                 </div>
                 <div className="text-xl sm:text-3xl font-black font-mono text-emerald-600">
-                  ${liveSummaryTotals.totalCOP.toLocaleString('es-CO')} COP
+                  ${liveSummaryTotals.subtotalPinturaYSellador.toLocaleString('es-CO')} COP
                 </div>
               </div>
 
-              {/* BOTONES PRINCIPALES DE ACCIÓN CTA: DISPOSICIÓN EN 2 COLUMNAS + FICHA TÉCNICA */}
+              {/* 4.6 BOTONES PRINCIPALES DE SINCRONIZACIÓN TOTAL CON EL CARRITO */}
               <div className="pt-2 space-y-3">
-                
-                {/* Layout en 2 Columnas Lado a Lado en escritorio */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   
-                  {/* Botón Izquierdo: Añadir al Carrito */}
+                  {/* Botón Izquierdo: Añadir al Carrito (Sincronización Total) */}
                   <button
                     type="button"
-                    onClick={() => {
-                      const toolsPayload = Object.entries(selectedTools)
-                        .filter(([_, qty]) => qty > 0)
-                        .map(([toolId, qty]) => {
-                          const tool = RECOMMENDED_PROJECT_TOOLS.find(t => t.id === toolId)!;
-                          return {
-                            id: tool.id,
-                            nombre: tool.nombre,
-                            presentacion: tool.presentacion,
-                            cantidad: qty,
-                            precioUnitario: tool.precio,
-                            sku: tool.sku,
-                            imagenUrl: tool.imagenUrl,
-                          };
-                        });
-
-                      if (onAddToCart) {
-                        onAddToCart(editedQuantities, false, toolsPayload);
-                      } else if (onSaveOrder) {
-                        onSaveOrder('cotizacion');
-                      }
-                    }}
+                    onClick={() => handleSyncToCart(false)}
                     disabled={isSaving}
                     className="w-full py-3.5 px-4 rounded-2xl font-black text-xs sm:text-sm bg-gradient-to-r from-blue-700 to-[#004B93] hover:from-blue-800 hover:to-[#003B75] active:scale-[0.99] text-white shadow-md shadow-blue-900/20 transition-all flex items-center justify-center gap-2 cursor-pointer hover:scale-[1.01] border border-blue-600 disabled:opacity-60"
                   >
@@ -3486,31 +3782,10 @@ export const FMVForm: React.FC<FMVFormProps> = ({
                     <span>Añadir al Carrito</span>
                   </button>
 
-                  {/* Botón Derecho: Continuar Proceso de Compra */}
+                  {/* Botón Derecho: Continuar Proceso de Compra (Sincronización y Checkout Directo) */}
                   <button
                     type="button"
-                    onClick={() => {
-                      const toolsPayload = Object.entries(selectedTools)
-                        .filter(([_, qty]) => qty > 0)
-                        .map(([toolId, qty]) => {
-                          const tool = RECOMMENDED_PROJECT_TOOLS.find(t => t.id === toolId)!;
-                          return {
-                            id: tool.id,
-                            nombre: tool.nombre,
-                            presentacion: tool.presentacion,
-                            cantidad: qty,
-                            precioUnitario: tool.precio,
-                            sku: tool.sku,
-                            imagenUrl: tool.imagenUrl,
-                          };
-                        });
-
-                      if (onAddToCart) {
-                        onAddToCart(editedQuantities, true, toolsPayload);
-                      } else if (onSaveOrder) {
-                        onSaveOrder('pedido');
-                      }
-                    }}
+                    onClick={() => handleSyncToCart(true)}
                     disabled={isSaving}
                     className="w-full py-3.5 px-4 rounded-2xl font-black text-xs sm:text-sm bg-[#E30613] hover:bg-[#C20510] active:bg-[#A3040D] text-white shadow-md shadow-red-900/20 transition-all flex items-center justify-center gap-2 cursor-pointer hover:scale-[1.01] active:scale-[0.99] disabled:opacity-60"
                   >
@@ -3533,22 +3808,21 @@ export const FMVForm: React.FC<FMVFormProps> = ({
                   className="w-full py-3 px-5 rounded-2xl font-bold text-xs sm:text-sm bg-white hover:bg-slate-50 active:bg-slate-100 text-slate-700 border border-slate-300 hover:border-slate-400 shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer"
                 >
                   <Printer className="w-4 h-4 text-slate-600 shrink-0" />
-                  <span>Imprimir / Exportar Ficha Técnica Oficial</span>
+                  <span>Imprimir / Exportar Ficha Técnica Oficial NTC 1335</span>
                 </button>
-
               </div>
 
             </div>
 
-            {/* BOTONES NAVEGACIÓN PASO 3 */}
+            {/* BOTONES NAVEGACIÓN PASO 4 */}
             <div className="pt-2 flex items-center justify-between">
               <button
                 type="button"
-                onClick={() => setCurrentStep(2)}
+                onClick={() => setCurrentStep(3)}
                 className="px-5 py-3 rounded-2xl border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 font-bold text-xs transition-colors flex items-center gap-1.5 cursor-pointer"
               >
                 <ArrowLeft className="w-3.5 h-3.5" />
-                <span>Volver a Medidas (Paso 2)</span>
+                <span>Modificar Datos y Forma de Entrega (Paso 3)</span>
               </button>
 
               <button
@@ -3556,7 +3830,7 @@ export const FMVForm: React.FC<FMVFormProps> = ({
                 onClick={() => setCurrentStep(1)}
                 className="text-xs text-[#004B93] font-bold hover:underline"
               >
-                Volver al inicio del wizard
+                Volver al inicio del wizard (Paso 1)
               </button>
             </div>
 

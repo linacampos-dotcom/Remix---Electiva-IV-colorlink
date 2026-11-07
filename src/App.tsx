@@ -305,6 +305,15 @@ export default function App() {
     return () => window.removeEventListener('colorlink_close_ai_chat', handleCloseChat);
   }, []);
 
+  useEffect(() => {
+    const handleOpenTrackingEvent = () => {
+      setActiveClientTab('tracking');
+      handleOpenNotifications('seguimiento');
+    };
+    window.addEventListener('colorlink_open_tracking', handleOpenTrackingEvent);
+    return () => window.removeEventListener('colorlink_open_tracking', handleOpenTrackingEvent);
+  }, []);
+
   // E-commerce Platform Modals & States with URL Synchronization
   const [activeClientTab, setActiveClientTab] = useState<ClientNavigationTab | 'tracking'>(() => {
     if (typeof window !== 'undefined') {
@@ -1575,6 +1584,7 @@ export default function App() {
         onRemoveItem={handleRemoveCartItem}
         onClearCart={handleClearCart}
         onCheckout={handleCartCheckout}
+        onAddToCartItem={handleAddToCart}
         onOpenCatalog={() => {
           setIsCartOpen(false);
           setIsCatalogOpen(false);
