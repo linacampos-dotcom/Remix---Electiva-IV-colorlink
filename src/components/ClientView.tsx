@@ -165,7 +165,8 @@ export const ClientView: React.FC<ClientViewProps> = ({
       sku: string;
       imagenUrl: string;
     }>,
-    deliveryData?: any
+    deliveryData?: any,
+    calculatedProductsList?: CartItem[]
   ) => {
     // Sincronización íntegra de datos de entrega y despacho en el almacenamiento local
     if (deliveryData) {
@@ -185,62 +186,69 @@ export const ClientView: React.FC<ClientViewProps> = ({
       } catch {}
     }
 
-    const precioBaseGalon = 
-      calculation.productoSugerido.includes('Koraza') ? 142000 :
-      calculation.productoSugerido.includes('Baños') ? 128000 :
-      calculation.productoSugerido.includes('Aquablock') ? 135000 : 115000;
+    // 1. Si vienen productos calculados desde el Cotizador (con colores individuales y presentaciones)
+    if (calculatedProductsList && calculatedProductsList.length > 0) {
+      calculatedProductsList.forEach((item) => {
+        if (item.cantidad > 0) {
+          onAddToCart(item);
+        }
+      });
+    } else {
+      // 2. Modo fallback: cálculo estándar monocromático
+      const precioBaseGalon = 
+        calculation.productoSugerido.includes('Koraza') ? 142000 :
+        calculation.productoSugerido.includes('Baños') ? 128000 :
+        calculation.productoSugerido.includes('Aquablock') ? 135000 : 115000;
 
-    const precioCunete = Math.round(precioBaseGalon * 4.6);
+      const precioCunete = Math.round(precioBaseGalon * 4.6);
 
-    const cunetesCount = customQtys?.cunetes !== undefined ? customQtys.cunetes : calculation.cuñetesPintura;
-    const galonesCount = customQtys?.galones !== undefined ? customQtys.galones : calculation.galonesSueltosPintura;
-    const selladorCount = customQtys?.sellador !== undefined ? customQtys.sellador : 0;
+      const cunetesCount = customQtys?.cunetes !== undefined ? customQtys.cunetes : calculation.cuñetesPintura;
+      const galonesCount = customQtys?.galones !== undefined ? customQtys.galones : calculation.galonesSueltosPintura;
+      const selladorCount = customQtys?.sellador !== undefined ? customQtys.sellador : 0;
 
-    // 1. If cuñetes are required, add them
-    if (cunetesCount > 0) {
-      const cuneteItem: CartItem = {
-        id: `cunete-${Date.now()}`,
-        nombre: `${calculation.productoSugerido} (Cuñete 5 Gal)`,
-        sku: 'PIN-CUN-05',
-        presentacion: 'Cuñete (5 Gal)',
-        cantidad: cunetesCount,
-        precioUnitario: precioCunete,
-        colorSeleccionado: formData.color_acabado,
-        marca: 'Pintuco',
-        imagenUrl: '/src/assets/images/viniltex_can_studio_1790894409491.jpg',
-      };
-      onAddToCart(cuneteItem);
-    }
+      if (cunetesCount > 0) {
+        const cuneteItem: CartItem = {
+          id: `cunete-${Date.now()}`,
+          nombre: `${calculation.productoSugerido} (Cuñete 5 Gal)`,
+          sku: 'PIN-CUN-05',
+          presentacion: 'Cuñete (5 Gal)',
+          cantidad: cunetesCount,
+          precioUnitario: precioCunete,
+          colorSeleccionado: formData.color_acabado,
+          marca: 'Pintuco',
+          imagenUrl: '/src/assets/images/viniltex_can_studio_1790894409491.jpg',
+        };
+        onAddToCart(cuneteItem);
+      }
 
-    // 2. If loose gallons are required, add them
-    if (galonesCount > 0) {
-      const galonItem: CartItem = {
-        id: `galon-${Date.now() + 1}`,
-        nombre: `${calculation.productoSugerido} (Galón 1 GL)`,
-        sku: 'PIN-GAL-01',
-        presentacion: 'Galón',
-        cantidad: galonesCount,
-        precioUnitario: precioBaseGalon,
-        colorSeleccionado: formData.color_acabado,
-        marca: 'Pintuco',
-        imagenUrl: '/src/assets/images/viniltex_can_studio_1790894409491.jpg',
-      };
-      onAddToCart(galonItem);
-    }
+      if (galonesCount > 0) {
+        const galonItem: CartItem = {
+          id: `galon-${Date.now() + 1}`,
+          nombre: `${calculation.productoSugerido} (Galón 1 GL)`,
+          sku: 'PIN-GAL-01',
+          presentacion: 'Galón',
+          cantidad: galonesCount,
+          precioUnitario: precioBaseGalon,
+          colorSeleccionado: formData.color_acabado,
+          marca: 'Pintuco',
+          imagenUrl: '/src/assets/images/viniltex_can_studio_1790894409491.jpg',
+        };
+        onAddToCart(galonItem);
+      }
 
-    // 3. If sealer is required, add sealer gallons
-    if (selladorCount > 0) {
-      const selladorItem: CartItem = {
-        id: `sellador-${Date.now() + 2}`,
-        nombre: 'Sellador Antihumedad Aquablock / Silicona Hidrófuga',
-        sku: 'PIN-AQB-01',
-        presentacion: 'Galón',
-        cantidad: selladorCount,
-        precioUnitario: 78000,
-        marca: 'Pintuco',
-        imagenUrl: '/src/assets/images/koraza_bucket_studio_1790894419359.jpg',
-      };
-      onAddToCart(selladorItem);
+      if (selladorCount > 0) {
+        const selladorItem: CartItem = {
+          id: `sellador-${Date.now() + 2}`,
+          nombre: 'Sellador Antihumedad Aquablock / Silicona Hidrófuga',
+          sku: 'PIN-AQB-01',
+          presentacion: 'Galón',
+          cantidad: selladorCount,
+          precioUnitario: 78000,
+          marca: 'Pintuco',
+          imagenUrl: '/src/assets/images/koraza_bucket_studio_1790894419359.jpg',
+        };
+        onAddToCart(selladorItem);
+      }
     }
 
     // 4. Herramientas complementarias sugeridas (SOLO si el usuario las seleccionó explícitamente)

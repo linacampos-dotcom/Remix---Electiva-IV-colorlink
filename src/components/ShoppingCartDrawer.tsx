@@ -104,17 +104,6 @@ export const CART_COMPLEMENTARY_TOOLS: CartComplementaryTool[] = [
     imagenUrl: '/src/assets/images/destapa_cunetes_herramienta_1790894634999.jpg',
     motivo: 'Apertura limpia y segura de cuñetes de 5 Galones sin deformar la tapa',
   },
-  {
-    id: 'tool-sellador-acrilico',
-    nombre: 'Sellador Acrílico Grietas y Juntas Pintuco (300 ml)',
-    categoria: 'Preparación',
-    precio: 16900,
-    presentacion: 'Unidad',
-    sku: 'PIN-SEL-300',
-    descripcion: 'Sellante elastomérico de alto desempeño para resanar grietas antes de pintar o lijar.',
-    imagenUrl: '/src/assets/images/paint_roller_tray_1790894457076.jpg',
-    motivo: 'Sellado elástico previo en juntas y fisuras para evitar desprendimiento y ampollas',
-  },
 ];
 
 interface ShoppingCartDrawerProps {
@@ -306,37 +295,65 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
       if (userSession.email) setCheckoutEmail(userSession.email);
       
       const defaultAddr = userSession.direcciones?.find(d => d.esPredeterminada) || userSession.direcciones?.[0];
-      if (defaultAddr) {
-        setCheckoutDireccion(defaultAddr.direccion);
-        if (defaultAddr.ciudad) setSelectedCiudad(defaultAddr.ciudad);
-        if (defaultAddr.departamento) setSelectedDepto(defaultAddr.departamento);
-      } else if (userSession.direccion) {
-        setCheckoutDireccion(userSession.direccion);
-      } else {
-        const localAddr = localStorage.getItem('colorlink_shipping_address');
-        if (localAddr) setCheckoutDireccion(localAddr);
+      const userResidencia = defaultAddr?.direccion || userSession.direccion || userSession.address || localStorage.getItem('colorlink_user_address');
+
+      if (modalidad === 'domicilio') {
+        if (userResidencia && (!checkoutDireccion || checkoutDireccion.startsWith('Retiro en Tienda'))) {
+          setCheckoutDireccion(userResidencia);
+        }
       }
-      if (userSession.ciudad) {
-        setSelectedCiudad(userSession.ciudad);
+      if (defaultAddr?.ciudad || userSession.ciudad) {
+        setSelectedCiudad(defaultAddr?.ciudad || userSession.ciudad || 'Bogotá D.C.');
+      }
+      if (defaultAddr?.departamento || userSession.departamento) {
+        setSelectedDepto(defaultAddr?.departamento || userSession.departamento || 'Bogotá D.C.');
       }
     } else {
-      const localAddr = localStorage.getItem('colorlink_shipping_address');
-      if (localAddr) setCheckoutDireccion(localAddr);
+      const localAddr = localStorage.getItem('colorlink_user_address') || localStorage.getItem('colorlink_shipping_address');
+      if (localAddr && modalidad === 'domicilio' && (!checkoutDireccion || checkoutDireccion.startsWith('Retiro en Tienda'))) {
+        setCheckoutDireccion(localAddr);
+      }
     }
-  }, [userSession, isOpen]);
+  }, [userSession, isOpen, modalidad]);
 
   // Sincronizar datos de entrega del Cotizador automáticamente al abrir o recibir evento
   useEffect(() => {
     const syncQuoteDelivery = () => {
       try {
-        const saved = localStorage.getItem('colorlink_quote_delivery');
+        const saved = localStorage.getItem('colorlink_quote_delivery') || localStorage.getItem('colorlink_shipping_state');
         if (saved) {
           const parsed = JSON.parse(saved);
-          if (parsed.departamento) setSelectedDepto(parsed.departamento);
-          if (parsed.ciudad) setSelectedCiudad(parsed.ciudad);
-          if (parsed.modalidad) setModalidad(parsed.modalidad);
-          if (parsed.sede) setSelectedSede(parsed.sede);
-          if (parsed.direccion) setCheckoutDireccion(parsed.direccion);
+          if (parsed.departamento || parsed.department) {
+            setSelectedDepto(parsed.departamento || parsed.department);
+          }
+          if (parsed.ciudad || parsed.city) {
+            setSelectedCiudad(parsed.ciudad || parsed.city);
+          }
+          
+          const rawMod = parsed.modalidad || parsed.deliveryMode;
+          const isPickup = rawMod === 'retiro_tienda' || rawMod === 'pickup';
+          setModalidad(isPickup ? 'retiro_tienda' : 'domicilio');
+
+          if (parsed.sede || parsed.pickupStore) {
+            setSelectedSede(parsed.sede || parsed.pickupStore);
+          }
+
+          if (isPickup) {
+            const storeObj = PINTUCO_STORE_HUBS.find(h => h.nombre === (parsed.sede || parsed.pickupStore)) ||
+              PINTUCO_STORE_HUBS.find(h => h.ciudad.toLowerCase() === (parsed.ciudad || '').toLowerCase()) ||
+              PINTUCO_STORE_HUBS[0];
+            const pickupText = `Retiro en Tienda: ${storeObj.nombre} - ${storeObj.direccion}`;
+            setCheckoutDireccion(pickupText);
+          } else {
+            const defaultAddr = userSession?.direcciones?.find(d => d.esPredeterminada) || userSession?.direcciones?.[0];
+            const userHome = defaultAddr?.direccion || userSession?.direccion || userSession?.address || localStorage.getItem('colorlink_user_address');
+            if (userHome) {
+              setCheckoutDireccion(userHome);
+            } else if (parsed.direccion && !parsed.direccion.startsWith('Retiro en Tienda')) {
+              setCheckoutDireccion(parsed.direccion);
+            }
+          }
+
           if (parsed.nombre) setCheckoutNombre(parsed.nombre);
           if (parsed.documento) setCheckoutDocumento(parsed.documento);
           if (parsed.telefono) setCheckoutTelefono(parsed.telefono);
@@ -364,13 +381,15 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
     };
 
     window.addEventListener('colorlink_quote_delivery_updated', handleCustomUpdate);
+    window.addEventListener('colorlink_shipping_state_updated', handleCustomUpdate);
     window.addEventListener('storage', syncQuoteDelivery);
 
     return () => {
       window.removeEventListener('colorlink_quote_delivery_updated', handleCustomUpdate);
+      window.removeEventListener('colorlink_shipping_state_updated', handleCustomUpdate);
       window.removeEventListener('storage', syncQuoteDelivery);
     };
-  }, [isOpen]);
+  }, [isOpen, userSession]);
 
   // Reset checkout step when closing
   useEffect(() => {
@@ -383,13 +402,28 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
     }
   }, [isOpen]);
 
+  // Nodos y tiendas disponibles calculados con useMemo antes de cualquier return condicional (Reglas de Hooks)
+  const availableStores = useMemo(() => {
+    const filtered = PINTUCO_STORE_HUBS.filter(
+      h => h.departamento.toLowerCase() === selectedDepto.toLowerCase() ||
+           h.ciudad.toLowerCase() === selectedCiudad.toLowerCase()
+    );
+    return filtered.length > 0 ? filtered : PINTUCO_STORE_HUBS;
+  }, [selectedDepto, selectedCiudad]);
+
+  const matchingStore = useMemo(() => {
+    return PINTUCO_STORE_HUBS.find(h => h.nombre === selectedSede) || availableStores[0] || PINTUCO_STORE_HUBS[0];
+  }, [selectedSede, availableStores]);
+
   if (!isOpen) return null;
 
-  const totalItems = cart.reduce((sum, item) => sum + item.cantidad, 0);
-  const subtotalCOP = cart.reduce((sum, item) => sum + item.cantidad * item.precioUnitario, 0);
+  const activeCartItems = useMemo(() => cart.filter(item => item.cantidad > 0), [cart]);
+
+  const totalItems = activeCartItems.reduce((sum, item) => sum + item.cantidad, 0);
+  const subtotalCOP = activeCartItems.reduce((sum, item) => sum + item.cantidad * item.precioUnitario, 0);
 
   // Compute equivalent gallons for shipping calculation
-  const totalGalonesEquivalentes = cart.reduce((sum, item) => {
+  const totalGalonesEquivalentes = activeCartItems.reduce((sum, item) => {
     const factor = item.presentacion === 'Cuñete (5 Gal)' ? 5 : item.presentacion === 'Galón' ? 1 : 0.25;
     return sum + (item.cantidad * factor);
   }, 0);
@@ -413,18 +447,6 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
 
   const currentDeptoObj = DEPARTAMENTOS_COLOMBIA.find(d => d.nombre === selectedDepto) || DEPARTAMENTOS_COLOMBIA[0];
 
-  const availableStores = useMemo(() => {
-    const filtered = PINTUCO_STORE_HUBS.filter(
-      h => h.departamento.toLowerCase() === selectedDepto.toLowerCase() ||
-           h.ciudad.toLowerCase() === selectedCiudad.toLowerCase()
-    );
-    return filtered.length > 0 ? filtered : PINTUCO_STORE_HUBS;
-  }, [selectedDepto, selectedCiudad]);
-
-  const matchingStore = useMemo(() => {
-    return PINTUCO_STORE_HUBS.find(h => h.nombre === selectedSede) || availableStores[0] || PINTUCO_STORE_HUBS[0];
-  }, [selectedSede, availableStores]);
-
   const handleDeptoChange = (newDepto: string) => {
     setSelectedDepto(newDepto);
     const found = DEPARTAMENTOS_COLOMBIA.find(d => d.nombre === newDepto);
@@ -440,8 +462,8 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
     );
     const itemNames = items.map(i => i.nombre.toLowerCase()).join(' ');
 
-    const hasPintura = /viniltex|koraza|esmalte|pintura|barniz|intervinil|acrílica|acrilica|latex|base|sellador|madera|metal/i.test(itemNames);
-    const hasLija = /lija|lijas|pulir|preparación|preparacion|estuco|masilla|resane|impermeabilizante/i.test(itemNames);
+    const hasPintura = /viniltex|koraza|esmalte|pintura|barniz|intervinil|acrílica|acrilica|latex|base|sellador/i.test(itemNames);
+    const hasLija = /lija|lijas|pulir/i.test(itemNames);
     const hasCunete = items.some(i => 
       (i.presentacion || '').toLowerCase().includes('cuñete') || 
       (i.presentacion || '').toLowerCase().includes('5 gal')
@@ -449,27 +471,23 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
 
     const recs: CartComplementaryTool[] = [];
 
-    // Pinturas / Barnices -> Brochas, Rodillos antigota y Cinta de Enmascarar Azul
+    // Pinturas / Barnices -> Kit Profesional Pintor & Cinta de Enmascarar Azul
     if (hasPintura) {
       const kitPro = CART_COMPLEMENTARY_TOOLS.find(t => t.id === 'tool-kit-pro');
       if (kitPro && !existingSkusOrIds.has(kitPro.id) && !existingSkusOrIds.has(kitPro.sku.toLowerCase())) {
-        recs.push({ ...kitPro, motivo: 'Recomendado para tu pintura: rodillo antigoteo y brocha para esquinas y bordes limpios' });
+        recs.push({ ...kitPro, motivo: 'Recomendado para tu pintura: rodillo antigoteo y brocha para esquinas limpias' });
       }
       const cinta = CART_COMPLEMENTARY_TOOLS.find(t => t.id === 'tool-cinta-azul');
       if (cinta && !existingSkusOrIds.has(cinta.id) && !existingSkusOrIds.has(cinta.sku.toLowerCase())) {
-        recs.push({ ...cinta, motivo: 'Protege zócalos, marcos y bordes sin levantar la película de pintura' });
+        recs.push({ ...cinta, motivo: 'Protege zócalos y marcos sin levantar la película de pintura' });
       }
     }
 
-    // Lijas / Preparación -> Espátula de acero inoxidable & Sellador Acrílico
+    // Lijas -> Espátula de acero inoxidable
     if (hasLija) {
       const espatula = CART_COMPLEMENTARY_TOOLS.find(t => t.id === 'tool-espatula-inox');
       if (espatula && !existingSkusOrIds.has(espatula.id) && !existingSkusOrIds.has(espatula.sku.toLowerCase())) {
-        recs.push({ ...espatula, motivo: 'Complemento de preparación: espátula flexible para nivelar y aplicar masilla' });
-      }
-      const sellador = CART_COMPLEMENTARY_TOOLS.find(t => t.id === 'tool-sellador-acrilico');
-      if (sellador && !existingSkusOrIds.has(sellador.id) && !existingSkusOrIds.has(sellador.sku.toLowerCase())) {
-        recs.push({ ...sellador, motivo: 'Sellado elástico previo en juntas y fisuras para evitar desprendimiento y ampollas' });
+        recs.push({ ...espatula, motivo: 'Complemento de lijado: espátula flexible para nivelar y aplicar masilla' });
       }
     }
 
@@ -600,7 +618,7 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
 
     const orderNumber = `ORD-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
     const finalDireccion = modalidad === 'retiro_tienda' 
-      ? `Retiro en Sede Oficial Pintuco: ${selectedSede} (${matchingStore?.direccion || selectedCiudad})` 
+      ? `Retiro en Tienda: ${matchingStore?.nombre || selectedSede} - ${matchingStore?.direccion || 'Sede oficial autorizada'}` 
       : checkoutDireccion.trim();
 
     const newOrder: COLORLINKOrder = {
@@ -676,15 +694,9 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
     setPendingOrder(newOrder);
     setCheckoutFlowStage('processing');
 
-    // Flujo ficticio de pago de 2 segundos (2000 ms)
+    // Flujo de pago seguro de 2 segundos (2000 ms) antes de redirigir directamente al seguimiento
     setTimeout(() => {
-      const recs = getSmartRecommendationsForCart(cart);
-      if (recs.length > 0) {
-        setUpsellRecommendations(recs);
-        setCheckoutFlowStage('upsell');
-      } else {
-        finalizeAndRedirect(newOrder);
-      }
+      finalizeAndRedirect(newOrder);
     }, 2000);
   };
 
@@ -733,10 +745,6 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
               <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-md animate-pulse">
                 <Lock className="w-5 h-5" />
               </div>
-            ) : isCheckoutStep && checkoutFlowStage === 'upsell' ? (
-              <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-md">
-                <Sparkles className="w-5 h-5 text-amber-300" />
-              </div>
             ) : (
               <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-red-600 to-amber-500 text-white flex items-center justify-center shadow-md">
                 <ShoppingBag className="w-5 h-5" />
@@ -747,8 +755,6 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
                 <h3 className="text-base sm:text-lg font-black tracking-tight">
                   {checkoutFlowStage === 'processing'
                     ? 'Procesando Pago Seguro'
-                    : checkoutFlowStage === 'upsell'
-                    ? 'Complementos Sugeridos'
                     : isCheckoutStep
                     ? 'Finalización de Compra (Checkout)'
                     : 'Carrito de Compras'}
@@ -762,8 +768,6 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
               <p className="text-xs text-slate-400">
                 {checkoutFlowStage === 'processing'
                   ? 'Autorizando transacción bancaria encriptada...'
-                  : checkoutFlowStage === 'upsell'
-                  ? 'Accesorios recomendados según los productos adquiridos'
                   : isCheckoutStep
                   ? 'Ingresa tus datos de facturación y despacho'
                   : 'Despacho oficial Pintuco / Color In'}
@@ -816,7 +820,7 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
               <div className="space-y-2 max-w-sm">
                 <h3 className="text-lg font-black text-slate-900">Procesando pago seguro...</h3>
                 <p className="text-xs text-slate-500 leading-relaxed">
-                  Verificando con entidad bancaria y reservando existencias de tu pedido con estándar de seguridad encriptada PCI-DSS.
+                  Conectando con la pasarela financiera oficial y validando autorización bancaria encriptada con estándar PCI-DSS.
                 </p>
               </div>
 
@@ -847,120 +851,6 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
                 <span>Pintuco Pay</span>
               </div>
             </div>
-          ) : checkoutFlowStage === 'upsell' && pendingOrder ? (
-            /* 5.b) Modal de Complementos recomendados para tu proyecto (Pre-Seguimiento) */
-            <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4 animate-fadeIn">
-              {/* Banner de éxito de pago */}
-              <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-start gap-3">
-                <div className="w-10 h-10 rounded-xl bg-emerald-500 text-white flex items-center justify-center shrink-0 shadow-md">
-                  <CheckCircle2 className="w-6 h-6" />
-                </div>
-                <div className="space-y-0.5">
-                  <div className="flex items-center gap-2">
-                    <h4 className="text-sm font-black text-emerald-900">¡Pago Seguro Aprobado!</h4>
-                    <span className="text-[10px] font-mono font-bold bg-emerald-200/70 text-emerald-800 px-2 py-0.5 rounded-full">
-                      {pendingOrder.numeroOrden}
-                    </span>
-                  </div>
-                  <p className="text-xs text-emerald-700">
-                    Tu transacción por <strong>${pendingOrder.total.toLocaleString('es-CO')} COP</strong> fue autorizada con éxito.
-                  </p>
-                </div>
-              </div>
-
-              {/* Encabezado limpio de complementos recomendados */}
-              <div className="space-y-1 pt-1">
-                <div className="flex items-center gap-2">
-                  <Sparkles className="w-5 h-5 text-amber-500" />
-                  <h3 className="text-base font-black text-slate-900">
-                    Complementos recomendados para tu proyecto
-                  </h3>
-                </div>
-                <p className="text-xs text-slate-600">
-                  Personalizamos estos accesorios según los productos de tu orden para evitar contratiempos durante la aplicación:
-                </p>
-              </div>
-
-              {/* Lista de accesorios recomendados */}
-              <div className="space-y-3">
-                {upsellRecommendations.map((tool) => {
-                  const isAdded = addedUpsellIds.includes(tool.id);
-                  return (
-                    <div 
-                      key={tool.id} 
-                      className={`p-3.5 rounded-2xl border transition-all ${
-                        isAdded 
-                          ? 'bg-blue-50/70 border-blue-300 ring-1 ring-blue-300' 
-                          : 'bg-white border-slate-200 hover:border-slate-300 shadow-xs'
-                      }`}
-                    >
-                      <div className="flex items-start gap-3.5">
-                        <img 
-                          src={tool.imagenUrl} 
-                          alt={tool.nombre} 
-                          className="w-16 h-16 rounded-xl object-cover bg-slate-100 border border-slate-200 shrink-0" 
-                        />
-                        <div className="flex-1 min-w-0 space-y-1">
-                          <div className="flex items-start justify-between gap-2">
-                            <h4 className="text-xs font-bold text-slate-900 leading-snug">
-                              {tool.nombre}
-                            </h4>
-                            <span className="text-xs font-black text-[#004B93] shrink-0">
-                              ${tool.precio.toLocaleString('es-CO')}
-                            </span>
-                          </div>
-                          <p className="text-[11px] text-slate-600 line-clamp-2">
-                            {tool.motivo || tool.descripcion}
-                          </p>
-                          <div className="pt-1 flex items-center justify-between">
-                            <span className="text-[10px] text-slate-400 font-mono">
-                              SKU: {tool.sku}
-                            </span>
-                            {isAdded ? (
-                              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-100 px-2.5 py-1 rounded-lg">
-                                <Check className="w-3.5 h-3.5 text-emerald-600" />
-                                Añadido al pedido final
-                              </span>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => handleAddUpsellToOrder(tool)}
-                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#004B93] hover:bg-[#003B75] text-white text-xs font-bold shadow-xs cursor-pointer transition-all active:scale-95"
-                              >
-                                <Plus className="w-3.5 h-3.5" />
-                                Añadir a mi pedido final
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Botones de acción del Upsell */}
-              <div className="pt-3 border-t border-slate-200 space-y-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => finalizeAndRedirect(pendingOrder)}
-                  className="w-full py-3 px-4 rounded-xl bg-red-600 hover:bg-red-700 text-white font-extrabold text-sm shadow-lg shadow-red-600/30 flex items-center justify-center gap-2 transition-all cursor-pointer hover:scale-[1.01]"
-                >
-                  <span>
-                    {addedUpsellIds.length > 0 ? 'Confirmar adiciones e ir al seguimiento' : 'Continuar al Seguimiento del Pedido'}
-                  </span>
-                  <ArrowRight className="w-4 h-4 text-[#FFD100]" />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => finalizeAndRedirect(pendingOrder)}
-                  className="w-full py-2 text-xs font-bold text-slate-500 hover:text-slate-800 transition-colors cursor-pointer text-center"
-                >
-                  Omitir e ir al seguimiento
-                </button>
-              </div>
-            </div>
           ) : (
             /* Formulario normal de checkout */
             <form onSubmit={handleConfirmCheckout} className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
@@ -980,7 +870,7 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
 
                 {/* Lista compacta de items */}
                 <div className="max-h-28 overflow-y-auto pr-1 space-y-1.5 text-[11px] text-slate-600">
-                  {cart.map((item) => (
+                  {activeCartItems.map((item) => (
                     <div key={item.id} className="flex justify-between items-center">
                       <span className="truncate max-w-[210px] font-medium">
                         {item.cantidad}x {item.nombre} <span className="text-slate-400">({item.presentacion})</span>
@@ -1011,11 +901,7 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
                       <Truck className="w-3.5 h-3.5 text-slate-500" />
                       <span>Costo de Envío / Flete:</span>
                     </span>
-                    {modalidad === 'retiro_tienda' ? (
-                      <span className="font-black text-blue-700 bg-blue-100/90 px-2.5 py-0.5 rounded-full border border-blue-300 text-[11px]">
-                        $0 COP (Retiro en Tienda - Flete GRATIS)
-                      </span>
-                    ) : esEnvioGratis ? (
+                    {esEnvioGratis ? (
                       <span className="font-black text-emerald-700 bg-emerald-100/80 px-2.5 py-0.5 rounded-full border border-emerald-300 text-[11px]">
                         $0 COP (Envío GRATIS)
                       </span>
@@ -1131,20 +1017,36 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
                 </div>
               </div>
 
-              {/* 2. Destino y Modo de Entrega en Checkout */}
+              {/* 2. DESTINO Y MODALIDAD DE ENTREGA en Checkout */}
               <div className="space-y-3 pt-2 border-t border-slate-200">
                 <div className="flex items-center justify-between">
                   <h4 className="text-xs font-black uppercase tracking-wider text-slate-800 flex items-center gap-2">
                     <MapPin className="w-4 h-4 text-emerald-600" />
-                    <span>2. Destino y Modo de Entrega</span>
+                    <span>DESTINO Y MODALIDAD DE ENTREGA</span>
                   </h4>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-[#004B93] border border-blue-200">
+                    Sincronizado con Cotizador
+                  </span>
                 </div>
 
                 {/* Selector de Modalidad */}
                 <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-100 rounded-xl">
                   <button
                     type="button"
-                    onClick={() => setModalidad('domicilio')}
+                    onClick={() => {
+                      setModalidad('domicilio');
+                      if (!checkoutDireccion || checkoutDireccion.startsWith('Retiro en Tienda')) {
+                        const defaultAddr = userSession?.direcciones?.find(d => d.esPredeterminada) || userSession?.direcciones?.[0];
+                        const savedHome = defaultAddr?.direccion ||
+                          userSession?.direccion ||
+                          userSession?.address ||
+                          localStorage.getItem('colorlink_user_address') ||
+                          '';
+                        if (savedHome) {
+                          handleAddressChange(savedHome);
+                        }
+                      }
+                    }}
                     className={`py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                       modalidad === 'domicilio'
                         ? 'bg-white text-slate-900 shadow-xs'
@@ -1156,7 +1058,11 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
                   </button>
                   <button
                     type="button"
-                    onClick={() => setModalidad('retiro_tienda')}
+                    onClick={() => {
+                      setModalidad('retiro_tienda');
+                      const pickupText = `Retiro en Tienda: ${matchingStore?.nombre || selectedSede} - ${matchingStore?.direccion || 'Sede oficial autorizada'}`;
+                      handleAddressChange(pickupText);
+                    }}
                     className={`py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                       modalidad === 'retiro_tienda'
                         ? 'bg-white text-[#004B93] shadow-xs'
@@ -1172,7 +1078,7 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
                   <div className="space-y-2">
                     <div>
                       <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
-                        Dirección Completa de Obra / Domicilio <span className="text-red-600">*</span>
+                        Dirección de Residencia / Obra <span className="text-red-600">*</span>
                       </label>
                       <input
                         type="text"
@@ -1200,19 +1106,39 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
                       </span>
                     </div>
 
+                    {/* Dirección autocompletada para Retiro en Tienda */}
+                    <div className="space-y-1">
+                      <label className="block text-[10px] font-bold text-blue-900 uppercase">
+                        Dirección de Retiro en Tienda:
+                      </label>
+                      <input
+                        type="text"
+                        readOnly
+                        value={`Retiro en Tienda: ${matchingStore?.nombre || selectedSede} - ${matchingStore?.direccion || 'Sede oficial autorizada'}`}
+                        className="w-full px-3 py-2 text-xs rounded-xl border border-blue-300 bg-white font-bold text-blue-950 shadow-2xs cursor-default"
+                      />
+                    </div>
+
                     {/* Dropdown de Sedes disponibles */}
                     <div>
                       <label className="block text-[10px] font-bold text-blue-900 uppercase mb-1">
-                        Seleccionar Sede o CEDI:
+                        Cambiar Sede o CEDI ({selectedCiudad}):
                       </label>
                       <select
                         value={selectedSede}
-                        onChange={(e) => setSelectedSede(e.target.value)}
+                        onChange={(e) => {
+                          const newSede = e.target.value;
+                          setSelectedSede(newSede);
+                          const store = availableStores.find(s => s.nombre === newSede);
+                          if (store) {
+                            handleAddressChange(`Retiro en Tienda: ${store.nombre} - ${store.direccion}`);
+                          }
+                        }}
                         className="w-full px-3 py-2 text-xs rounded-xl border border-blue-300 font-bold text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
                       >
                         {availableStores.map((store) => (
                           <option key={store.id} value={store.nombre}>
-                            {store.nombre} — {store.ciudad}
+                            {store.nombre} — {store.direccion}
                           </option>
                         ))}
                       </select>
@@ -1231,8 +1157,9 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
                       </p>
                     </div>
 
-                    <p className="text-[11px] text-blue-800 font-medium">
-                      ✓ Sin costo de flete. Tu pedido estará listo para retiro en 2 a 4 horas hábiles. Presenta tu cédula para retirar.
+                    <p className="text-[11px] text-emerald-800 font-semibold flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span>Flete $0 COP. Tu pedido estará listo para retiro en 2 a 4 horas hábiles.</span>
                     </p>
                   </div>
                 )}
@@ -1392,11 +1319,10 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
                       >
                         <option value="1">1 cuota (Sin intereses - Débito / Crédito)</option>
                         <option value="2">2 cuotas</option>
-                        <option value="3">3 cuotas (0% de interés con bancos aliados Pintuco / ColorLink)</option>
+                        <option value="3">3 cuotas</option>
                         <option value="6">6 cuotas</option>
                         <option value="12">12 cuotas</option>
                         <option value="24">24 cuotas</option>
-                        <option value="36">36 cuotas</option>
                       </select>
                     </div>
                   </div>
@@ -1444,7 +1370,7 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
 
         {/* Cart Item List */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
-          {cart.length === 0 ? (
+          {activeCartItems.length === 0 ? (
             <div className="text-center py-16 space-y-4">
               <div className="w-16 h-16 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">
                 <ShoppingBag className="w-8 h-8 text-slate-300" />
@@ -1469,7 +1395,7 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
             </div>
           ) : (
             <>
-              {cart.map((item) => (
+              {activeCartItems.map((item) => (
               <div 
                 key={item.id}
                 className="bg-white rounded-2xl border border-slate-200 p-3.5 sm:p-4 shadow-2xs hover:border-slate-300 transition-all flex gap-3 sm:gap-4 items-center"
@@ -1962,33 +1888,16 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
             {/* Price Breakdown */}
             <div className="space-y-1.5 text-xs text-slate-600 pt-1">
               <div className="flex justify-between">
-                <span>Subtotal productos ({totalItems} {totalItems === 1 ? 'ud' : 'uds'}):</span>
+                <span>Subtotal productos ({totalItems} uds):</span>
                 <span className="font-semibold text-slate-900">${subtotalCOP.toLocaleString('es-CO')} COP</span>
               </div>
-              <div className="flex justify-between text-[11px] text-slate-500 pl-2.5 border-l-2 border-slate-300">
-                <span>• Base Gravable:</span>
-                <span className="font-mono text-slate-700">${baseGravable.toLocaleString('es-CO')} COP</span>
-              </div>
-              <div className="flex justify-between text-[11px] text-slate-500 pl-2.5 border-l-2 border-slate-300">
-                <span>• IVA (19% incluido):</span>
-                <span className="font-mono text-emerald-700 font-semibold">${iva19.toLocaleString('es-CO')} COP</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="flex items-center gap-1">
-                  <Truck className="w-3.5 h-3.5 text-slate-500" />
-                  <span>Costo de Envío / Flete:</span>
-                </span>
+              <div className="flex justify-between">
+                <span>Flete / Despacho ({shipping.tipoZona}):</span>
                 <span className="font-semibold text-slate-900">
-                  {modalidad === 'retiro_tienda' ? (
-                    <strong className="text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200 text-[11px] font-black">
-                      $0 COP (Retiro en Tienda)
-                    </strong>
-                  ) : esEnvioGratis ? (
-                    <strong className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 text-[11px] font-black">
-                      $0 COP (Envío GRATIS)
-                    </strong>
+                  {shipping.esFleteGratis ? (
+                    <strong className="text-emerald-600">¡Flete Gratis!</strong>
                   ) : (
-                    `$${envioCOP.toLocaleString('es-CO')} COP`
+                    `$${shipping.costoFlete.toLocaleString('es-CO')} COP`
                   )}
                 </span>
               </div>

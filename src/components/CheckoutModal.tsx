@@ -53,7 +53,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   onOpenCatalog,
   onNavigateToTracking,
 }) => {
-  const { shippingAddress: globalAddr, setShippingAddress: setGlobalAddr } = useCart();
+  const { shippingAddress: globalAddr, setShippingAddress: setGlobalAddr, shippingState } = useCart();
 
   // Paso actual del flujo de checkout
   const [step, setStep] = useState<CheckoutStep>('review_and_shipping');
@@ -89,25 +89,60 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   const [confirmedOrder, setConfirmedOrder] = useState<COLORLINKOrder | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Sincronizar datos del usuario autenticado
+  // Sincronizar datos de entrega y usuario
   useEffect(() => {
+    // Sincronizar datos previos del Cotizador Inteligente
+    const quoteDeliveryRaw = localStorage.getItem('colorlink_quote_delivery');
+    let quoteData: any = null;
+    if (quoteDeliveryRaw) {
+      try { quoteData = JSON.parse(quoteDeliveryRaw); } catch {}
+    }
+
+    const rawMode = (shippingState?.modalidad as string) || (quoteData?.modalidad as string);
+    if (rawMode) {
+      setModalidad(rawMode === 'pickup' || rawMode === 'retiro_tienda' ? 'retiro_tienda' : 'domicilio');
+    }
+
+    const effectiveDepto = shippingState?.department || quoteData?.department;
+    if (effectiveDepto) {
+      setSelectedDepto(effectiveDepto);
+    }
+
+    const effectiveCiudad = shippingState?.city || quoteData?.city;
+    if (effectiveCiudad) {
+      setSelectedCiudad(effectiveCiudad);
+    }
+
+    const effectiveSede = shippingState?.sede || shippingState?.pickupStore || quoteData?.pickupStore || quoteData?.sede;
+    if (effectiveSede) {
+      setSelectedSede(effectiveSede);
+    }
+
+    const quoteAddr = shippingState?.deliveryAddress || quoteData?.deliveryAddress;
+
     if (userSession && userSession.isLoggedIn) {
       if (userSession.nombre) setNombre(userSession.nombre);
       if (userSession.documento) setDocumento(userSession.documento);
       if (userSession.tipoDocumento) setTipoDoc(userSession.tipoDocumento);
       if (userSession.telefono) setTelefono(userSession.telefono);
       if (userSession.email) setEmail(userSession.email);
-      if (userSession.direccion) {
+      if (quoteAddr) {
+        setDireccion(quoteAddr);
+      } else if (userSession.direccion) {
         setDireccion(userSession.direccion);
       } else if (globalAddr) {
         setDireccion(globalAddr);
       }
-      if (userSession.ciudad) setSelectedCiudad(userSession.ciudad);
+      if (!effectiveCiudad && userSession.ciudad) setSelectedCiudad(userSession.ciudad);
     } else {
-      const savedAddr = globalAddr || localStorage.getItem('shippingAddress') || localStorage.getItem('colorlink_shipping_address');
-      if (savedAddr) setDireccion(savedAddr);
+      if (quoteAddr) {
+        setDireccion(quoteAddr);
+      } else {
+        const savedAddr = globalAddr || localStorage.getItem('shippingAddress') || localStorage.getItem('colorlink_shipping_address');
+        if (savedAddr) setDireccion(savedAddr);
+      }
     }
-  }, [userSession, globalAddr, isOpen]);
+  }, [userSession, globalAddr, shippingState, isOpen]);
 
   // Temporizador para reenvío de OTP (60s)
   useEffect(() => {
@@ -315,6 +350,9 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
 
       // 2. Construir objeto de orden oficial
       const orderNumber = `ORD-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+      const matchingHub = PINTUCO_STORE_HUBS.find((h) => h.nombre === selectedSede);
+      const formattedPickupText = `Retiro en Tienda: ${matchingHub?.nombre || selectedSede}${matchingHub?.direccion ? ` - ${matchingHub.direccion}` : ''}`;
+
       const newOrder: COLORLINKOrder = {
         id: `ord-${Date.now()}`,
         numeroOrden: orderNumber,
@@ -323,7 +361,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
         customerName: nombre.trim(),
         customerEmail: targetEmail,
         customerPhone: telefono.trim(),
-        direccionEntrega: modalidad === 'retiro_tienda' ? `Retiro en Sede: ${selectedSede}` : direccion.trim(),
+        direccionEntrega: modalidad === 'retiro_tienda' ? formattedPickupText : direccion.trim(),
         ciudadEntrega: selectedCiudad,
         departamentoEntrega: selectedDepto,
         items: [...cart],

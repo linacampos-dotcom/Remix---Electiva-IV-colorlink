@@ -365,11 +365,25 @@ export async function persistShippingAddress(
  * Inserta un nuevo pedido en la tabla 'orders' de Supabase
  */
 export async function saveOrderToSupabase(order: COLORLINKOrder): Promise<boolean> {
-  if (!isSupabaseConfigured) return false;
+  if (!isSupabaseConfigured || !supabase) return false;
 
   try {
-    const payload = {
+    let authUserId: string | null = null;
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) authUserId = user.id;
+    } catch {}
+
+    const formModalidad = (order.form as any)?.modalidad_entrega;
+    const isPickup = formModalidad === 'retiro_tienda' ||
+      formModalidad === 'pickup' ||
+      Boolean(order.direccionEntrega && order.direccionEntrega.startsWith('Retiro en Tienda'));
+
+    const deliveryModeStr = isPickup ? 'pickup' : 'delivery';
+
+    const payload: any = {
       order_number: order.numeroOrden,
+      user_id: authUserId,
       user_email: order.customerEmail || (order.form?.responsable_contacto?.includes('@') ? order.form.responsable_contacto : null),
       customer_name: order.customerName || order.form?.nombre_razon_social,
       customer_phone: order.customerPhone,
@@ -377,16 +391,36 @@ export async function saveOrderToSupabase(order: COLORLINKOrder): Promise<boolea
       shipping_address: order.direccionEntrega,
       city: order.ciudadEntrega,
       department: order.departamentoEntrega,
-      delivery_mode: order.form?.modalidad_entrega || 'domicilio',
+      delivery_mode: deliveryModeStr,
       items: order.items || [],
       total: order.total,
       status: 'pending',
       created_at: new Date().toISOString(),
     };
 
-    const { error } = await supabase.from('orders').insert([payload]);
+    let { error } = await supabase.from('orders').insert([payload]);
+    if (error && error.message?.includes('column')) {
+      // Reintentar sin columnas opcionales en caso de esquema previo en Supabase
+      const fallbackPayload: any = {
+        order_number: order.numeroOrden,
+        user_email: payload.user_email,
+        customer_name: payload.customer_name,
+        customer_phone: payload.customer_phone,
+        customer_document: payload.customer_document,
+        shipping_address: payload.shipping_address,
+        city: payload.city,
+        department: payload.department,
+        items: payload.items,
+        total: payload.total,
+        status: 'pending',
+        created_at: payload.created_at,
+      };
+      const retry = await supabase.from('orders').insert([fallbackPayload]);
+      error = retry.error;
+    }
+
     if (error) {
-      console.warn('Nota: No se pudo insertar en orders (posible esquema personalizado):', error.message);
+      console.warn('Nota: No se pudo insertar en orders:', error.message);
       return false;
     }
     return true;

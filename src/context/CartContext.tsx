@@ -1,6 +1,22 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { CartItem } from '../types';
 
+export interface ShippingState {
+  modalidad: 'domicilio' | 'retiro_tienda';
+  deliveryMode: 'delivery' | 'pickup';
+  deliveryAddress: string;
+  shippingAddress: string;
+  pickupStore: string;
+  sede: string;
+  city: string;
+  shippingCity: string;
+  department: string;
+  shippingDepartment: string;
+  costoFlete?: number;
+  hubDespacho?: string;
+  isDefined?: boolean;
+}
+
 interface CartContextType {
   cart: CartItem[];
   cartItems: CartItem[];
@@ -16,6 +32,15 @@ interface CartContextType {
   setShippingCity: (city: string) => void;
   shippingDepartment: string;
   setShippingDepartment: (dept: string) => void;
+  deliveryMode: 'delivery' | 'pickup';
+  modalidad: 'domicilio' | 'retiro_tienda';
+  setDeliveryMode: (mode: 'delivery' | 'pickup' | 'domicilio' | 'retiro_tienda') => void;
+  deliveryAddress: string;
+  setDeliveryAddress: (addr: string) => void;
+  pickupStore: string;
+  setPickupStore: (store: string) => void;
+  shippingState: ShippingState;
+  setShippingState: (state: Partial<ShippingState>) => void;
 }
 
 const CartContext = createContext<CartContextType | undefined>(undefined);
@@ -23,6 +48,8 @@ const CartContext = createContext<CartContextType | undefined>(undefined);
 const CART_STORAGE_KEY = 'colorlink_cart';
 const SHIPPING_ADDRESS_KEY = 'shippingAddress';
 const COLORLINK_SHIPPING_KEY = 'colorlink_shipping_address';
+const COLORLINK_QUOTE_DELIVERY_KEY = 'colorlink_quote_delivery';
+const COLORLINK_SHIPPING_STATE_KEY = 'colorlink_shipping_state';
 
 // Helper para normalizar código o identificador de color
 function extractColorKey(colorStr?: string): string {
@@ -62,64 +89,203 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return [];
   });
 
-  const [shippingAddress, setShippingAddressState] = useState<string>(() => {
-    try {
-      return localStorage.getItem(SHIPPING_ADDRESS_KEY) || localStorage.getItem(COLORLINK_SHIPPING_KEY) || '';
-    } catch {
-      return '';
-    }
-  });
+  // Helper para leer estado inicial de despacho
+  const readInitialShipping = (): ShippingState => {
+    let modalidad: 'domicilio' | 'retiro_tienda' = 'domicilio';
+    let deliveryMode: 'delivery' | 'pickup' = 'delivery';
+    let deliveryAddress = '';
+    let pickupStore = '';
+    let city = 'Bogotá D.C.';
+    let department = 'Bogotá D.C.';
+    let isDefined = false;
+    let costoFlete = 0;
+    let hubDespacho = '';
 
-  const [shippingCity, setShippingCityState] = useState<string>(() => {
     try {
-      return localStorage.getItem('colorlink_shipping_city') || 'Bogotá D.C.';
-    } catch {
-      return 'Bogotá D.C.';
-    }
-  });
-
-  const [shippingDepartment, setShippingDepartmentState] = useState<string>(() => {
-    try {
-      return localStorage.getItem('colorlink_shipping_depto') || 'Bogotá D.C.';
-    } catch {
-      return 'Bogotá D.C.';
-    }
-  });
-
-  const setShippingAddress = (addr: string) => {
-    const clean = addr.trim();
-    setShippingAddressState(clean);
-    try {
-      localStorage.setItem(SHIPPING_ADDRESS_KEY, clean);
-      localStorage.setItem(COLORLINK_SHIPPING_KEY, clean);
-      const savedUser = localStorage.getItem('colorlink_user_session');
-      if (savedUser) {
-        const parsed = JSON.parse(savedUser);
-        parsed.direccion = clean;
-        parsed.address = clean;
-        localStorage.setItem('colorlink_user_session', JSON.stringify(parsed));
+      const raw = localStorage.getItem(COLORLINK_QUOTE_DELIVERY_KEY) || localStorage.getItem(COLORLINK_SHIPPING_STATE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed.modalidad === 'retiro_tienda' || parsed.deliveryMode === 'pickup') {
+          modalidad = 'retiro_tienda';
+          deliveryMode = 'pickup';
+        }
+        if (parsed.departamento || parsed.department) {
+          department = parsed.departamento || parsed.department;
+        }
+        if (parsed.ciudad || parsed.city) {
+          city = parsed.ciudad || parsed.city;
+        }
+        if (parsed.sede || parsed.pickupStore) {
+          pickupStore = parsed.sede || parsed.pickupStore;
+        }
+        if (parsed.direccion || parsed.deliveryAddress) {
+          deliveryAddress = parsed.direccion || parsed.deliveryAddress;
+        }
+        if (parsed.costoFlete !== undefined) {
+          costoFlete = Number(parsed.costoFlete) || 0;
+        }
+        if (parsed.hubDespacho) {
+          hubDespacho = parsed.hubDespacho;
+        }
+        isDefined = Boolean(parsed.isDefined || parsed.departamento || parsed.ciudad);
       }
+    } catch {}
+
+    if (!deliveryAddress) {
+      try {
+        deliveryAddress = localStorage.getItem(SHIPPING_ADDRESS_KEY) || localStorage.getItem(COLORLINK_SHIPPING_KEY) || '';
+      } catch {}
+    }
+
+    return {
+      modalidad,
+      deliveryMode,
+      deliveryAddress,
+      shippingAddress: deliveryAddress,
+      pickupStore,
+      sede: pickupStore,
+      city,
+      shippingCity: city,
+      department,
+      shippingDepartment: department,
+      costoFlete,
+      hubDespacho,
+      isDefined,
+    };
+  };
+
+  const [shippingState, setShippingStateInternal] = useState<ShippingState>(readInitialShipping);
+
+  const [shippingAddress, setShippingAddressState] = useState<string>(() => shippingState.shippingAddress);
+  const [shippingCity, setShippingCityState] = useState<string>(() => shippingState.city);
+  const [shippingDepartment, setShippingDepartmentState] = useState<string>(() => shippingState.department);
+
+  const persistShippingObject = (next: ShippingState) => {
+    try {
+      localStorage.setItem(COLORLINK_QUOTE_DELIVERY_KEY, JSON.stringify(next));
+      localStorage.setItem(COLORLINK_SHIPPING_STATE_KEY, JSON.stringify(next));
+      if (next.deliveryAddress) {
+        localStorage.setItem(SHIPPING_ADDRESS_KEY, next.deliveryAddress);
+        localStorage.setItem(COLORLINK_SHIPPING_KEY, next.deliveryAddress);
+      }
+      if (next.city) {
+        localStorage.setItem('colorlink_shipping_city', next.city);
+      }
+      if (next.department) {
+        localStorage.setItem('colorlink_shipping_depto', next.department);
+      }
+      if (next.modalidad) {
+        localStorage.setItem('colorlink_shipping_modalidad', next.modalidad);
+      }
+      window.dispatchEvent(new CustomEvent('colorlink_quote_delivery_updated', { detail: next }));
+      window.dispatchEvent(new CustomEvent('colorlink_shipping_state_updated', { detail: next }));
       window.dispatchEvent(new Event('storage'));
     } catch {}
+  };
+
+  const setShippingState = (partial: Partial<ShippingState>) => {
+    setShippingStateInternal((prev) => {
+      const next: ShippingState = {
+        ...prev,
+        ...partial,
+        modalidad: (partial.modalidad || (partial.deliveryMode === 'pickup' ? 'retiro_tienda' : partial.deliveryMode === 'delivery' ? 'domicilio' : prev.modalidad)),
+        deliveryMode: (partial.deliveryMode || (partial.modalidad === 'retiro_tienda' ? 'pickup' : partial.modalidad === 'domicilio' ? 'delivery' : prev.deliveryMode)),
+        deliveryAddress: partial.deliveryAddress ?? partial.shippingAddress ?? prev.deliveryAddress,
+        shippingAddress: partial.shippingAddress ?? partial.deliveryAddress ?? prev.shippingAddress,
+        pickupStore: partial.pickupStore ?? partial.sede ?? prev.pickupStore,
+        sede: partial.sede ?? partial.pickupStore ?? prev.sede,
+        city: partial.city ?? partial.shippingCity ?? prev.city,
+        shippingCity: partial.shippingCity ?? partial.city ?? prev.shippingCity,
+        department: partial.department ?? partial.shippingDepartment ?? prev.department,
+        shippingDepartment: partial.shippingDepartment ?? partial.department ?? prev.shippingDepartment,
+        isDefined: true,
+      };
+
+      setShippingAddressState(next.deliveryAddress);
+      setShippingCityState(next.city);
+      setShippingDepartmentState(next.department);
+
+      persistShippingObject(next);
+      return next;
+    });
+  };
+
+  const setDeliveryMode = (mode: 'delivery' | 'pickup' | 'domicilio' | 'retiro_tienda') => {
+    const isPickup = mode === 'pickup' || mode === 'retiro_tienda';
+    setShippingState({
+      modalidad: isPickup ? 'retiro_tienda' : 'domicilio',
+      deliveryMode: isPickup ? 'pickup' : 'delivery',
+      costoFlete: isPickup ? 0 : shippingState.costoFlete,
+    });
+  };
+
+  const setDeliveryAddress = (addr: string) => {
+    const clean = addr.trim();
+    setShippingAddressState(clean);
+    setShippingState({ deliveryAddress: clean, shippingAddress: clean });
+  };
+
+  const setPickupStore = (store: string) => {
+    const clean = store.trim();
+    setShippingState({ pickupStore: clean, sede: clean });
+  };
+
+  const setShippingAddress = (addr: string) => {
+    setDeliveryAddress(addr);
   };
 
   const setShippingCity = (city: string) => {
     const clean = city.trim();
     setShippingCityState(clean);
-    try {
-      localStorage.setItem('colorlink_shipping_city', clean);
-      window.dispatchEvent(new Event('storage'));
-    } catch {}
+    setShippingState({ city: clean, shippingCity: clean });
   };
 
   const setShippingDepartment = (dept: string) => {
     const clean = dept.trim();
     setShippingDepartmentState(clean);
-    try {
-      localStorage.setItem('colorlink_shipping_depto', clean);
-      window.dispatchEvent(new Event('storage'));
-    } catch {}
+    setShippingState({ department: clean, shippingDepartment: clean });
   };
+
+  // Escuchar cambios externos de despacho (desde Cotizador Inteligente o Checkout)
+  useEffect(() => {
+    const handleDeliverySync = (e: any) => {
+      const data = e?.detail;
+      if (data) {
+        setShippingStateInternal((prev) => {
+          const isPickup = data.modalidad === 'retiro_tienda' || data.deliveryMode === 'pickup';
+          const next: ShippingState = {
+            ...prev,
+            modalidad: isPickup ? 'retiro_tienda' : 'domicilio',
+            deliveryMode: isPickup ? 'pickup' : 'delivery',
+            deliveryAddress: data.direccion || data.deliveryAddress || prev.deliveryAddress,
+            shippingAddress: data.direccion || data.deliveryAddress || prev.shippingAddress,
+            pickupStore: data.sede || data.pickupStore || prev.pickupStore,
+            sede: data.sede || data.pickupStore || prev.sede,
+            city: data.ciudad || data.city || prev.city,
+            shippingCity: data.ciudad || data.city || prev.shippingCity,
+            department: data.departamento || data.department || prev.department,
+            shippingDepartment: data.departamento || data.department || prev.shippingDepartment,
+            costoFlete: isPickup ? 0 : (data.costoFlete !== undefined ? Number(data.costoFlete) : prev.costoFlete),
+            hubDespacho: data.hubDespacho || prev.hubDespacho,
+            isDefined: true,
+          };
+          setShippingAddressState(next.deliveryAddress);
+          setShippingCityState(next.city);
+          setShippingDepartmentState(next.department);
+          return next;
+        });
+      }
+    };
+
+    window.addEventListener('colorlink_quote_delivery_updated', handleDeliverySync);
+    window.addEventListener('colorlink_shipping_state_updated', handleDeliverySync);
+
+    return () => {
+      window.removeEventListener('colorlink_quote_delivery_updated', handleDeliverySync);
+      window.removeEventListener('colorlink_shipping_state_updated', handleDeliverySync);
+    };
+  }, []);
+
 
   // Guardar en localStorage ante cualquier cambio
   useEffect(() => {
@@ -217,6 +383,15 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setShippingCity,
         shippingDepartment,
         setShippingDepartment,
+        deliveryMode: shippingState.deliveryMode,
+        modalidad: shippingState.modalidad,
+        setDeliveryMode,
+        deliveryAddress: shippingState.deliveryAddress,
+        setDeliveryAddress,
+        pickupStore: shippingState.pickupStore,
+        setPickupStore,
+        shippingState,
+        setShippingState,
       }}
     >
       {children}

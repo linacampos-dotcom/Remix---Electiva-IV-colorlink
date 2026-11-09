@@ -457,6 +457,15 @@ export const AIChatDrawer: React.FC<AIChatDrawerProps> = ({
   );
   const activeUserName = userSession?.nombre || (activeUserEmail ? activeUserEmail.split('@')[0] : 'Cliente');
 
+  const activeUserSessionContext = {
+    id: activeUserId,
+    user_id: activeUserId,
+    email: activeUserEmail,
+    nombre: activeUserName,
+    documento: userSession?.documento || '',
+    isLoggedIn: isUserAuthenticated,
+  };
+
   const chatStorageKey = `colorlink_chat_${activeUserEmail || 'guest'}`;
   const chatStateKey = `colorlink_chat_state_${activeUserEmail || 'guest'}`;
 
@@ -1419,6 +1428,12 @@ ${notaRegional ? `\n💡 ${notaRegional}\n` : ''}
       return;
     }
 
+    // Detección directa de consulta de rastreo de pedidos sincronizada con la cuenta de Supabase Auth
+    if (/rastrear|rastreo|mi\s+pedido|mis\s+pedidos|estado\s+de\s+(mi\s+)?(pedido|orden|compra)|consultar\s+(mi\s+)?pedido/i.test(query.toLowerCase())) {
+      handleTrackOrderQuery(true);
+      return;
+    }
+
     setIsLoading(true);
 
     if (parsedM2 !== null) {
@@ -1441,7 +1456,7 @@ ${notaRegional ? `\n💡 ${notaRegional}\n` : ''}
               role: m.sender === 'user' ? 'user' : 'model',
               text: m.text,
             })),
-            userSession,
+            userSession: activeUserSessionContext,
           }),
         });
         const data = await response.json();
@@ -1502,7 +1517,7 @@ ${notaRegional ? `\n💡 ${notaRegional}\n` : ''}
             role: m.sender === 'user' ? 'user' : 'model',
             text: m.text,
           })),
-          userSession,
+          userSession: activeUserSessionContext,
         }),
       });
       const data = await response.json();
