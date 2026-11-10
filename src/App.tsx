@@ -345,6 +345,17 @@ export default function App() {
     return () => window.removeEventListener('colorlink_open_tracking', handleOpenTrackingEvent);
   }, []);
 
+  useEffect(() => {
+    const handleOpenAuthEvent = (e: any) => {
+      const mode = e?.detail?.mode || 'login';
+      setAuthInitialTab('client');
+      setAuthMode(mode);
+      setIsAuthOpen(true);
+    };
+    window.addEventListener('colorlink_open_auth', handleOpenAuthEvent);
+    return () => window.removeEventListener('colorlink_open_auth', handleOpenAuthEvent);
+  }, []);
+
   // E-commerce Platform Modals & States with URL Synchronization
   const [activeClientTab, setActiveClientTab] = useState<ClientNavigationTab | 'tracking'>(() => {
     if (typeof window !== 'undefined') {

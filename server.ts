@@ -9,6 +9,7 @@ import { createClient } from '@supabase/supabase-js';
 import nodemailer from 'nodemailer';
 
 dotenv.config({ override: true });
+process.env.DISABLE_HMR = 'true';
 
 // Clean and normalize Supabase URL (strip any accidental /rest/v1 suffix)
 function normalizeSupabaseUrl(url?: string): string {
@@ -32,12 +33,19 @@ function resolvePort(): number {
   const portArgIndex = process.argv.indexOf('--port');
   if (portArgIndex !== -1 && process.argv[portArgIndex + 1]) {
     const parsed = parseInt(process.argv[portArgIndex + 1], 10);
-    if (!isNaN(parsed)) return parsed;
+    if (!isNaN(parsed) && parsed !== 8080) return parsed;
   }
-  if (process.env.NODE_ENV !== 'production') {
-    return 3000;
+  for (const arg of process.argv) {
+    if (arg.startsWith('--port=')) {
+      const parsed = parseInt(arg.split('=')[1], 10);
+      if (!isNaN(parsed) && parsed !== 8080) return parsed;
+    }
   }
-  return Number(process.env.PORT) || 3000;
+  const envPort = Number(process.env.APP_PORT);
+  if (!isNaN(envPort) && envPort > 0 && envPort !== 8080) {
+    return envPort;
+  }
+  return 3000;
 }
 const PORT = resolvePort();
 
@@ -2501,6 +2509,114 @@ app.post('/api/payment/send-otp', async (req, res) => {
   }
 });
 
+// API: Enviar Credenciales de Bienvenida y Correo Corporativo a Nuevo Funcionario
+app.post('/api/corporate/send-welcome-credentials', async (req, res) => {
+  try {
+    const {
+      funcionarioNombre,
+      corporateEmail,
+      personalEmail,
+      tempPassword,
+      cargo,
+      areaNombre,
+      sedeNombre,
+      rolNombre,
+      documentoIdentidad,
+    } = req.body;
+
+    if (!corporateEmail || !funcionarioNombre || !tempPassword) {
+      return res.status(400).json({ success: false, error: 'Datos incompletos para credenciales' });
+    }
+
+    const cleanCorpEmail = corporateEmail.trim().toLowerCase();
+    const cleanPersonalEmail = personalEmail ? personalEmail.trim().toLowerCase() : '';
+
+    const emailSubject = `Bienvenido al equipo Pintuco • Tus credenciales corporativas (${cleanCorpEmail})`;
+    const emailHtml = `
+      <div style="font-family: Arial, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 640px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden; background: #ffffff;">
+        <div style="background: linear-gradient(135deg, #001D3D 0%, #003366 100%); padding: 30px 24px; text-align: center; color: #ffffff;">
+          <div style="display: inline-block; background: #00f2fe; color: #001D3D; font-weight: 900; font-size: 14px; padding: 4px 12px; border-radius: 9999px; text-transform: uppercase; margin-bottom: 12px; letter-spacing: 1px;">
+            PINTUCO COLOMBIA • COLORLINK
+          </div>
+          <h1 style="margin: 0; font-size: 24px; font-weight: 900; letter-spacing: -0.5px;">¡Bienvenido al Equipo Corporativo!</h1>
+          <p style="margin: 8px 0 0; font-size: 14px; color: #93c5fd;">Asignación Oficial de Correo y Credenciales de Acceso</p>
+        </div>
+
+        <div style="padding: 32px 24px;">
+          <p style="font-size: 15px; color: #334155; margin-bottom: 20px; line-height: 1.6;">
+            Estimado(a) <strong>${funcionarioNombre}</strong>, nos complace darte la bienvenida a <strong>Pintuco / ColorLink</strong>. Se ha creado y activado exitosamente tu cuenta institucional y buzón corporativo en nuestra infraestructura empresarial.
+          </p>
+
+          <div style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 14px; padding: 20px; margin: 24px 0;">
+            <h3 style="margin: 0 0 16px 0; font-size: 14px; font-weight: 900; color: #0f172a; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px;">
+              📋 Ficha de Acceso Institucional
+            </h3>
+
+            <table style="width: 100%; font-size: 13px; color: #334155; border-collapse: collapse;">
+              <tr>
+                <td style="padding: 6px 0; font-weight: bold; width: 40%; color: #64748b;">Correo Corporativo:</td>
+                <td style="padding: 6px 0; font-family: monospace; font-weight: bold; color: #0369a1; font-size: 14px;">${cleanCorpEmail}</td>
+              </tr>
+              <tr>
+                <td style="padding: 6px 0; font-weight: bold; color: #64748b;">Contraseña Temporal:</td>
+                <td style="padding: 6px 0; font-family: monospace; font-weight: 900; color: #0f172a; background: #e2e8f0; padding: 3px 8px; border-radius: 6px; display: inline-block;">${tempPassword}</td>
+              </tr>
+              <tr>
+                <td style="padding: 6px 0; font-weight: bold; color: #64748b;">Documento:</td>
+                <td style="padding: 6px 0; font-weight: 600;">${documentoIdentidad || 'Registrado'}</td>
+              </tr>
+              <tr>
+                <td style="padding: 6px 0; font-weight: bold; color: #64748b;">Cargo Asignado:</td>
+                <td style="padding: 6px 0; font-weight: 600;">${cargo || 'Funcionario'}</td>
+              </tr>
+              <tr>
+                <td style="padding: 6px 0; font-weight: bold; color: #64748b;">Área / Departamento:</td>
+                <td style="padding: 6px 0; font-weight: 600;">${areaNombre || 'General'}</td>
+              </tr>
+              <tr>
+                <td style="padding: 6px 0; font-weight: bold; color: #64748b;">Sede / CEDI Asignado:</td>
+                <td style="padding: 6px 0; font-weight: 600;">${sedeNombre || 'Nacional'}</td>
+              </tr>
+              <tr>
+                <td style="padding: 6px 0; font-weight: bold; color: #64748b;">Rol de Seguridad:</td>
+                <td style="padding: 6px 0; font-weight: 600;">${rolNombre || 'Colaborador'}</td>
+              </tr>
+            </table>
+          </div>
+
+          <div style="background: #eff6ff; border-left: 4px solid #2563eb; padding: 14px 18px; border-radius: 8px; margin: 24px 0; font-size: 13px; color: #1e40af;">
+            <strong>ℹ️ Instrucciones de Primer Acceso:</strong>
+            <ul style="margin: 8px 0 0 0; padding-left: 20px; line-height: 1.5;">
+              <li>Ingresa al Portal Empresarial ColorLink con tu correo institucional y la contraseña temporal proporcionada.</li>
+              <li>Por normativas de ciberseguridad y trazabilidad NTC 1335, se te solicitará cambiar tu contraseña temporal en tu primer inicio de sesión.</li>
+              <li>Mantén tus credenciales seguras y no las compartas con terceros.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div style="background: #f1f5f9; padding: 18px 24px; text-align: center; font-size: 11px; color: #64748b; border-top: 1px solid #e2e8f0;">
+          © ${new Date().getFullYear()} Pintuco Colombia S.A.S. • Intranet Corporativa ColorLink Enterprise v3.4 • Todos los derechos reservados.
+        </div>
+      </div>
+    `;
+
+    const dispatchResult = await sendTransactionalEmail({
+      to: cleanPersonalEmail ? `${cleanCorpEmail}, ${cleanPersonalEmail}` : cleanCorpEmail,
+      subject: emailSubject,
+      html: emailHtml,
+    });
+
+    return res.json({
+      success: true,
+      message: `Credenciales enviadas exitosamente a ${cleanCorpEmail}${cleanPersonalEmail ? ` y ${cleanPersonalEmail}` : ''}`,
+      previewUrl: dispatchResult.previewUrl,
+    });
+  } catch (err: any) {
+    console.error('Error in /api/corporate/send-welcome-credentials:', err);
+    return res.status(500).json({ success: false, error: 'Error enviando credenciales de bienvenida' });
+  }
+});
+
 // API: Validar Código OTP de Pago
 app.post('/api/payment/verify-otp', async (req, res) => {
   try {
@@ -3331,16 +3447,29 @@ async function startServer() {
     app.use('/images', express.static(path.join(process.cwd(), 'src/assets/images')));
     app.use(express.static(path.join(process.cwd(), 'public')));
 
-    // SPA fallback: transform index.html for any GET request that is not an API or static file
+    // SPA fallback: transform index.html for any GET/HEAD request that is not an API or static file
     app.use('*', async (req, res, next) => {
-      const url = req.originalUrl;
-      if (url.startsWith('/api') || url.startsWith('/health') || url.startsWith('/src') || url.startsWith('/@') || url.includes('.')) {
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        return next();
+      }
+      const pathname = req.path || '';
+      if (
+        pathname.startsWith('/api') ||
+        pathname.startsWith('/health') ||
+        pathname.startsWith('/_health') ||
+        pathname.startsWith('/ping') ||
+        pathname.startsWith('/src') ||
+        pathname.startsWith('/@') ||
+        pathname.startsWith('/node_modules') ||
+        pathname.startsWith('/images') ||
+        (pathname.includes('.') && pathname !== '/index.html')
+      ) {
         return next();
       }
       try {
         const indexHtmlPath = path.resolve(process.cwd(), 'index.html');
         let template = fs.readFileSync(indexHtmlPath, 'utf-8');
-        template = await vite.transformIndexHtml(url, template);
+        template = await vite.transformIndexHtml(req.originalUrl || '/', template);
         res.status(200).set({ 'Content-Type': 'text/html' }).end(template);
       } catch (e) {
         vite.ssrFixStacktrace(e as Error);
@@ -3349,9 +3478,28 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
+  const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`COLORLINK Pintuco Server running on http://0.0.0.0:${PORT} (NODE_ENV: ${process.env.NODE_ENV || 'development'})`);
   });
+
+  server.on('error', (err: any) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`[Server] Port ${PORT} is already in use.`);
+    } else {
+      console.error('[Server] Listen error:', err);
+    }
+  });
+
+  const shutdown = () => {
+    console.log('[Server] Gracefully shutting down...');
+    server.close(() => {
+      process.exit(0);
+    });
+  };
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
 }
 
-startServer();
+startServer().catch((err) => {
+  console.error('[Server] Startup error:', err);
+});

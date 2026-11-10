@@ -352,10 +352,10 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
   });
   const [checkoutNotas, setCheckoutNotas] = useState('');
   const [metodoPago, setMetodoPago] = useState<'tarjeta' | 'pse' | 'contraentrega'>('tarjeta');
-  const [cardNumero, setCardNumero] = useState('4532 8901 2345 6789');
-  const [cardNombre, setCardNombre] = useState('JUAN PÉREZ');
-  const [cardExp, setCardExp] = useState('12/28');
-  const [cardCvv, setCardCvv] = useState('789');
+  const [cardNumero, setCardNumero] = useState('');
+  const [cardNombre, setCardNombre] = useState('');
+  const [cardExp, setCardExp] = useState('');
+  const [cardCvv, setCardCvv] = useState('');
   const [cardCuotas, setCardCuotas] = useState('1');
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
 
@@ -765,6 +765,38 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
     if (modalidad === 'domicilio' && !checkoutDireccion.trim()) {
       setCheckoutError('Por favor ingresa la dirección de entrega de tu obra o domicilio.');
       return;
+    }
+
+    if (metodoPago === 'tarjeta') {
+      const cleanCardNum = cardNumero.replace(/\s/g, '');
+      if (!cleanCardNum) {
+        setCheckoutError('Por favor ingresa el Número de tu Tarjeta Débito o Crédito.');
+        return;
+      }
+      if (cleanCardNum.length < 15) {
+        setCheckoutError('El número de tarjeta debe contener al menos 15 dígitos.');
+        return;
+      }
+      if (!cardNombre.trim()) {
+        setCheckoutError('Por favor ingresa el Nombre del titular tal como aparece en la tarjeta.');
+        return;
+      }
+      if (!cardExp.trim()) {
+        setCheckoutError('Por favor ingresa la fecha de vencimiento (MM/AA).');
+        return;
+      }
+      if (cardExp.length < 5 || !cardExp.includes('/')) {
+        setCheckoutError('La fecha de vencimiento debe tener el formato MM/AA (Ej: 12/28).');
+        return;
+      }
+      if (!cardCvv.trim()) {
+        setCheckoutError('Por favor ingresa el código de seguridad CVV de tu tarjeta.');
+        return;
+      }
+      if (cardCvv.length < 3) {
+        setCheckoutError('El código CVV debe tener al menos 3 dígitos.');
+        return;
+      }
     }
 
     const orderNumber = `ORD-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -1546,14 +1578,14 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
                         <input
                           type="text"
                           maxLength={19}
-                          placeholder="4532 8901 2345 6789"
+                          placeholder="Ej: 4532 8901 2345 6789"
                           value={cardNumero}
                           onChange={(e) => {
                             const raw = e.target.value.replace(/\D/g, '').slice(0, 16);
                             const formatted = raw.match(/.{1,4}/g)?.join(' ') || raw;
                             setCardNumero(formatted);
                           }}
-                          className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-300 font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-red-500 bg-white"
+                          className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-300 font-mono font-bold text-slate-900 placeholder:text-slate-400 placeholder:font-normal focus:outline-none focus:ring-2 focus:ring-red-500 bg-white"
                         />
                         <CreditCard className="w-4 h-4 text-slate-400 absolute left-2.5 top-2.5" />
                       </div>
@@ -1566,10 +1598,10 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
                         </label>
                         <input
                           type="text"
-                          placeholder="COMO APARECE EN LA TARJETA"
+                          placeholder="Ej: JUAN PÉREZ"
                           value={cardNombre}
                           onChange={(e) => setCardNombre(e.target.value.toUpperCase())}
-                          className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-red-500 bg-white"
+                          className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 font-semibold text-slate-900 placeholder:text-slate-400 placeholder:font-normal focus:outline-none focus:ring-2 focus:ring-red-500 bg-white"
                         />
                       </div>
 
@@ -1581,14 +1613,14 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
                           <input
                             type="text"
                             maxLength={5}
-                            placeholder="12/28"
+                            placeholder="MM/AA"
                             value={cardExp}
                             onChange={(e) => {
                               let val = e.target.value.replace(/[^\d/]/g, '');
                               if (val.length === 2 && !val.includes('/')) val += '/';
                               setCardExp(val.slice(0, 5));
                             }}
-                            className="w-full px-2.5 py-2 text-xs text-center rounded-xl border border-slate-300 font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-red-500 bg-white"
+                            className="w-full px-2.5 py-2 text-xs text-center rounded-xl border border-slate-300 font-mono font-bold text-slate-900 placeholder:text-slate-400 placeholder:font-normal focus:outline-none focus:ring-2 focus:ring-red-500 bg-white"
                           />
                         </div>
 
@@ -1599,10 +1631,10 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
                           <input
                             type="password"
                             maxLength={4}
-                            placeholder="•••"
+                            placeholder="123"
                             value={cardCvv}
                             onChange={(e) => setCardCvv(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                            className="w-full px-2.5 py-2 text-xs text-center rounded-xl border border-slate-300 font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-red-500 bg-white"
+                            className="w-full px-2.5 py-2 text-xs text-center rounded-xl border border-slate-300 font-mono font-bold text-slate-900 placeholder:text-slate-400 placeholder:font-normal focus:outline-none focus:ring-2 focus:ring-red-500 bg-white"
                           />
                         </div>
                       </div>

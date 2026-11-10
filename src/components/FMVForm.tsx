@@ -21,7 +21,7 @@ import {
   calculateShipping 
 } from '../data/colombiaLogistics';
 import { calculateMaterials } from '../utils/calculator';
-import { SupabaseProducto } from '../lib/supabaseClient';
+import { SupabaseProducto, supabase } from '../lib/supabaseClient';
 import { useCart } from '../context/CartContext';
 import { 
   Paintbrush, 
@@ -1912,7 +1912,7 @@ export interface FMVFormProps {
   isSaving?: boolean;
   onOpenPrintable?: () => void;
   onOpenChat?: () => void;
-  onOpenAuth?: () => void;
+  onOpenAuth?: (tab?: 'login' | 'register') => void;
 }
 
 export const FMVForm: React.FC<FMVFormProps> = ({
@@ -1933,8 +1933,8 @@ export const FMVForm: React.FC<FMVFormProps> = ({
   onOpenAuth,
 }) => {
   const cartContext = useCart();
-  // Wizard current active step (1: ¿Qué vas a pintar?, 2: Medidas y Color, 3: Datos y Forma de Entrega, 4: Resumen y Consejo)
-  const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4>(1);
+  // Wizard current active step (1: ¿Qué pintarás?, 2: Pintura y Medidas, 3: Resumen y Consejo)
+  const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
 
   // Pestaña rápida activa en 2.1 (Interiores | Exteriores | Zonas Húmedas / Especiales)
   const [paintFilterTab, setPaintFilterTab] = useState<'interiores' | 'exteriores' | 'especiales'>('interiores');
@@ -2017,6 +2017,76 @@ export const FMVForm: React.FC<FMVFormProps> = ({
 
   // Modal de Complementos Sugeridos (Pre-Checkout)
   const [showComplementsModal, setShowComplementsModal] = useState<boolean>(false);
+
+  // Estado de verificación de autenticación y checkout pendiente
+  const [isCheckingAuth, setIsCheckingAuth] = useState<boolean>(false);
+  const [pendingCheckoutOnAuth, setPendingCheckoutOnAuth] = useState<boolean>(false);
+
+  // Validador centralizado de sesión Supabase al momento de Continuar al Checkout
+  const verifySupabaseSession = useCallback(async (): Promise<boolean> => {
+    setIsCheckingAuth(true);
+    try {
+      // 1. Validar sesión nativa en Supabase Auth
+      if (supabase && supabase.auth) {
+        const { data } = await supabase.auth.getSession();
+        if (data?.session?.user) {
+          setIsCheckingAuth(false);
+          return true;
+        }
+      }
+
+      // 2. Verificar estado de usuario local / sesión activa
+      if (userSession && userSession.isLoggedIn) {
+        setIsCheckingAuth(false);
+        return true;
+      }
+
+      const localUser = localStorage.getItem('currentUser') || 
+                        localStorage.getItem('colorlink_user_session') || 
+                        localStorage.getItem('colorlink_active_session');
+      if (localUser) {
+        const parsed = JSON.parse(localUser);
+        if (parsed && (parsed.isLoggedIn || parsed.email)) {
+          setIsCheckingAuth(false);
+          return true;
+        }
+      }
+    } catch (err) {
+      console.warn('Error verificando sesión Supabase:', err);
+    }
+
+    setIsCheckingAuth(false);
+    return false;
+  }, [userSession]);
+
+  // Manejar el avance al Resumen y Consejo (Paso 3) con acceso 100% libre y sin restricciones
+  const handleAdvanceToSummary = useCallback(() => {
+    setCurrentStep(3);
+  }, []);
+
+  // Si el usuario inicia sesión tras intentar checkout, finalizar automáticamente el proceso
+  useEffect(() => {
+    if (userSession && userSession.isLoggedIn && pendingCheckoutOnAuth) {
+      setPendingCheckoutOnAuth(false);
+      setShowComplementsModal(false);
+      handleSyncToCart(true);
+    }
+  }, [userSession, pendingCheckoutOnAuth]);
+
+  useEffect(() => {
+    if (supabase && supabase.auth && supabase.auth.onAuthStateChange) {
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((_event: any, session: any) => {
+        if (session?.user && pendingCheckoutOnAuth) {
+          setPendingCheckoutOnAuth(false);
+          setShowComplementsModal(false);
+          handleSyncToCart(true);
+        }
+      });
+      return () => {
+        subscription?.unsubscribe();
+      };
+    }
+  }, [pendingCheckoutOnAuth]);
 
   // Autocompletar y sincronizar datos de facturación y contacto utilizando el perfil del usuario autenticado (Paso 3.2)
   useEffect(() => {
@@ -2532,7 +2602,19 @@ export const FMVForm: React.FC<FMVFormProps> = ({
   }, [formData, calculation, selectedTools]);
 
   // Sincronización total de cantidades de pintura, sellador, herramientas y datos de despacho al Carrito
-  const handleSyncToCart = (proceedToCheckout: boolean) => {
+  const handleSyncToCart = async (proceedToCheckout: boolean) => {
+    if (proceedToCheckout) {
+      const hasSession = await verifySupabaseSession();
+      if (!hasSession) {
+        setPendingCheckoutOnAuth(true);
+        if (onOpenAuth) {
+          onOpenAuth('login');
+        } else {
+          window.dispatchEvent(new CustomEvent('colorlink_open_auth', { detail: { mode: 'login' } }));
+        }
+        return;
+      }
+    }
     // 1. Convertir activeItems en ítems de carrito con sus colores y presentaciones individuales
     const calculatedProductsPayload: CartItem[] = activeItems.map((item, idx) => ({
       id: `quote-${item.id}-${Date.now()}-${idx}`,
@@ -3080,8 +3162,8 @@ export const FMVForm: React.FC<FMVFormProps> = ({
           </div>
         </div>
 
-        {/* Wizard Stepper Pills Bar (4 Pasos Oficiales) */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-black/20 p-1.5 sm:p-2 rounded-2xl backdrop-blur-sm border border-white/10">
+        {/* Wizard Stepper Pills Bar (Exactamente 3 Pasos Oficiales) */}
+        <div className="grid grid-cols-3 gap-2 bg-black/20 p-1.5 sm:p-2 rounded-2xl backdrop-blur-sm border border-white/10">
           
           {/* Step 1 Pill */}
           <button
@@ -3131,48 +3213,24 @@ export const FMVForm: React.FC<FMVFormProps> = ({
             <span className="truncate">2. Pintura y Medidas</span>
           </button>
 
-          {/* Step 3 Pill */}
+          {/* Step 3 Pill (Resumen y Consejo con Validación Supabase) */}
           <button
             type="button"
-            onClick={() => setCurrentStep(3)}
+            onClick={handleAdvanceToSummary}
             className={`flex items-center justify-center gap-1.5 sm:gap-2 py-2 px-2 sm:px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
               currentStep === 3
                 ? 'bg-white text-[#004B93] shadow-md shadow-black/20 scale-[1.01]'
-                : currentStep > 3
-                ? 'bg-white/15 text-white hover:bg-white/25'
                 : 'text-blue-200/70 hover:text-white hover:bg-white/10'
             }`}
           >
             <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-black ${
               currentStep === 3
                 ? 'bg-[#004B93] text-white'
-                : currentStep > 3
-                ? 'bg-emerald-400 text-slate-950'
                 : 'bg-white/20 text-white'
             }`}>
-              {currentStep > 3 ? '✓' : '3'}
+              3
             </span>
-            <span className="truncate">3. Datos y Entrega</span>
-          </button>
-
-          {/* Step 4 Pill */}
-          <button
-            type="button"
-            onClick={() => setCurrentStep(4)}
-            className={`flex items-center justify-center gap-1.5 sm:gap-2 py-2 px-2 sm:px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              currentStep === 4
-                ? 'bg-white text-[#004B93] shadow-md shadow-black/20 scale-[1.01]'
-                : 'text-blue-200/70 hover:text-white hover:bg-white/10'
-            }`}
-          >
-            <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-black ${
-              currentStep === 4
-                ? 'bg-[#004B93] text-white'
-                : 'bg-white/20 text-white'
-            }`}>
-              4
-            </span>
-            <span className="truncate">4. Resumen y Consejo</span>
+            <span className="truncate">3. Resumen y Consejo</span>
           </button>
 
         </div>
@@ -3193,7 +3251,7 @@ export const FMVForm: React.FC<FMVFormProps> = ({
             {/* Step Header */}
             <div className="border-b border-slate-200/80 pb-4">
               <span className="text-[11px] font-bold text-[#004B93] uppercase tracking-wider">
-                Paso 1 de 4 • Identificación del Espacio
+                Paso 1 de 3 • Identificación del Espacio
               </span>
               <h3 className="text-lg sm:text-xl font-extrabold text-slate-900 mt-1">
                 ¿Qué tipo de espacio vas a transformar hoy?
@@ -3565,7 +3623,7 @@ export const FMVForm: React.FC<FMVFormProps> = ({
             {/* Step Header */}
             <div className="border-b border-slate-200/80 pb-4">
               <span className="text-[11px] font-bold text-[#004B93] uppercase tracking-wider">
-                Paso 2 de 4 • Tipo de Pintura, Medidas y Color
+                Paso 2 de 3 • Tipo de Pintura, Medidas y Color
               </span>
               <h3 className="text-lg sm:text-xl font-extrabold text-slate-900 mt-1">
                 ¿Qué tipo de pintura prefieres, cuánto mide tu espacio y qué color deseas?
@@ -4122,7 +4180,8 @@ export const FMVForm: React.FC<FMVFormProps> = ({
               </div>
             </div>
 
-            {/* BOTONES NAVEGACIÓN PASO 2 */}
+            {/* Banner Informativo si requiere autenticación para avanzar a Resumen y Consejo */}
+            {/* BOTONES NAVEGACIÓN PASO 2 (Acceso Libre al Paso 3) */}
             <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-3">
               <button
                 type="button"
@@ -4135,10 +4194,12 @@ export const FMVForm: React.FC<FMVFormProps> = ({
 
               <button
                 type="button"
-                onClick={() => setCurrentStep(3)}
+                onClick={() => {
+                  setCurrentStep(3);
+                }}
                 className="w-full sm:w-auto px-7 py-3.5 rounded-2xl bg-[#004B93] hover:bg-[#003B75] text-white font-black text-sm shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer hover:scale-[1.01]"
               >
-                <span>Continuar a Datos y Forma de Entrega (Paso 3)</span>
+                <span>Continuar a Resumen y Consejo (Paso 3)</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
             </div>
@@ -4147,570 +4208,16 @@ export const FMVForm: React.FC<FMVFormProps> = ({
         )}
 
         {/* -------------------------------------------------------------------
-            PASO 3: DATOS Y FORMA DE ENTREGA (Exclusivo Despacho y Ubicación)
+            PASO 3: RESUMEN DE PRODUCTOS, CONSEJO CONTEXTUAL Y COMPLEMENTOS
         -------------------------------------------------------------------- */}
         {currentStep === 3 && (
           <div className="space-y-7 animate-fadeIn">
             
             {/* Step Header */}
             <div className="border-b border-slate-200/80 pb-4">
-              <span className="text-[11px] font-bold text-[#004B93] uppercase tracking-wider">
-                Paso 3 de 4 • Datos y Forma de Entrega
-              </span>
-              <h3 className="text-lg sm:text-xl font-extrabold text-slate-900 mt-1">
-                Lugar de entrega y datos de despacho
-              </h3>
-              <p className="text-xs sm:text-sm text-slate-600 mt-1">
-                Configura la modalidad de envío, tu dirección u obra y confirma los datos de contacto para la entrega oficial.
-              </p>
-            </div>
-
-            {/* Banner de Autocompletado con Perfil del Usuario Autenticado */}
-            {userSession && userSession.isLoggedIn && (
-              <div className="p-4 rounded-2xl bg-gradient-to-r from-blue-50/90 to-sky-50 border border-blue-200 text-blue-950 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
-                <div className="flex items-start sm:items-center gap-3">
-                  <div className="w-9 h-9 rounded-xl bg-[#004B93] text-white flex items-center justify-center font-bold text-sm shrink-0 shadow-xs">
-                    <User className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-extrabold text-xs text-[#004B93]">
-                        Datos autocompletados desde tu perfil oficial Pintuco
-                      </span>
-                      <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
-                        {userSession.userType || 'Cliente'} Verificado
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-slate-600 mt-0.5">
-                      Titular: <strong>{formData.nombre_razon_social || userSession.nombre}</strong> • Tel: <strong>{formData.telefono || userSession.telefono || 'Sin teléfono'}</strong> • Doc: <strong>{formData.documento || userSession.documento || 'Sin doc'}</strong>
-                    </p>
-                  </div>
-                </div>
-
-                {/* Selector rápido de direcciones guardadas en el perfil */}
-                {userSession.direcciones && userSession.direcciones.length > 0 && (
-                  <div className="flex flex-wrap items-center gap-1.5 shrink-0">
-                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Tus Direcciones:</span>
-                    {userSession.direcciones.map((d) => (
-                      <button
-                        key={d.id}
-                        type="button"
-                        onClick={() => {
-                          onChange('modalidad_entrega', 'domicilio');
-                          onChange('direccion_obra', d.direccion);
-                          if (d.ciudad) onChange('ciudad', d.ciudad);
-                          if (d.departamento) handleDeptoChange(d.departamento);
-                        }}
-                        className={`text-[10px] font-bold px-2.5 py-1 rounded-xl border transition-all cursor-pointer flex items-center gap-1 ${
-                          formData.direccion_obra === d.direccion
-                            ? 'bg-[#004B93] text-white border-[#004B93]'
-                            : 'bg-white hover:bg-blue-50 text-slate-700 border-slate-300'
-                        }`}
-                        title={d.direccion}
-                      >
-                        <MapPin className="w-3 h-3" />
-                        <span>{d.etiqueta}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* 3.1 MODALIDAD Y UBICACIÓN DE ENTREGA */}
-            <div className="space-y-4 p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs">
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
-                3.1 Modalidad de Despacho y Ubicación en Colombia
-              </label>
-
-              {/* Modalidad Selector */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div
-                  onClick={() => {
-                    onChange('modalidad_entrega', 'domicilio');
-                    if (!formData.direccion_obra || formData.direccion_obra.startsWith('Retiro en Tienda')) {
-                      const defaultAddr = userSession?.direcciones?.find(d => d.esPredeterminada) || userSession?.direcciones?.[0];
-                      const savedResidencia = defaultAddr?.direccion ||
-                        userSession?.direccion ||
-                        userSession?.address ||
-                        localStorage.getItem('colorlink_user_address') ||
-                        '';
-                      if (savedResidencia) {
-                        onChange('direccion_obra', savedResidencia);
-                      }
-                    }
-                  }}
-                  className={`p-3.5 rounded-xl border-2 transition-all cursor-pointer flex items-center gap-3 ${
-                    currentModalidad === 'domicilio'
-                      ? 'border-[#004B93] bg-blue-50/70 shadow-xs'
-                      : 'border-slate-200 hover:border-slate-300'
-                  }`}
-                >
-                  <Truck className={`w-5 h-5 ${currentModalidad === 'domicilio' ? 'text-[#004B93]' : 'text-slate-500'}`} />
-                  <div>
-                    <h5 className="font-bold text-xs text-slate-900">Envío a Domicilio / Obra</h5>
-                    <p className="text-[11px] text-slate-500">Despacho en 24 a 48h a pie de obra</p>
-                  </div>
-                </div>
-
-                <div
-                  onClick={() => {
-                    onChange('modalidad_entrega', 'retiro_tienda');
-                    const stores = getAvailableStoresForLocation(activeDepartamentoName, formData.ciudad);
-                    if (stores.length > 0) {
-                      const store = stores.find(s => s.nombre === formData.sede_retiro) || stores[0];
-                      onChange('sede_retiro', store.nombre);
-                      onChange('direccion_obra', `Retiro en Tienda: ${store.nombre} - ${store.direccion}`);
-                    }
-                  }}
-                  className={`p-3.5 rounded-xl border-2 transition-all cursor-pointer flex items-center gap-3 ${
-                    currentModalidad === 'retiro_tienda'
-                      ? 'border-[#004B93] bg-blue-50/70 shadow-xs'
-                      : 'border-slate-200 hover:border-slate-300'
-                  }`}
-                >
-                  <Warehouse className={`w-5 h-5 ${currentModalidad === 'retiro_tienda' ? 'text-[#004B93]' : 'text-slate-500'}`} />
-                  <div>
-                    <h5 className="font-bold text-xs text-slate-900">Retiro en Tienda Pintuco (Pickup)</h5>
-                    <p className="text-[11px] text-emerald-700 font-semibold">Gratis en sede autorizada ($0 COP)</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Cascading Departamento / Ciudad */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    {currentModalidad === 'retiro_tienda' ? 'Departamento de la Tienda' : 'Departamento de Despacho'}
-                  </label>
-                  <select
-                    value={activeDepartamentoName}
-                    onChange={(e) => handleDeptoChange(e.target.value)}
-                    className="w-full text-xs font-bold p-2.5 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#004B93]"
-                  >
-                    {DEPARTAMENTOS_COLOMBIA.map((d) => (
-                      <option key={d.codigoDANE} value={d.nombre}>
-                        {d.nombre}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    {currentModalidad === 'retiro_tienda' ? 'Municipio / Ciudad de la Tienda' : 'Municipio / Ciudad de Entrega'}
-                  </label>
-                  <select
-                    value={formData.ciudad}
-                    onChange={(e) => {
-                      const newCity = e.target.value;
-                      onChange('ciudad', newCity);
-                      if (currentModalidad === 'retiro_tienda') {
-                        const stores = getAvailableStoresForLocation(activeDepartamentoName, newCity);
-                        if (stores.length > 0) {
-                          onChange('sede_retiro', stores[0].nombre);
-                          onChange('direccion_obra', `Retiro en Tienda: ${stores[0].nombre} - ${stores[0].direccion}`);
-                        }
-                      }
-                    }}
-                    className="w-full text-xs font-bold p-2.5 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#004B93]"
-                  >
-                    {activeDeptoObj.municipios.map((m) => (
-                      <option key={m.nombre} value={m.nombre}>
-                        {m.nombre} {m.tipo === 'principal' ? '★' : ''}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {/* LÓGICA CONDICIONAL: RETIRO EN TIENDA VS ENVÍO A DOMICILIO */}
-              {currentModalidad === 'retiro_tienda' ? (
-                /* RETIRO EN TIENDA: OCULTA DIRECCIÓN RESIDENCIAL Y MUESTRA TIENDAS PINTUCO */
-                <div className="space-y-3 pt-2 animate-fadeIn">
-                  <div className="flex items-center justify-between">
-                    <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-                      <Building2 className="w-4 h-4 text-[#004B93]" />
-                      <span>Selecciona la Tienda Pintuco para Recoger ({formData.ciudad || activeDeptoObj.capital})</span>
-                    </label>
-                    <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
-                      Flete $0 COP
-                    </span>
-                  </div>
-
-                  {/* Menú de selección interactivo de tiendas Pintuco */}
-                  <select
-                    value={formData.sede_retiro || (availableStores[0]?.nombre ?? '')}
-                    onChange={(e) => {
-                      const storeName = e.target.value;
-                      const store = availableStores.find(s => s.nombre === storeName);
-                      onChange('sede_retiro', storeName);
-                      if (store) {
-                        onChange('direccion_obra', `Retiro en Tienda: ${store.nombre} - ${store.direccion}`);
-                      }
-                    }}
-                    className="w-full text-xs font-bold p-3 rounded-xl border-2 border-[#004B93] bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#004B93] shadow-xs cursor-pointer"
-                  >
-                    {availableStores.map((store) => (
-                      <option key={store.id} value={store.nombre}>
-                        {store.nombre} — {store.direccion}
-                      </option>
-                    ))}
-                  </select>
-
-                  {/* Tarjeta Resumen de la Tienda Seleccionada */}
-                  {selectedStore && (
-                    <div className="p-4 rounded-2xl bg-gradient-to-r from-blue-50/90 to-slate-50 border border-blue-200/90 space-y-2.5">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-9 h-9 rounded-xl bg-[#004B93] text-white flex items-center justify-center shrink-0 shadow-xs">
-                            <Warehouse className="w-5 h-5" />
-                          </div>
-                          <div>
-                            <h6 className="font-extrabold text-xs sm:text-sm text-slate-900">{selectedStore.nombre}</h6>
-                            <span className="text-[10px] text-slate-500 font-semibold">{selectedStore.badge || 'Punto Oficial Pintuco'}</span>
-                          </div>
-                        </div>
-                        <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-black shrink-0 border border-emerald-300">
-                          Listo en 2-4 hrs
-                        </span>
-                      </div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-slate-700 pt-1 border-t border-blue-100">
-                        <div className="flex items-start gap-1.5">
-                          <MapPin className="w-4 h-4 text-[#004B93] shrink-0 mt-0.5" />
-                          <span><strong>Dirección:</strong> {selectedStore.direccion}</span>
-                        </div>
-                        <div className="flex items-start gap-1.5">
-                          <Clock className="w-4 h-4 text-[#004B93] shrink-0 mt-0.5" />
-                          <span><strong>Horario:</strong> {selectedStore.horario}</span>
-                        </div>
-                        <div className="flex items-center gap-1.5 sm:col-span-2">
-                          <Phone className="w-4 h-4 text-[#004B93] shrink-0" />
-                          <span><strong>Atención y Soporte:</strong> {selectedStore.telefono}</span>
-                        </div>
-                      </div>
-
-                      <div className="p-2.5 rounded-xl bg-white border border-blue-200/60 text-[11px] text-slate-600 flex items-center gap-2">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                        <span>Presenta tu cédula o NIT en el mostrador para retirar tu pedido empacado sin filas.</span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                /* DOMICILIO: MUESTRA DIRECCIÓN EXACTA DE ENTREGA A PIE DE OBRA */
-                <div className="space-y-3 animate-fadeIn">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Dirección exacta de entrega o punto de referencia
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="Ej: Calle 127 # 15-40, Apto 402 / Obra Torres del Parque"
-                      value={formData.direccion_obra || ''}
-                      onChange={(e) => onChange('direccion_obra', e.target.value)}
-                      className="w-full text-xs font-medium p-2.5 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#004B93]"
-                    />
-                  </div>
-
-                  {/* Feedback logístico de flete */}
-                  <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-100 text-slate-600">
-                    <span className="flex items-center gap-1.5">
-                      <MapPin className="w-3.5 h-3.5 text-[#004B93]" />
-                      Hub de despacho: <strong>{liveShipping.hubDespacho}</strong>
-                    </span>
-                    <span className="font-semibold text-emerald-700">
-                      {liveShipping.costoFlete === 0 ? 'Flete Bonificado / Gratis' : `Flete estimado: $${liveShipping.costoFlete.toLocaleString('es-CO')}`}
-                    </span>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* 3.2 IDENTIFICACIÓN DEL CLIENTE */}
-            <div className="space-y-3.5 p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-1 border-b border-slate-100">
-                <div className="flex items-center gap-2">
-                  <div className="w-6 h-6 rounded-lg bg-[#004B93]/10 text-[#004B93] flex items-center justify-center font-bold text-xs shrink-0">
-                    {normalizeTipoDocumento(formData.tipo_documento) === 'NIT' || normalizeTipoDocumento(formData.tipo_documento) === 'RUT' ? (
-                      <Building2 className="w-3.5 h-3.5" />
-                    ) : (
-                      <User className="w-3.5 h-3.5" />
-                    )}
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-800">
-                      3.2 Datos de Facturación y Contacto
-                    </label>
-                    <span className="text-[11px] text-slate-500 font-medium">
-                      {normalizeTipoDocumento(formData.tipo_documento) === 'NIT' || normalizeTipoDocumento(formData.tipo_documento) === 'RUT'
-                        ? 'Empresa / Persona Jurídica (NIT / RUT)'
-                        : 'Persona Natural (Cédula de Ciudadanía)'}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Badge de Sincronización */}
-                {((userSession && userSession.isLoggedIn) || autocompletedFromProfile || (formData.nombre_razon_social && formData.documento)) && (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 self-start sm:self-auto">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                    {userSession?.isLoggedIn ? `Sincronizado con ${userSession.nombre}` : 'Autocompletado desde tu perfil'}
-                  </span>
-                )}
-              </div>
-
-              {/* Alerta si no hay sesión iniciada para invitar a iniciar sesión antes de pagar */}
-              {(!userSession || !userSession.isLoggedIn) && (
-                <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-950 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shadow-2xs">
-                  <div className="flex items-start sm:items-center gap-2">
-                    <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5 sm:mt-0" />
-                    <div>
-                      <span className="font-bold text-amber-950 block">¿Tienes una cuenta en Pintuco?</span>
-                      <span className="text-[11px] text-amber-800">
-                        Inicia sesión para capturar tu Cédula/NIT, Nombre y Teléfono en 1 clic y evitar formularios vacíos.
-                      </span>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (onOpenAuth) {
-                        onOpenAuth();
-                      } else {
-                        window.dispatchEvent(new CustomEvent('colorlink_open_auth', {
-                          detail: { mode: 'login', reason: 'Inicia sesión para autocompletar tus datos de facturación.' }
-                        }));
-                      }
-                    }}
-                    className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-[11px] shrink-0 transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-xs self-start sm:self-auto"
-                  >
-                    <User className="w-3.5 h-3.5" />
-                    <span>Iniciar Sesión Rápido</span>
-                  </button>
-                </div>
-              )}
-              
-              <div className="grid grid-cols-1 sm:grid-cols-12 gap-3.5 pt-1">
-                <div className="sm:col-span-4">
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Tipo Documento</label>
-                  <select
-                    value={normalizeTipoDocumento(formData.tipo_documento)}
-                    onChange={(e) => {
-                      const newType = e.target.value as TipoDocumento;
-                      onChange('tipo_documento', newType);
-                      try {
-                        localStorage.setItem('colorlink_customer_tipodoc', newType);
-                      } catch {}
-                    }}
-                    className="w-full text-xs font-bold p-2.5 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white focus:border-[#004B93] focus:ring-1 focus:ring-[#004B93] transition-colors"
-                  >
-                    <option value="CC">Cédula de Ciudadanía (CC) - Natural</option>
-                    <option value="NIT">NIT - Empresa / Jurídica</option>
-                    <option value="CE">Cédula Extranjería (CE)</option>
-                    <option value="RUT">RUT</option>
-                    <option value="Pasaporte">Pasaporte</option>
-                  </select>
-                </div>
-
-                <div className="sm:col-span-8">
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    {normalizeTipoDocumento(formData.tipo_documento) === 'NIT'
-                      ? 'Número de NIT (con o sin dígito de verificación)'
-                      : normalizeTipoDocumento(formData.tipo_documento) === 'RUT'
-                      ? 'Número de Identificación Tributaria (RUT)'
-                      : normalizeTipoDocumento(formData.tipo_documento) === 'CE'
-                      ? 'Número de Cédula de Extranjería'
-                      : normalizeTipoDocumento(formData.tipo_documento) === 'Pasaporte'
-                      ? 'Número de Pasaporte'
-                      : 'Número de Documento / Cédula'}
-                  </label>
-                  <input
-                    type="text"
-                    placeholder={
-                      normalizeTipoDocumento(formData.tipo_documento) === 'NIT'
-                        ? 'Ej: 900.845.120-4'
-                        : normalizeTipoDocumento(formData.tipo_documento) === 'RUT'
-                        ? 'Ej: 900.845.120-4'
-                        : 'Ej: 1028727371'
-                    }
-                    value={formData.documento || ''}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      onChange('documento', val);
-                      try {
-                        localStorage.setItem('colorlink_customer_doc', val);
-                      } catch {}
-                    }}
-                    className="w-full text-xs font-bold p-2.5 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white focus:border-[#004B93] focus:ring-1 focus:ring-[#004B93] transition-colors"
-                  />
-                </div>
-
-                <div className="sm:col-span-6">
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    {normalizeTipoDocumento(formData.tipo_documento) === 'NIT' || normalizeTipoDocumento(formData.tipo_documento) === 'RUT'
-                      ? 'Razón Social de la Empresa'
-                      : 'Nombre Completo o Razón Social'}
-                  </label>
-                  <input
-                    type="text"
-                    placeholder={
-                      normalizeTipoDocumento(formData.tipo_documento) === 'NIT' || normalizeTipoDocumento(formData.tipo_documento) === 'RUT'
-                        ? 'Ej: Constructora Bolívar S.A.'
-                        : 'Ej: Carlos Gómez'
-                    }
-                    value={formData.nombre_razon_social || ''}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      onChange('nombre_razon_social', val);
-                      onChange('responsable_contacto', val);
-                      try {
-                        localStorage.setItem('colorlink_customer_name', val);
-                      } catch {}
-                    }}
-                    className="w-full text-xs font-bold p-2.5 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white focus:border-[#004B93] focus:ring-1 focus:ring-[#004B93] transition-colors"
-                  />
-                </div>
-
-                <div className="sm:col-span-6">
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Teléfono / Celular de Contacto</label>
-                  <input
-                    type="tel"
-                    placeholder="Ej: 310 456 7890"
-                    value={formData.telefono || ''}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      onChange('telefono', val);
-                      try {
-                        localStorage.setItem('colorlink_customer_phone', val);
-                      } catch {}
-                    }}
-                    className="w-full text-xs font-bold p-2.5 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white focus:border-[#004B93] focus:ring-1 focus:ring-[#004B93] transition-colors"
-                  />
-                </div>
-
-                <div className="sm:col-span-12">
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Correo Electrónico (para cotizaciones, facturación electrónica y despacho)
-                  </label>
-                  <input
-                    type="email"
-                    placeholder="Ej: cliente@correo.com"
-                    value={formData.correo_electronico || ''}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      onChange('correo_electronico', val);
-                      try {
-                        localStorage.setItem('colorlink_customer_email', val);
-                      } catch {}
-                    }}
-                    className="w-full text-xs font-bold p-2.5 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white focus:border-[#004B93] focus:ring-1 focus:ring-[#004B93] transition-colors"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* 3.3 ACORDEÓN DESPLEGABLE: PARÁMETROS TÉCNICOS AVANZADOS (OPCIONAL) */}
-            <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-2xs">
-              <button
-                type="button"
-                onClick={() => setShowAdvancedOptions(!showAdvancedOptions)}
-                className="w-full p-4 text-left flex items-center justify-between hover:bg-slate-50 transition-colors cursor-pointer"
-              >
-                <div className="flex items-center gap-2">
-                  <Sliders className="w-4 h-4 text-slate-500" />
-                  <span className="text-xs font-bold text-slate-800">
-                    Opciones Técnicas Avanzadas (Opcional para Contratistas e Ingenieros)
-                  </span>
-                </div>
-                {showAdvancedOptions ? (
-                  <ChevronUp className="w-4 h-4 text-slate-500" />
-                ) : (
-                  <ChevronDown className="w-4 h-4 text-slate-500" />
-                )}
-              </button>
-
-              {showAdvancedOptions && (
-                <div className="p-4 border-t border-slate-200/80 bg-slate-50 space-y-4 animate-fadeIn">
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-                    <div>
-                      <label className="font-semibold text-slate-700 block mb-1">Manos de Pintura</label>
-                      <select
-                        value={formData.manos_capas || 2}
-                        onChange={(e) => onChange('manos_capas', Number(e.target.value))}
-                        className="w-full p-2 rounded-lg border border-slate-300 bg-white"
-                      >
-                        <option value="1">1 Mano (Retoque suave)</option>
-                        <option value="2">2 Manos (Norma oficial NTC 1335)</option>
-                        <option value="3">3 Manos (Colores intensos / saturados)</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="font-semibold text-slate-700 block mb-1">Método de Aplicación</label>
-                      <select
-                        value={formData.metodo_aplicacion || 'Rodillo Convencional (+5% desperdicio)'}
-                        onChange={(e) => onChange('metodo_aplicacion', e.target.value)}
-                        className="w-full p-2 rounded-lg border border-slate-300 bg-white"
-                      >
-                        <option value="Rodillo Convencional (+5% desperdicio)">Rodillo (+5% desperdicio)</option>
-                        <option value="Brocha / Trabajo Detallado (+10% desperdicio)">Brocha (+10% desperdicio)</option>
-                        <option value="Equipo Airless / Pistola (+15% desperdicio)">Airless / Pistola (+15% desperdicio)</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="font-semibold text-slate-700 block mb-1">Sellador Forzado</label>
-                      <label className="flex items-center gap-2 mt-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={Boolean(formData.incluir_sellador_forzado)}
-                          onChange={(e) => onChange('incluir_sellador_forzado', e.target.checked)}
-                          className="w-4 h-4 text-[#004B93] rounded"
-                        />
-                        <span className="text-xs text-slate-700 font-medium">Incluir sellador siempre</span>
-                      </label>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* BOTONES NAVEGACIÓN PASO 3 */}
-            <div className="pt-4 flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-slate-200">
-              <button
-                type="button"
-                onClick={() => setCurrentStep(2)}
-                className="w-full sm:w-auto px-5 py-3 rounded-2xl border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 font-bold text-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                <ArrowLeft className="w-3.5 h-3.5" />
-                <span>Volver a Pintura y Medidas (Paso 2)</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setCurrentStep(4)}
-                className="w-full sm:w-auto px-7 py-3.5 rounded-2xl bg-[#004B93] hover:bg-[#003B75] text-white font-black text-sm shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer hover:scale-[1.01]"
-              >
-                <span>Continuar a Resumen y Consejo Pintuco (Paso 4)</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
-            </div>
-
-          </div>
-        )}
-
-        {/* -------------------------------------------------------------------
-            PASO 4: RESUMEN DE PRODUCTOS, CONSEJO CONTEXTUAL Y COMPLEMENTOS
-        -------------------------------------------------------------------- */}
-        {currentStep === 4 && (
-          <div className="space-y-7 animate-fadeIn">
-            
-            {/* Step Header */}
-            <div className="border-b border-slate-200/80 pb-4">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-bold text-[#004B93] uppercase tracking-wider">
-                  Paso 4 de 4 • Resumen de Productos y Consejo Contextual
+                  Paso 3 de 3 • Resumen de Productos y Consejo Contextual
                 </span>
                 <span className="text-[10px] font-extrabold bg-blue-50 text-[#004B93] px-2.5 py-0.5 rounded-full border border-blue-200">
                   Norma NTC 1335
@@ -5098,15 +4605,37 @@ export const FMVForm: React.FC<FMVFormProps> = ({
                     <span>Añadir al Carrito</span>
                   </button>
 
-                  {/* Botón Derecho: Continuar Proceso de Compra (Abre Modal de Complementos Pre-Checkout) */}
+                  {/* Botón Derecho: Continuar al Checkout (Valida sesión Supabase al hacer clic) */}
                   <button
                     type="button"
-                    onClick={() => setShowComplementsModal(true)}
-                    disabled={isSaving}
+                    disabled={isSaving || isCheckingAuth}
+                    onClick={async () => {
+                      const hasSession = await verifySupabaseSession();
+                      if (!hasSession) {
+                        setPendingCheckoutOnAuth(true);
+                        if (onOpenAuth) {
+                          onOpenAuth('login');
+                        } else {
+                          window.dispatchEvent(new CustomEvent('colorlink_open_auth', { detail: { mode: 'login' } }));
+                        }
+                        return;
+                      }
+                      // Usuario autenticado: abre modal de complementos previos antes del checkout
+                      setShowComplementsModal(true);
+                    }}
                     className="w-full py-3.5 px-4 rounded-2xl font-black text-xs sm:text-sm bg-[#E30613] hover:bg-[#C20510] active:bg-[#A3040D] text-white shadow-md shadow-red-900/20 transition-all flex items-center justify-center gap-2 cursor-pointer hover:scale-[1.01] active:scale-[0.99] disabled:opacity-60"
                   >
-                    <ArrowRight className="w-5 h-5 text-yellow-300 shrink-0" />
-                    <span>Continuar Proceso de Compra</span>
+                    {isCheckingAuth ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        <span>Verificando Sesión...</span>
+                      </>
+                    ) : (
+                      <>
+                        <ArrowRight className="w-5 h-5 text-yellow-300 shrink-0" />
+                        <span>Continuar al Checkout</span>
+                      </>
+                    )}
                   </button>
 
                 </div>
@@ -5134,11 +4663,11 @@ export const FMVForm: React.FC<FMVFormProps> = ({
             <div className="pt-2 flex items-center justify-between">
               <button
                 type="button"
-                onClick={() => setCurrentStep(3)}
+                onClick={() => setCurrentStep(2)}
                 className="px-5 py-3 rounded-2xl border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 font-bold text-xs transition-colors flex items-center gap-1.5 cursor-pointer"
               >
                 <ArrowLeft className="w-3.5 h-3.5" />
-                <span>Modificar Datos y Forma de Entrega (Paso 3)</span>
+                <span>Volver a Pintura y Medidas (Paso 2)</span>
               </button>
 
               <button
@@ -5340,30 +4869,51 @@ export const FMVForm: React.FC<FMVFormProps> = ({
                 </div>
 
                 <div className="flex flex-col sm:flex-row items-center gap-2.5">
-                  {/* Botón Secundario: Omitir y continuar al carrito / sin accesorios */}
+                  {/* Botón Secundario: Omitir y añadir al carrito */}
                   <button
                     type="button"
                     onClick={() => {
                       setSelectedTools({});
                       setShowComplementsModal(false);
-                      handleSyncToCart(true);
+                      handleSyncToCart(false);
                     }}
                     className="w-full sm:w-auto flex-1 py-3 px-4 rounded-2xl border border-slate-300 hover:border-slate-400 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs sm:text-sm transition-all cursor-pointer text-center"
                   >
-                    Omitir y continuar al carrito
+                    Omitir y añadir al carrito
                   </button>
 
                   {/* Botón Primario: Continuar al Checkout */}
                   <button
                     type="button"
-                    onClick={() => {
+                    disabled={isCheckingAuth}
+                    onClick={async () => {
+                      const hasSession = await verifySupabaseSession();
+                      if (!hasSession) {
+                        setPendingCheckoutOnAuth(true);
+                        setShowComplementsModal(false);
+                        if (onOpenAuth) {
+                          onOpenAuth('login');
+                        } else {
+                          window.dispatchEvent(new CustomEvent('colorlink_open_auth', { detail: { mode: 'login' } }));
+                        }
+                        return;
+                      }
                       setShowComplementsModal(false);
                       handleSyncToCart(true);
                     }}
-                    className="w-full sm:w-auto flex-1 py-3 px-5 rounded-2xl bg-[#E30613] hover:bg-[#C20510] active:bg-[#A3040D] text-white font-extrabold text-xs sm:text-sm shadow-lg shadow-red-900/20 transition-all flex items-center justify-center gap-2 cursor-pointer hover:scale-[1.01]"
+                    className="w-full sm:w-auto flex-1 py-3 px-5 rounded-2xl bg-[#E30613] hover:bg-[#C20510] active:bg-[#A3040D] text-white font-extrabold text-xs sm:text-sm shadow-lg shadow-red-900/20 transition-all flex items-center justify-center gap-2 cursor-pointer hover:scale-[1.01] disabled:opacity-75"
                   >
-                    <span>Continuar al Checkout</span>
-                    <ArrowRight className="w-4 h-4 text-yellow-300" />
+                    {isCheckingAuth ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        <span>Verificando Sesión Supabase...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>Continuar al Checkout</span>
+                        <ArrowRight className="w-4 h-4 text-yellow-300" />
+                      </>
+                    )}
                   </button>
                 </div>
               </div>

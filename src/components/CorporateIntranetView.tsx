@@ -281,7 +281,7 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
   const [isInternalNote, setIsInternalNote] = useState(false);
 
   // Logística, Inventario & Gestión de Productos
-  const [logisticsSubTab, setLogisticsSubTab] = useState<'inventario' | 'recepcion_compras' | 'traslados' | 'despachos' | 'kardex'>('inventario');
+  const [logisticsSubTab, setLogisticsSubTab] = useState<'inventario' | 'recepcion_compras' | 'traslados' | 'despachos' | 'kardex' | 'tareas_asignadas'>('inventario');
   const [selectedSede, setSelectedSede] = useState<string>('todas');
   const [productSearchQuery, setProductSearchQuery] = useState('');
   const [productCategoryFilter, setProductCategoryFilter] = useState('todos');
@@ -289,6 +289,53 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
   const [productColorFilter, setProductColorFilter] = useState('todos');
   const [productSizeFilter, setProductSizeFilter] = useState('todos');
   const [productStatusFilter, setProductStatusFilter] = useState<'todos' | 'activos' | 'inactivos' | 'bajo_stock'>('todos');
+
+  // Navegación en Acordeón para Portal de Funcionarios
+  const [accordionOpen, setAccordionOpen] = useState<{ [key: string]: boolean }>({
+    logistica: true,
+    sac: false,
+    funcionarios: false,
+    tareas: false,
+    comunidad: false,
+    documentos: false,
+    auditoria: false,
+    dashboard: false,
+  });
+
+  const toggleAccordion = (sectionKey: string, defaultTab?: 'dashboard' | 'areas' | 'funcionarios' | 'tareas' | 'comunidad' | 'logistica' | 'sac' | 'documentos' | 'auditoria') => {
+    setAccordionOpen((prev) => ({
+      ...prev,
+      [sectionKey]: !prev[sectionKey],
+    }));
+    if (defaultTab && activeTab !== defaultTab) {
+      setActiveTab(defaultTab);
+    }
+  };
+
+  // Mantener expandido el acordeón del módulo activo
+  useEffect(() => {
+    if (activeTab === 'logistica') {
+      setAccordionOpen((prev) => ({ ...prev, logistica: true }));
+    } else if (activeTab === 'sac') {
+      setAccordionOpen((prev) => ({ ...prev, sac: true }));
+    } else if (activeTab === 'funcionarios' || activeTab === 'areas') {
+      setAccordionOpen((prev) => ({ ...prev, funcionarios: true }));
+    } else if (activeTab === 'tareas') {
+      setAccordionOpen((prev) => ({ ...prev, tareas: true }));
+    } else if (activeTab === 'comunidad') {
+      setAccordionOpen((prev) => ({ ...prev, comunidad: true }));
+    } else if (activeTab === 'documentos') {
+      setAccordionOpen((prev) => ({ ...prev, documentos: true }));
+    } else if (activeTab === 'auditoria') {
+      setAccordionOpen((prev) => ({ ...prev, auditoria: true }));
+    } else if (activeTab === 'dashboard') {
+      setAccordionOpen((prev) => ({ ...prev, dashboard: true }));
+    }
+  }, [activeTab]);
+
+  // Subfiltros para comunidad y documentos
+  const [comunidadFilter, setComunidadFilter] = useState<'todos' | 'oficiales'>('todos');
+  const [docCategoryFilter, setDocCategoryFilter] = useState<'todos' | 'fichas'>('todos');
 
   // Estado para Recepción de Órdenes de Compra (Compras vs. Logística)
   const [selectedOCForRecepcion, setSelectedOCForRecepcion] = useState<OrdenCompraCorp | null>(null);
@@ -1408,6 +1455,22 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
     return { total, enPrep, despachados, transito, entregados };
   }, [safeOrdersList]);
 
+  const filteredTicketsSAC = useMemo(() => {
+    return ticketsSAC.filter((t) => {
+      if (ticketFilterTab === 'nuevos') return t.estado === 'Nuevo';
+      if (ticketFilterTab === 'en_proceso') return t.estado === 'En proceso';
+      if (ticketFilterTab === 'resueltos') return t.estado === 'Resuelto';
+      return true;
+    });
+  }, [ticketsSAC, ticketFilterTab]);
+
+  const logisticsTasks = useMemo(() => {
+    return (tareas || []).filter((t) => {
+      const area = `${t.areaNombre || ''} ${t.areaId || ''}`.toLowerCase();
+      return area.includes('logistica') || area.includes('logística') || area.includes('operaciones') || area.includes('bodega') || area.includes('almacen') || area.includes('almacén');
+    });
+  }, [tareas]);
+
   return (
     <div className="min-h-screen bg-slate-100/90 text-slate-800 flex flex-col font-sans selection:bg-[#003366] selection:text-white">
       {/* =========================================================================
@@ -1580,201 +1643,669 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
             sidebarCollapsed ? 'w-16' : 'w-64'
           }`}
         >
-          {/* Navegación por módulos */}
-          <div className="flex-1 py-4 px-2 space-y-4 overflow-y-auto">
+          {/* Navegación por módulos tipo Acordeón */}
+          <div className="flex-1 py-3 px-2 space-y-1.5 overflow-y-auto">
             
-            {/* GRUPO 1: PRINCIPAL */}
-            <div>
-              {!sidebarCollapsed && (
-                <span className="px-3 text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block mb-1.5">
-                  General
-                </span>
-              )}
-              <button
-                type="button"
-                onClick={() => setActiveTab('dashboard')}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                  activeTab === 'dashboard'
-                    ? 'bg-[#001D3D] text-white shadow-sm'
-                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-                }`}
-                title="Dashboard General"
-              >
-                <BarChart3 className="w-4 h-4 text-cyan-500 shrink-0" />
-                {!sidebarCollapsed && <span>Dashboard Operativo</span>}
-              </button>
-            </div>
-
-            {/* GRUPO 2: TRABAJO Y ORGANIZACIÓN */}
-            <div>
-              {!sidebarCollapsed && (
-                <span className="px-3 text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block mb-1.5">
-                  Organización & Tareas
-                </span>
-              )}
-
-              {/* Tareas */}
-              <button
-                type="button"
-                onClick={() => setActiveTab('tareas')}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                  activeTab === 'tareas'
-                    ? 'bg-[#001D3D] text-white shadow-sm'
-                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-                }`}
-                title="Gestión de Tareas"
-              >
-                <Kanban className="w-4 h-4 text-amber-500 shrink-0" />
-                {!sidebarCollapsed && (
-                  <span className="flex-1 flex items-center justify-between">
-                    <span>Tareas por Área</span>
-                    <span className="px-1.5 py-0.2 rounded-full bg-amber-100 text-amber-800 text-[10px] font-black">
-                      {tareas.filter((t) => t.estado !== 'Completada').length}
-                    </span>
-                  </span>
-                )}
-              </button>
-
-              {/* Estructura Organizacional */}
-              {canAccessTab('areas') && (
+            {/* 1. LOGÍSTICA & BODEGA */}
+            {canAccessTab('logistica') && (
+              <div className="rounded-xl overflow-hidden">
                 <button
                   type="button"
-                  onClick={() => setActiveTab('areas')}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer mt-1 ${
-                    activeTab === 'areas'
-                      ? 'bg-[#001D3D] text-white shadow-sm'
-                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-                  }`}
-                  title="Estructura de 13 Áreas"
-                >
-                  <Building2 className="w-4 h-4 text-blue-600 shrink-0" />
-                  {!sidebarCollapsed && <span>Estructura (13 Áreas)</span>}
-                </button>
-              )}
-
-              {/* Gestión de Funcionarios */}
-              {canAccessTab('funcionarios') && (
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('funcionarios')}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer mt-1 ${
-                    activeTab === 'funcionarios'
-                      ? 'bg-[#001D3D] text-white shadow-sm'
-                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-                  }`}
-                  title="Directorio de Funcionarios"
-                >
-                  <Users className="w-4 h-4 text-teal-600 shrink-0" />
-                  {!sidebarCollapsed && <span>Gestión Funcionarios</span>}
-                </button>
-              )}
-            </div>
-
-            {/* GRUPO 3: OPERACIÓN & ATENCIÓN */}
-            <div>
-              {!sidebarCollapsed && (
-                <span className="px-3 text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block mb-1.5">
-                  Operaciones & Clientes
-                </span>
-              )}
-
-              {/* Logística & Inventario */}
-              {canAccessTab('logistica') && (
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('logistica')}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  onClick={() => toggleAccordion('logistica', 'logistica')}
+                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                     activeTab === 'logistica'
                       ? 'bg-[#001D3D] text-white shadow-sm'
-                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                      : 'text-slate-700 hover:bg-slate-100'
                   }`}
-                  title="Logística, Productos e Inventarios"
+                  title="Logística, Bodega y Despachos"
                 >
-                  <Truck className="w-4 h-4 text-indigo-600 shrink-0" />
-                  {!sidebarCollapsed && <span>Logística & Bodega</span>}
+                  <div className="flex items-center gap-2.5 truncate">
+                    <Truck className={`w-4 h-4 shrink-0 ${activeTab === 'logistica' ? 'text-cyan-300' : 'text-indigo-600'}`} />
+                    {!sidebarCollapsed && <span className="truncate">Logística & Bodega</span>}
+                  </div>
+                  {!sidebarCollapsed && (
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span className={`px-1.5 py-0.2 rounded-full text-[9px] font-black ${
+                        activeTab === 'logistica' ? 'bg-cyan-500/30 text-cyan-200' : 'bg-slate-200 text-slate-700'
+                      }`}>
+                        {productStats.totalRef}
+                      </span>
+                      {accordionOpen.logistica ? (
+                        <ChevronDown className={`w-3.5 h-3.5 ${activeTab === 'logistica' ? 'text-cyan-300' : 'text-slate-400'}`} />
+                      ) : (
+                        <ChevronRight className={`w-3.5 h-3.5 ${activeTab === 'logistica' ? 'text-cyan-300' : 'text-slate-400'}`} />
+                      )}
+                    </div>
+                  )}
                 </button>
-              )}
 
-              {/* SAC / Atención al Cliente */}
-              {canAccessTab('sac') && (
+                {!sidebarCollapsed && accordionOpen.logistica && (
+                  <div className="ml-3 pl-2.5 border-l-2 border-indigo-200 py-1 space-y-0.5 animate-fadeIn">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTab('logistica');
+                        setLogisticsSubTab('inventario');
+                      }}
+                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
+                        activeTab === 'logistica' && logisticsSubTab === 'inventario'
+                          ? 'bg-blue-50 text-blue-900 font-black border border-blue-200 shadow-2xs'
+                          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 truncate">
+                        <Package className="w-3.5 h-3.5 text-cyan-600 shrink-0" />
+                        <span className="truncate">Inventario & Matriz</span>
+                      </div>
+                      <span className="text-[9.5px] font-mono text-slate-500">{productStats.totalRef}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTab('logistica');
+                        setLogisticsSubTab('recepcion_compras');
+                      }}
+                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
+                        activeTab === 'logistica' && logisticsSubTab === 'recepcion_compras'
+                          ? 'bg-amber-50 text-amber-900 font-black border border-amber-200 shadow-2xs'
+                          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 truncate">
+                        <Boxes className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                        <span className="truncate">Recepción de Compras</span>
+                      </div>
+                      {productStats.ocsPendientes > 0 && (
+                        <span className="px-1.5 py-0.2 rounded-full bg-amber-100 text-amber-800 text-[9px] font-bold">
+                          {productStats.ocsPendientes}
+                        </span>
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTab('logistica');
+                        setLogisticsSubTab('traslados');
+                      }}
+                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
+                        activeTab === 'logistica' && logisticsSubTab === 'traslados'
+                          ? 'bg-cyan-50 text-cyan-900 font-black border border-cyan-200 shadow-2xs'
+                          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 truncate">
+                        <ArrowLeftRight className="w-3.5 h-3.5 text-cyan-600 shrink-0" />
+                        <span className="truncate">Traslados Inter-Sedes</span>
+                      </div>
+                      {trasladosStats.pendientesRecibo > 0 && (
+                        <span className="px-1.5 py-0.2 rounded-full bg-cyan-100 text-cyan-900 text-[9px] font-bold">
+                          {trasladosStats.pendientesRecibo}
+                        </span>
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTab('logistica');
+                        setLogisticsSubTab('despachos');
+                      }}
+                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
+                        activeTab === 'logistica' && logisticsSubTab === 'despachos'
+                          ? 'bg-blue-50 text-blue-900 font-black border border-blue-200 shadow-2xs'
+                          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 truncate">
+                        <Truck className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                        <span className="truncate">Despachos & Pedidos</span>
+                      </div>
+                      <span className="text-[9.5px] font-mono text-slate-500">{orderStats.total}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTab('logistica');
+                        setLogisticsSubTab('kardex');
+                      }}
+                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
+                        activeTab === 'logistica' && logisticsSubTab === 'kardex'
+                          ? 'bg-slate-100 text-slate-900 font-black border border-slate-300 shadow-2xs'
+                          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 truncate">
+                        <Clock className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                        <span className="truncate">Historial Kardex</span>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTab('logistica');
+                        setLogisticsSubTab('tareas_asignadas');
+                      }}
+                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
+                        activeTab === 'logistica' && logisticsSubTab === 'tareas_asignadas'
+                          ? 'bg-emerald-50 text-emerald-900 font-black border border-emerald-200 shadow-2xs'
+                          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 truncate">
+                        <ClipboardCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                        <span className="truncate">Tareas Asignadas</span>
+                      </div>
+                      {logisticsTasks.filter((t) => t.estado !== 'Completada').length > 0 && (
+                        <span className="px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-800 text-[9px] font-bold">
+                          {logisticsTasks.filter((t) => t.estado !== 'Completada').length}
+                        </span>
+                      )}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 2. ATENCIÓN AL CLIENTE (SAC) */}
+            {canAccessTab('sac') && (
+              <div className="rounded-xl overflow-hidden">
                 <button
                   type="button"
-                  onClick={() => setActiveTab('sac')}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer mt-1 ${
+                  onClick={() => toggleAccordion('sac', 'sac')}
+                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                     activeTab === 'sac'
                       ? 'bg-[#001D3D] text-white shadow-sm'
-                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                      : 'text-slate-700 hover:bg-slate-100'
                   }`}
-                  title="Bandeja de Atención al Cliente (SAC)"
+                  title="Atención al Cliente (SAC)"
                 >
-                  <HeadphonesIcon className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <div className="flex items-center gap-2.5 truncate">
+                    <HeadphonesIcon className={`w-4 h-4 shrink-0 ${activeTab === 'sac' ? 'text-emerald-300' : 'text-emerald-600'}`} />
+                    {!sidebarCollapsed && <span className="truncate">Atención al Cliente</span>}
+                  </div>
                   {!sidebarCollapsed && (
-                    <span className="flex-1 flex items-center justify-between">
-                      <span>Atención al Cliente</span>
+                    <div className="flex items-center gap-1.5 shrink-0">
                       {ticketsSAC.filter((t) => t.estado === 'Nuevo').length > 0 && (
-                        <span className="px-1.5 py-0.2 rounded-full bg-rose-500 text-white text-[10px] font-black">
+                        <span className="px-1.5 py-0.2 rounded-full bg-rose-500 text-white text-[9px] font-black">
                           {ticketsSAC.filter((t) => t.estado === 'Nuevo').length}
                         </span>
                       )}
-                    </span>
+                      {accordionOpen.sac ? (
+                        <ChevronDown className={`w-3.5 h-3.5 ${activeTab === 'sac' ? 'text-cyan-300' : 'text-slate-400'}`} />
+                      ) : (
+                        <ChevronRight className={`w-3.5 h-3.5 ${activeTab === 'sac' ? 'text-cyan-300' : 'text-slate-400'}`} />
+                      )}
+                    </div>
                   )}
                 </button>
+
+                {!sidebarCollapsed && accordionOpen.sac && (
+                  <div className="ml-3 pl-2.5 border-l-2 border-emerald-200 py-1 space-y-0.5 animate-fadeIn">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTab('sac');
+                        setTicketFilterTab('todos');
+                      }}
+                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
+                        activeTab === 'sac' && ticketFilterTab === 'todos'
+                          ? 'bg-blue-50 text-blue-900 font-black border border-blue-200 shadow-2xs'
+                          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
+                      }`}
+                    >
+                      <span className="truncate">Todos los Radicados</span>
+                      <span className="text-[9.5px] font-mono text-slate-500">{ticketsSAC.length}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTab('sac');
+                        setTicketFilterTab('nuevos');
+                      }}
+                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
+                        activeTab === 'sac' && ticketFilterTab === 'nuevos'
+                          ? 'bg-rose-50 text-rose-900 font-black border border-rose-200 shadow-2xs'
+                          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
+                      }`}
+                    >
+                      <span className="truncate">Casos Nuevos (Urgentes)</span>
+                      {ticketsSAC.filter((t) => t.estado === 'Nuevo').length > 0 && (
+                        <span className="px-1.5 py-0.2 rounded-full bg-rose-100 text-rose-800 text-[9px] font-bold">
+                          {ticketsSAC.filter((t) => t.estado === 'Nuevo').length}
+                        </span>
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTab('sac');
+                        setTicketFilterTab('en_proceso');
+                      }}
+                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
+                        activeTab === 'sac' && ticketFilterTab === 'en_proceso'
+                          ? 'bg-cyan-50 text-cyan-900 font-black border border-cyan-200 shadow-2xs'
+                          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
+                      }`}
+                    >
+                      <span className="truncate">En Gestión / Proceso</span>
+                      <span className="text-[9.5px] font-mono text-slate-500">
+                        {ticketsSAC.filter((t) => t.estado === 'En proceso').length}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTab('sac');
+                        setTicketFilterTab('resueltos');
+                      }}
+                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
+                        activeTab === 'sac' && ticketFilterTab === 'resueltos'
+                          ? 'bg-emerald-50 text-emerald-900 font-black border border-emerald-200 shadow-2xs'
+                          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
+                      }`}
+                    >
+                      <span className="truncate">Casos Resueltos</span>
+                      <span className="text-[9.5px] font-mono text-slate-500">
+                        {ticketsSAC.filter((t) => t.estado === 'Resuelto').length}
+                      </span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 3. GESTIÓN FUNCIONARIOS */}
+            {(canAccessTab('funcionarios') || canAccessTab('areas')) && (
+              <div className="rounded-xl overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => toggleAccordion('funcionarios', 'funcionarios')}
+                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    activeTab === 'funcionarios' || activeTab === 'areas'
+                      ? 'bg-[#001D3D] text-white shadow-sm'
+                      : 'text-slate-700 hover:bg-slate-100'
+                  }`}
+                  title="Gestión de Funcionarios y Áreas"
+                >
+                  <div className="flex items-center gap-2.5 truncate">
+                    <Users className={`w-4 h-4 shrink-0 ${activeTab === 'funcionarios' || activeTab === 'areas' ? 'text-teal-300' : 'text-teal-600'}`} />
+                    {!sidebarCollapsed && <span className="truncate">Gestión Funcionarios</span>}
+                  </div>
+                  {!sidebarCollapsed && (
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span className={`px-1.5 py-0.2 rounded-full text-[9px] font-black ${
+                        activeTab === 'funcionarios' || activeTab === 'areas' ? 'bg-teal-500/30 text-teal-200' : 'bg-slate-200 text-slate-700'
+                      }`}>
+                        {funcionarios.length}
+                      </span>
+                      {accordionOpen.funcionarios ? (
+                        <ChevronDown className={`w-3.5 h-3.5 ${activeTab === 'funcionarios' || activeTab === 'areas' ? 'text-cyan-300' : 'text-slate-400'}`} />
+                      ) : (
+                        <ChevronRight className={`w-3.5 h-3.5 ${activeTab === 'funcionarios' || activeTab === 'areas' ? 'text-cyan-300' : 'text-slate-400'}`} />
+                      )}
+                    </div>
+                  )}
+                </button>
+
+                {!sidebarCollapsed && accordionOpen.funcionarios && (
+                  <div className="ml-3 pl-2.5 border-l-2 border-teal-200 py-1 space-y-0.5 animate-fadeIn">
+                    {canAccessTab('funcionarios') && (
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('funcionarios')}
+                        className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
+                          activeTab === 'funcionarios'
+                            ? 'bg-blue-50 text-blue-900 font-black border border-blue-200 shadow-2xs'
+                            : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 truncate">
+                          <Users className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+                          <span className="truncate">Directorio de Funcionarios</span>
+                        </div>
+                        <span className="text-[9.5px] font-mono text-slate-500">{funcionarios.length}</span>
+                      </button>
+                    )}
+
+                    {canAccessTab('areas') && (
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('areas')}
+                        className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
+                          activeTab === 'areas'
+                            ? 'bg-blue-50 text-blue-900 font-black border border-blue-200 shadow-2xs'
+                            : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 truncate">
+                          <Building2 className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                          <span className="truncate">Estructura (13 Áreas)</span>
+                        </div>
+                        <span className="text-[9.5px] font-mono text-slate-500">{areas.length}</span>
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 4. TAREAS POR ÁREA */}
+            <div className="rounded-xl overflow-hidden">
+              <button
+                type="button"
+                onClick={() => toggleAccordion('tareas', 'tareas')}
+                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  activeTab === 'tareas'
+                    ? 'bg-[#001D3D] text-white shadow-sm'
+                    : 'text-slate-700 hover:bg-slate-100'
+                }`}
+                title="Gestión de Tareas por Área"
+              >
+                <div className="flex items-center gap-2.5 truncate">
+                  <Kanban className={`w-4 h-4 shrink-0 ${activeTab === 'tareas' ? 'text-amber-300' : 'text-amber-500'}`} />
+                  {!sidebarCollapsed && <span className="truncate">Tareas por Área</span>}
+                </div>
+                {!sidebarCollapsed && (
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className={`px-1.5 py-0.2 rounded-full text-[9px] font-black ${
+                      activeTab === 'tareas' ? 'bg-amber-500/30 text-amber-200' : 'bg-amber-100 text-amber-800'
+                    }`}>
+                      {tareas.filter((t) => t.estado !== 'Completada').length}
+                    </span>
+                    {accordionOpen.tareas ? (
+                      <ChevronDown className={`w-3.5 h-3.5 ${activeTab === 'tareas' ? 'text-cyan-300' : 'text-slate-400'}`} />
+                    ) : (
+                      <ChevronRight className={`w-3.5 h-3.5 ${activeTab === 'tareas' ? 'text-cyan-300' : 'text-slate-400'}`} />
+                    )}
+                  </div>
+                )}
+              </button>
+
+              {!sidebarCollapsed && accordionOpen.tareas && (
+                <div className="ml-3 pl-2.5 border-l-2 border-amber-200 py-1 space-y-0.5 animate-fadeIn">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('tareas');
+                      setTaskViewMode('kanban');
+                    }}
+                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
+                      activeTab === 'tareas' && taskViewMode === 'kanban'
+                        ? 'bg-amber-50 text-amber-900 font-black border border-amber-200 shadow-2xs'
+                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
+                    }`}
+                  >
+                    <span className="truncate">Tablero Kanban</span>
+                    <span className="text-[9.5px] font-mono text-slate-500">5 Estados</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('tareas');
+                      setTaskViewMode('list');
+                    }}
+                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
+                      activeTab === 'tareas' && taskViewMode === 'list'
+                        ? 'bg-amber-50 text-amber-900 font-black border border-amber-200 shadow-2xs'
+                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
+                    }`}
+                  >
+                    <span className="truncate">Lista Detallada</span>
+                    <span className="text-[9.5px] font-mono text-slate-500">{tareas.length}</span>
+                  </button>
+                </div>
               )}
             </div>
 
-            {/* GRUPO 4: CULTURA & CONTROL */}
-            <div>
-              {!sidebarCollapsed && (
-                <span className="px-3 text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block mb-1.5">
-                  Cultura & Auditoría
-                </span>
-              )}
-
-              {/* Muro Comunidad */}
+            {/* 5. COMUNIDAD COLORLINK */}
+            <div className="rounded-xl overflow-hidden">
               <button
                 type="button"
-                onClick={() => setActiveTab('comunidad')}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                onClick={() => toggleAccordion('comunidad', 'comunidad')}
+                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                   activeTab === 'comunidad'
                     ? 'bg-[#001D3D] text-white shadow-sm'
-                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                    : 'text-slate-700 hover:bg-slate-100'
                 }`}
                 title="Comunidad ColorLink"
               >
-                <MessageSquare className="w-4 h-4 text-pink-600 shrink-0" />
-                {!sidebarCollapsed && <span>Comunidad ColorLink</span>}
+                <div className="flex items-center gap-2.5 truncate">
+                  <MessageSquare className={`w-4 h-4 shrink-0 ${activeTab === 'comunidad' ? 'text-pink-300' : 'text-pink-600'}`} />
+                  {!sidebarCollapsed && <span className="truncate">Comunidad ColorLink</span>}
+                </div>
+                {!sidebarCollapsed && (
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className={`px-1.5 py-0.2 rounded-full text-[9px] font-black ${
+                      activeTab === 'comunidad' ? 'bg-pink-500/30 text-pink-200' : 'bg-slate-200 text-slate-700'
+                    }`}>
+                      {publicaciones.length}
+                    </span>
+                    {accordionOpen.comunidad ? (
+                      <ChevronDown className={`w-3.5 h-3.5 ${activeTab === 'comunidad' ? 'text-cyan-300' : 'text-slate-400'}`} />
+                    ) : (
+                      <ChevronRight className={`w-3.5 h-3.5 ${activeTab === 'comunidad' ? 'text-cyan-300' : 'text-slate-400'}`} />
+                    )}
+                  </div>
+                )}
               </button>
 
-              {/* Documentos */}
+              {!sidebarCollapsed && accordionOpen.comunidad && (
+                <div className="ml-3 pl-2.5 border-l-2 border-pink-200 py-1 space-y-0.5 animate-fadeIn">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('comunidad');
+                      setComunidadFilter('todos');
+                    }}
+                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
+                      activeTab === 'comunidad' && comunidadFilter === 'todos'
+                        ? 'bg-pink-50 text-pink-900 font-black border border-pink-200 shadow-2xs'
+                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
+                    }`}
+                  >
+                    <span className="truncate">Muro de Publicaciones</span>
+                    <span className="text-[9.5px] font-mono text-slate-500">{publicaciones.length}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('comunidad');
+                      setComunidadFilter('oficiales');
+                    }}
+                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
+                      activeTab === 'comunidad' && comunidadFilter === 'oficiales'
+                        ? 'bg-pink-50 text-pink-900 font-black border border-pink-200 shadow-2xs'
+                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
+                    }`}
+                  >
+                    <span className="truncate">Comunicados Oficiales</span>
+                    <span className="text-[9.5px] font-mono text-slate-500">
+                      {publicaciones.filter((p) => p.tipo === 'comunicado' || p.fijado).length}
+                    </span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* 6. MANUALES & NTC 1335 */}
+            <div className="rounded-xl overflow-hidden">
               <button
                 type="button"
-                onClick={() => setActiveTab('documentos')}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer mt-1 ${
+                onClick={() => toggleAccordion('documentos', 'documentos')}
+                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                   activeTab === 'documentos'
                     ? 'bg-[#001D3D] text-white shadow-sm'
-                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                    : 'text-slate-700 hover:bg-slate-100'
                 }`}
-                title="Normativa y Documentación"
+                title="Normativa y Documentación NTC 1335"
               >
-                <FileText className="w-4 h-4 text-slate-500 shrink-0" />
-                {!sidebarCollapsed && <span>Manuales & NTC 1335</span>}
+                <div className="flex items-center gap-2.5 truncate">
+                  <FileText className={`w-4 h-4 shrink-0 ${activeTab === 'documentos' ? 'text-cyan-300' : 'text-slate-500'}`} />
+                  {!sidebarCollapsed && <span className="truncate">Manuales & NTC 1335</span>}
+                </div>
+                {!sidebarCollapsed && (
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="px-1.5 py-0.2 rounded-full bg-slate-200 text-slate-700 text-[9px] font-black">
+                      Normas
+                    </span>
+                    {accordionOpen.documentos ? (
+                      <ChevronDown className={`w-3.5 h-3.5 ${activeTab === 'documentos' ? 'text-cyan-300' : 'text-slate-400'}`} />
+                    ) : (
+                      <ChevronRight className={`w-3.5 h-3.5 ${activeTab === 'documentos' ? 'text-cyan-300' : 'text-slate-400'}`} />
+                    )}
+                  </div>
+                )}
               </button>
 
-              {/* Auditoría */}
-              {canAccessTab('auditoria') && (
+              {!sidebarCollapsed && accordionOpen.documentos && (
+                <div className="ml-3 pl-2.5 border-l-2 border-slate-300 py-1 space-y-0.5 animate-fadeIn">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('documentos');
+                      setDocCategoryFilter('todos');
+                    }}
+                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
+                      activeTab === 'documentos' && docCategoryFilter === 'todos'
+                        ? 'bg-blue-50 text-blue-900 font-black border border-blue-200 shadow-2xs'
+                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
+                    }`}
+                  >
+                    <span className="truncate">Repositorio Normativo</span>
+                    <span className="text-[9.5px] font-mono text-slate-500">NTC 1335</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('documentos');
+                      setDocCategoryFilter('fichas');
+                    }}
+                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
+                      activeTab === 'documentos' && docCategoryFilter === 'fichas'
+                        ? 'bg-blue-50 text-blue-900 font-black border border-blue-200 shadow-2xs'
+                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
+                    }`}
+                  >
+                    <span className="truncate">Fichas MSDS & POE</span>
+                    <span className="text-[9.5px] font-mono text-slate-500">14 Fichas</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* 7. AUDITORÍA & INFORMES */}
+            {canAccessTab('auditoria') && (
+              <div className="rounded-xl overflow-hidden">
                 <button
                   type="button"
-                  onClick={() => setActiveTab('auditoria')}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer mt-1 ${
+                  onClick={() => toggleAccordion('auditoria', 'auditoria')}
+                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                     activeTab === 'auditoria'
                       ? 'bg-[#001D3D] text-white shadow-sm'
-                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                      : 'text-slate-700 hover:bg-slate-100'
                   }`}
-                  title="Auditoría y Reportes"
+                  title="Auditoría y Trazabilidad"
                 >
-                  <ShieldCheck className="w-4 h-4 text-violet-600 shrink-0" />
-                  {!sidebarCollapsed && <span>Auditoría & Informes</span>}
+                  <div className="flex items-center gap-2.5 truncate">
+                    <ShieldCheck className={`w-4 h-4 shrink-0 ${activeTab === 'auditoria' ? 'text-violet-300' : 'text-violet-600'}`} />
+                    {!sidebarCollapsed && <span className="truncate">Auditoría & Informes</span>}
+                  </div>
+                  {!sidebarCollapsed && (
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span className={`px-1.5 py-0.2 rounded-full text-[9px] font-black ${
+                        activeTab === 'auditoria' ? 'bg-violet-500/30 text-violet-200' : 'bg-slate-200 text-slate-700'
+                      }`}>
+                        {auditoria.length}
+                      </span>
+                      {accordionOpen.auditoria ? (
+                        <ChevronDown className={`w-3.5 h-3.5 ${activeTab === 'auditoria' ? 'text-cyan-300' : 'text-slate-400'}`} />
+                      ) : (
+                        <ChevronRight className={`w-3.5 h-3.5 ${activeTab === 'auditoria' ? 'text-cyan-300' : 'text-slate-400'}`} />
+                      )}
+                    </div>
+                  )}
                 </button>
+
+                {!sidebarCollapsed && accordionOpen.auditoria && (
+                  <div className="ml-3 pl-2.5 border-l-2 border-violet-200 py-1 space-y-0.5 animate-fadeIn">
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('auditoria')}
+                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
+                        activeTab === 'auditoria'
+                          ? 'bg-violet-50 text-violet-900 font-black border border-violet-200 shadow-2xs'
+                          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
+                      }`}
+                    >
+                      <span className="truncate">Registro de Trazabilidad</span>
+                      <span className="text-[9.5px] font-mono text-slate-500">{auditoria.length}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleExportCSV('auditoria')}
+                      className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium transition-all cursor-pointer"
+                    >
+                      <span className="truncate">Exportar Auditoría CSV</span>
+                      <Download className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 8. DASHBOARD OPERATIVO */}
+            <div className="rounded-xl overflow-hidden">
+              <button
+                type="button"
+                onClick={() => toggleAccordion('dashboard', 'dashboard')}
+                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  activeTab === 'dashboard'
+                    ? 'bg-[#001D3D] text-white shadow-sm'
+                    : 'text-slate-700 hover:bg-slate-100'
+                }`}
+                title="Dashboard Operativo General"
+              >
+                <div className="flex items-center gap-2.5 truncate">
+                  <BarChart3 className={`w-4 h-4 shrink-0 ${activeTab === 'dashboard' ? 'text-cyan-300' : 'text-cyan-600'}`} />
+                  {!sidebarCollapsed && <span className="truncate">Dashboard Operativo</span>}
+                </div>
+                {!sidebarCollapsed && (
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {accordionOpen.dashboard ? (
+                      <ChevronDown className={`w-3.5 h-3.5 ${activeTab === 'dashboard' ? 'text-cyan-300' : 'text-slate-400'}`} />
+                    ) : (
+                      <ChevronRight className={`w-3.5 h-3.5 ${activeTab === 'dashboard' ? 'text-cyan-300' : 'text-slate-400'}`} />
+                    )}
+                  </div>
+                )}
+              </button>
+
+              {!sidebarCollapsed && accordionOpen.dashboard && (
+                <div className="ml-3 pl-2.5 border-l-2 border-cyan-200 py-1 space-y-0.5 animate-fadeIn">
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('dashboard')}
+                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
+                      activeTab === 'dashboard'
+                        ? 'bg-cyan-50 text-cyan-900 font-black border border-cyan-200 shadow-2xs'
+                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
+                    }`}
+                  >
+                    <span className="truncate">Métricas & KPIs Globales</span>
+                    <span className="text-[9.5px] font-mono text-emerald-600 font-bold">En Vivo</span>
+                  </button>
+                </div>
               )}
             </div>
 
@@ -1804,6 +2335,54 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
           {activeTab === 'dashboard' && (
             <div className="space-y-6 animate-fadeIn">
               
+              {/* Encabezado Dinámico: Submódulo Activo + Badge + Sede/CEDI Activo */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white px-4 py-3 sm:px-5 sm:py-3.5 rounded-2xl border border-slate-200/90 shadow-2xs">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#001D3D] via-[#002D5C] to-[#0A192F] text-cyan-300 flex items-center justify-center shrink-0 shadow-xs ring-1 ring-cyan-500/30">
+                    <BarChart3 className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h2 className="text-sm sm:text-base font-black text-slate-900 tracking-tight leading-none">
+                        Dashboard Operativo • Métricas & KPIs Globales
+                      </h2>
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9.5px] font-black bg-cyan-50 text-cyan-800 border border-cyan-200 font-mono">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                        Monitoreo en Tiempo Real
+                      </span>
+                    </div>
+                    <p className="text-[10.5px] text-slate-500 font-medium mt-0.5 leading-tight">
+                      Supervisión de Desempeño, Indicadores de Planta, CEDI Mamonal y Red de Distribución
+                    </p>
+                  </div>
+                </div>
+
+                {/* Selector de Sede CEDI activo */}
+                <div className="flex items-center gap-2 bg-slate-50 hover:bg-slate-100/90 py-1 px-2.5 rounded-md border border-slate-200/90 transition-all shadow-2xs self-start sm:self-auto shrink-0">
+                  <div className="w-5 h-5 rounded bg-cyan-50 text-cyan-700 flex items-center justify-center border border-cyan-200/80 shrink-0 shadow-2xs">
+                    <MapPin className="w-3 h-3" />
+                  </div>
+                  <div className="text-left">
+                    <label htmlFor="sedeSelectorDashboard" className="text-[8.5px] font-black text-slate-400 uppercase tracking-wider block leading-none">
+                      Sede / CEDI Activo:
+                    </label>
+                    <select
+                      id="sedeSelectorDashboard"
+                      value={selectedSede}
+                      onChange={(e) => setSelectedSede(e.target.value)}
+                      className="bg-transparent text-slate-900 font-black text-[11px] focus:outline-none cursor-pointer mt-0.5 pr-1 leading-tight"
+                    >
+                      <option value="todas">🏢 Todas las Sedes (Consolidado Nacional)</option>
+                      {SEDES_CEDI_CONFIG.map((sede) => (
+                        <option key={sede.id} value={sede.id}>
+                          📍 {sede.nombre}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
               {/* Bienvenida y Resumen Estratégico */}
               <div className="bg-gradient-to-r from-[#001D3D] to-[#003366] rounded-3xl p-6 sm:p-8 text-white shadow-xl relative overflow-hidden">
                 <div className="absolute right-0 top-0 bottom-0 w-1/3 opacity-10 pointer-events-none flex items-center justify-center">
@@ -1984,31 +2563,65 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
           {activeTab === 'areas' && (
             <div className="space-y-6 animate-fadeIn">
               
-              {/* Encabezado del Módulo */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-3xl border border-slate-200 shadow-xs">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-blue-100 text-blue-900 uppercase">
-                      Organigrama Ficticio Académico
-                    </span>
-                    <span className="text-xs text-slate-400">13 Áreas Propuestas</span>
+              {/* Encabezado Dinámico: Submódulo Activo + Badge + Sede/CEDI Activo */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white px-4 py-3 sm:px-5 sm:py-3.5 rounded-2xl border border-slate-200/90 shadow-2xs">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#001D3D] via-[#002D5C] to-[#0A192F] text-blue-300 flex items-center justify-center shrink-0 shadow-xs ring-1 ring-blue-500/30">
+                    <Building2 className="w-4 h-4" />
                   </div>
-                  <h2 className="text-xl font-black text-slate-900 mt-1">Estructura Organizacional Pintuco</h2>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Configuración de jefaturas, permisos modulares, equipos de trabajo e indicadores operativos.
-                  </p>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h2 className="text-sm sm:text-base font-black text-slate-900 tracking-tight leading-none">
+                        Gestión Funcionarios • Estructura (13 Áreas)
+                      </h2>
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9.5px] font-black bg-blue-50 text-blue-800 border border-blue-200 font-mono">
+                        <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+                        13 Áreas Corporativas Pintuco
+                      </span>
+                    </div>
+                    <p className="text-[10.5px] text-slate-500 font-medium mt-0.5 leading-tight">
+                      Configuración de Jefaturas, Permisos Modulares, Equipos de Trabajo e Indicadores
+                    </p>
+                  </div>
                 </div>
 
-                {currentRoleConfig.permisos.canManageAreas && (
-                  <button
-                    type="button"
-                    onClick={() => setIsNewAreaModalOpen(true)}
-                    className="px-4 py-2.5 rounded-xl bg-blue-900 hover:bg-blue-800 text-white font-bold text-xs shadow-xs transition-all flex items-center gap-2 cursor-pointer self-start sm:self-auto"
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span>Crear Nueva Área</span>
-                  </button>
-                )}
+                <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+                  {/* Selector de Sede CEDI activo */}
+                  <div className="flex items-center gap-2 bg-slate-50 hover:bg-slate-100/90 py-1 px-2.5 rounded-md border border-slate-200/90 transition-all shadow-2xs shrink-0">
+                    <div className="w-5 h-5 rounded bg-cyan-50 text-cyan-700 flex items-center justify-center border border-cyan-200/80 shrink-0 shadow-2xs">
+                      <MapPin className="w-3 h-3" />
+                    </div>
+                    <div className="text-left">
+                      <label htmlFor="sedeSelectorAreas" className="text-[8.5px] font-black text-slate-400 uppercase tracking-wider block leading-none">
+                        Sede / CEDI Activo:
+                      </label>
+                      <select
+                        id="sedeSelectorAreas"
+                        value={selectedSede}
+                        onChange={(e) => setSelectedSede(e.target.value)}
+                        className="bg-transparent text-slate-900 font-black text-[11px] focus:outline-none cursor-pointer mt-0.5 pr-1 leading-tight"
+                      >
+                        <option value="todas">🏢 Todas las Sedes (Consolidado Nacional)</option>
+                        {SEDES_CEDI_CONFIG.map((sede) => (
+                          <option key={sede.id} value={sede.id}>
+                            📍 {sede.nombre}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {currentRoleConfig.permisos.canManageAreas && (
+                    <button
+                      type="button"
+                      onClick={() => setIsNewAreaModalOpen(true)}
+                      className="px-3.5 py-1.5 rounded-xl bg-[#001D3D] hover:bg-blue-900 text-white font-bold text-xs shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Plus className="w-4 h-4 text-cyan-300" />
+                      <span>Nueva Área</span>
+                    </button>
+                  )}
+                </div>
               </div>
 
               {/* Grid de las 13 Áreas */}
@@ -2079,32 +2692,70 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
           {activeTab === 'funcionarios' && (
             <div className="space-y-6 animate-fadeIn">
               
-              {/* Encabezado y Filtros */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-3xl border border-slate-200 shadow-xs">
-                <div>
-                  <h2 className="text-xl font-black text-slate-900">Directorio de Funcionarios</h2>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Administración de personal, asignación de cargos, jefaturas inmediatas y control de acceso RBAC.
-                  </p>
+              {/* Encabezado Dinámico: Submódulo Activo + Badge + Sede/CEDI Activo */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white px-4 py-3 sm:px-5 sm:py-3.5 rounded-2xl border border-slate-200/90 shadow-2xs">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#001D3D] via-[#002D5C] to-[#0A192F] text-teal-300 flex items-center justify-center shrink-0 shadow-xs ring-1 ring-teal-500/30">
+                    <Users className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h2 className="text-sm sm:text-base font-black text-slate-900 tracking-tight leading-none">
+                        Gestión Funcionarios • Directorio de Personal
+                      </h2>
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9.5px] font-black bg-teal-50 text-teal-800 border border-teal-200 font-mono">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                        {funcionarios.length} Colaboradores Activos
+                      </span>
+                    </div>
+                    <p className="text-[10.5px] text-slate-500 font-medium mt-0.5 leading-tight">
+                      Administración de Personal, Asignación de Cargos, Jefaturas y Control RBAC
+                    </p>
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+                  {/* Selector de Sede CEDI activo */}
+                  <div className="flex items-center gap-2 bg-slate-50 hover:bg-slate-100/90 py-1 px-2.5 rounded-md border border-slate-200/90 transition-all shadow-2xs shrink-0">
+                    <div className="w-5 h-5 rounded bg-cyan-50 text-cyan-700 flex items-center justify-center border border-cyan-200/80 shrink-0 shadow-2xs">
+                      <MapPin className="w-3 h-3" />
+                    </div>
+                    <div className="text-left">
+                      <label htmlFor="sedeSelectorFunc" className="text-[8.5px] font-black text-slate-400 uppercase tracking-wider block leading-none">
+                        Sede / CEDI Activo:
+                      </label>
+                      <select
+                        id="sedeSelectorFunc"
+                        value={selectedSede}
+                        onChange={(e) => setSelectedSede(e.target.value)}
+                        className="bg-transparent text-slate-900 font-black text-[11px] focus:outline-none cursor-pointer mt-0.5 pr-1 leading-tight"
+                      >
+                        <option value="todas">🏢 Todas las Sedes (Consolidado Nacional)</option>
+                        {SEDES_CEDI_CONFIG.map((sede) => (
+                          <option key={sede.id} value={sede.id}>
+                            📍 {sede.nombre}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
                   <button
                     type="button"
                     onClick={() => handleExportCSV('funcionarios')}
-                    className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+                    className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 cursor-pointer"
+                    title="Exportar CSV"
                   >
                     <Download className="w-4 h-4" />
-                    <span>Exportar CSV</span>
                   </button>
 
                   {currentRoleConfig.permisos.canManageUsers && (
                     <button
                       type="button"
                       onClick={() => setIsNewFuncModalOpen(true)}
-                      className="px-4 py-2 rounded-xl bg-blue-900 hover:bg-blue-800 text-white font-bold text-xs shadow-xs transition-all flex items-center gap-2 cursor-pointer"
+                      className="px-3.5 py-1.5 rounded-xl bg-[#001D3D] hover:bg-blue-900 text-white font-bold text-xs shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
                     >
-                      <UserPlus className="w-4 h-4" />
+                      <UserPlus className="w-4 h-4 text-cyan-300" />
                       <span>Nuevo Funcionario</span>
                     </button>
                   )}
@@ -2308,36 +2959,52 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
           {activeTab === 'tareas' && (
             <div className="space-y-6 animate-fadeIn">
               
-              {/* Encabezado y Acciones */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-3xl border border-slate-200 shadow-xs">
-                <div>
-                  <h2 className="text-xl font-black text-slate-900">Gestión de Tareas y Compromisos</h2>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Planificación por áreas, flujo de revisión y aprobación, tableros Kanban y cálculo de cumplimiento real.
-                  </p>
+              {/* Encabezado Dinámico: Submódulo Activo + Badge + Sede/CEDI Activo */}
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-white px-4 py-3 sm:px-5 sm:py-3.5 rounded-2xl border border-slate-200/90 shadow-2xs">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#001D3D] via-[#002D5C] to-[#0A192F] text-amber-300 flex items-center justify-center shrink-0 shadow-xs ring-1 ring-amber-500/30">
+                    <Kanban className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h2 className="text-sm sm:text-base font-black text-slate-900 tracking-tight leading-none">
+                        Tareas por Área • {taskViewMode === 'kanban' ? 'Tablero Kanban' : 'Lista Detallada'}
+                      </h2>
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9.5px] font-black bg-amber-50 text-amber-800 border border-amber-200 font-mono">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                        {tareas.filter((t) => t.estado !== 'Completada').length} Pendientes
+                      </span>
+                    </div>
+                    <p className="text-[10.5px] text-slate-500 font-medium mt-0.5 leading-tight">
+                      Flujo de Revisión, Compromisos Interdepartamentales y Cumplimiento
+                    </p>
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  {/* Selector de Vistas */}
-                  <div className="bg-slate-100 p-1 rounded-xl flex items-center gap-1 border border-slate-200">
-                    <button
-                      type="button"
-                      onClick={() => setTaskViewMode('kanban')}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                        taskViewMode === 'kanban' ? 'bg-white text-blue-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
-                      }`}
-                    >
-                      Kanban
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setTaskViewMode('list')}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                        taskViewMode === 'list' ? 'bg-white text-blue-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
-                      }`}
-                    >
-                      Lista
-                    </button>
+                <div className="flex items-center gap-2 self-start md:self-auto flex-wrap">
+                  {/* Selector de Sede CEDI activo */}
+                  <div className="flex items-center gap-2 bg-slate-50 hover:bg-slate-100/90 py-1 px-2.5 rounded-md border border-slate-200/90 transition-all shadow-2xs shrink-0">
+                    <div className="w-5 h-5 rounded bg-cyan-50 text-cyan-700 flex items-center justify-center border border-cyan-200/80 shrink-0 shadow-2xs">
+                      <MapPin className="w-3 h-3" />
+                    </div>
+                    <div className="text-left">
+                      <label htmlFor="sedeSelectorTareas" className="text-[8.5px] font-black text-slate-400 uppercase tracking-wider block leading-none">
+                        Sede / CEDI Activo:
+                      </label>
+                      <select
+                        id="sedeSelectorTareas"
+                        value={selectedSede}
+                        onChange={(e) => setSelectedSede(e.target.value)}
+                        className="bg-transparent text-slate-900 font-black text-[11px] focus:outline-none cursor-pointer mt-0.5 pr-1 leading-tight"
+                      >
+                        <option value="todas">🏢 Todas las Sedes (Consolidado Nacional)</option>
+                        {SEDES_CEDI_CONFIG.map((sede) => (
+                          <option key={sede.id} value={sede.id}>
+                            📍 {sede.nombre}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
 
                   <button
@@ -2352,9 +3019,9 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
                   <button
                     type="button"
                     onClick={() => setIsNewTaskModalOpen(true)}
-                    className="px-4 py-2 rounded-xl bg-blue-900 hover:bg-blue-800 text-white font-bold text-xs shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                    className="px-3.5 py-1.5 rounded-xl bg-[#001D3D] hover:bg-blue-900 text-white font-bold text-xs shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
                   >
-                    <Plus className="w-4 h-4" />
+                    <Plus className="w-4 h-4 text-cyan-300" />
                     <span>Nueva Tarea</span>
                   </button>
                 </div>
@@ -2715,13 +3382,51 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
           {activeTab === 'comunidad' && (
             <div className="space-y-6 animate-fadeIn">
               
-              {/* Encabezado */}
-              <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div>
-                  <h2 className="text-xl font-black text-slate-900">Comunidad ColorLink</h2>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Noticias oficiales, logros de equipo, reconocimientos a funcionarios y cultura organizacional.
-                  </p>
+              {/* Encabezado Dinámico: Submódulo Activo + Badge + Sede/CEDI Activo */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white px-4 py-3 sm:px-5 sm:py-3.5 rounded-2xl border border-slate-200/90 shadow-2xs">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#001D3D] via-[#002D5C] to-[#0A192F] text-pink-300 flex items-center justify-center shrink-0 shadow-xs ring-1 ring-pink-500/30">
+                    <MessageSquare className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h2 className="text-sm sm:text-base font-black text-slate-900 tracking-tight leading-none">
+                        Comunidad ColorLink • {comunidadFilter === 'oficiales' ? 'Comunicados Oficiales' : 'Muro de Publicaciones'}
+                      </h2>
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9.5px] font-black bg-pink-50 text-pink-800 border border-pink-200 font-mono">
+                        <span className="w-1.5 h-1.5 rounded-full bg-pink-500 animate-pulse" />
+                        {publicaciones.filter((p) => (comunidadFilter === 'oficiales' ? (p.tipo === 'comunicado' || p.fijado) : true)).length} Publicaciones
+                      </span>
+                    </div>
+                    <p className="text-[10.5px] text-slate-500 font-medium mt-0.5 leading-tight">
+                      Noticias Oficiales, Logros de Equipo, Reconocimientos y Cultura Organizacional
+                    </p>
+                  </div>
+                </div>
+
+                {/* Selector de Sede CEDI activo */}
+                <div className="flex items-center gap-2 bg-slate-50 hover:bg-slate-100/90 py-1 px-2.5 rounded-md border border-slate-200/90 transition-all shadow-2xs self-start sm:self-auto shrink-0">
+                  <div className="w-5 h-5 rounded bg-cyan-50 text-cyan-700 flex items-center justify-center border border-cyan-200/80 shrink-0 shadow-2xs">
+                    <MapPin className="w-3 h-3" />
+                  </div>
+                  <div className="text-left">
+                    <label htmlFor="sedeSelectorComunidad" className="text-[8.5px] font-black text-slate-400 uppercase tracking-wider block leading-none">
+                      Sede / CEDI Activo:
+                    </label>
+                    <select
+                      id="sedeSelectorComunidad"
+                      value={selectedSede}
+                      onChange={(e) => setSelectedSede(e.target.value)}
+                      className="bg-transparent text-slate-900 font-black text-[11px] focus:outline-none cursor-pointer mt-0.5 pr-1 leading-tight"
+                    >
+                      <option value="todas">🏢 Todas las Sedes (Consolidado Nacional)</option>
+                      {SEDES_CEDI_CONFIG.map((sede) => (
+                        <option key={sede.id} value={sede.id}>
+                          📍 {sede.nombre}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
               </div>
 
@@ -2779,9 +3484,11 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
                 </form>
               </div>
 
-              {/* Feed de Publicaciones */}
+              {/* Feed de Publicaciones Filtrado */}
               <div className="space-y-5">
-                {publicaciones.map((post) => (
+                {publicaciones
+                  .filter((p) => (comunidadFilter === 'oficiales' ? (p.tipo === 'comunicado' || p.fijado) : true))
+                  .map((post) => (
                   <div key={post.id} className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4">
                     
                     {/* Header del Post */}
@@ -2906,20 +3613,38 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
                 </div>
               )}
 
-              {/* TIER 1: CABECERA EMPRESARIAL COMPACTA - COMANDO Y SELECTOR DE SEDE CEDI ACTIVO */}
-              <div className="bg-white rounded-lg border border-slate-200/90 shadow-2xs px-3 py-1.5 sm:px-3.5 sm:py-2 flex flex-col md:flex-row md:items-center justify-between gap-2">
+              {/* CABECERA DINÁMICA: TÍTULO DEL SUBMÓDULO ACTIVO + BADGE DESCRIPTIVO + SELECTOR DE SEDE CEDI */}
+              <div className="bg-white rounded-lg border border-slate-200/90 shadow-2xs px-3 py-2 sm:px-4 sm:py-2.5 flex flex-col md:flex-row md:items-center justify-between gap-2.5">
                 <div className="flex items-center gap-2.5">
                   <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#001D3D] via-[#002D5C] to-[#0A192F] text-cyan-300 flex items-center justify-center shrink-0 shadow-xs ring-1 ring-cyan-500/30">
-                    <Building2 className="w-4 h-4" />
+                    {logisticsSubTab === 'inventario' && <Package className="w-4 h-4" />}
+                    {logisticsSubTab === 'recepcion_compras' && <Boxes className="w-4 h-4 text-amber-300" />}
+                    {logisticsSubTab === 'traslados' && <ArrowLeftRight className="w-4 h-4 text-cyan-300" />}
+                    {logisticsSubTab === 'despachos' && <Truck className="w-4 h-4 text-indigo-300" />}
+                    {logisticsSubTab === 'kardex' && <Clock className="w-4 h-4 text-slate-300" />}
+                    {logisticsSubTab === 'tareas_asignadas' && <ClipboardCheck className="w-4 h-4 text-emerald-300" />}
                   </div>
                   <div>
                     <div className="flex items-center gap-2 flex-wrap">
                       <h2 className="text-sm sm:text-base font-black text-slate-900 tracking-tight leading-none">
-                        Logística, Bodega y Despachos
+                        Logística & Bodega • {
+                          logisticsSubTab === 'inventario' ? 'Inventario & Matriz' :
+                          logisticsSubTab === 'recepcion_compras' ? 'Recepción de Compras' :
+                          logisticsSubTab === 'traslados' ? 'Traslados Inter-Sedes' :
+                          logisticsSubTab === 'despachos' ? 'Despachos & Pedidos' :
+                          logisticsSubTab === 'kardex' ? 'Historial Kardex' : 'Tareas Asignadas'
+                        }
                       </h2>
-                      <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-black bg-slate-100 text-slate-700 border border-slate-200 font-mono">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9.5px] font-black bg-cyan-50 text-cyan-800 border border-cyan-200 font-mono">
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                        ERP Enterprise v3.4
+                        {
+                          logisticsSubTab === 'inventario' ? `${productStats.totalRef} Variantes SKU • Stock: ${productStats.totalUnidades}` :
+                          logisticsSubTab === 'recepcion_compras' ? `${productStats.ocsPendientes} OCs por Recibir` :
+                          logisticsSubTab === 'traslados' ? `${trasladosStats.pendientesRecibo} En Tránsito de Entrada` :
+                          logisticsSubTab === 'despachos' ? `${orderStats.total} Pedidos Sincronizados` :
+                          logisticsSubTab === 'kardex' ? 'Libro Diario de Movimientos' :
+                          `${logisticsTasks.filter(t => t.estado !== 'Completada').length} Tareas Pendientes`
+                        }
                       </span>
                     </div>
                     <p className="text-[10.5px] text-slate-500 font-medium mt-0.5 leading-tight">
@@ -2929,7 +3654,7 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
                 </div>
 
                 {/* Selector de Sede CEDI activo estilizado y compacto */}
-                <div className="flex items-center gap-2 bg-slate-50 hover:bg-slate-100/90 py-0.5 px-2 rounded-md border border-slate-200/90 transition-all shadow-2xs self-start md:self-auto shrink-0">
+                <div className="flex items-center gap-2 bg-slate-50 hover:bg-slate-100/90 py-1 px-2.5 rounded-md border border-slate-200/90 transition-all shadow-2xs self-start md:self-auto shrink-0">
                   <div className="w-5 h-5 rounded bg-cyan-50 text-cyan-700 flex items-center justify-center border border-cyan-200/80 shrink-0 shadow-2xs">
                     <MapPin className="w-3 h-3" />
                   </div>
@@ -2951,96 +3676,6 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
                       ))}
                     </select>
                   </div>
-                </div>
-              </div>
-
-              {/* TIER 2: BARRA DE NAVEGACIÓN DE PESTAÑAS (COMPACTA Y ALINEADA) */}
-              <div className="bg-white rounded-lg border border-slate-200/90 p-1 shadow-2xs w-full">
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-1 w-full">
-                  <button
-                    type="button"
-                    onClick={() => setLogisticsSubTab('inventario')}
-                    className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-md text-xs transition-all cursor-pointer ${
-                      logisticsSubTab === 'inventario'
-                        ? 'bg-[#001D3D] text-white shadow-sm font-black border border-[#001D3D]'
-                        : 'bg-slate-50/80 hover:bg-slate-100 text-slate-700 hover:text-slate-900 font-bold border border-slate-200/70 shadow-2xs'
-                    }`}
-                  >
-                    <Package className={`w-3.5 h-3.5 shrink-0 ${logisticsSubTab === 'inventario' ? 'text-cyan-300' : 'text-slate-500'}`} />
-                    <span className="truncate">Inventario & Matriz</span>
-                    <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-bold shrink-0 ${
-                      logisticsSubTab === 'inventario' ? 'bg-cyan-500/25 text-cyan-200 border border-cyan-400/30' : 'bg-slate-200/80 text-slate-700'
-                    }`}>
-                      {(Number(productStats.totalRef) || 0)}
-                    </span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setLogisticsSubTab('recepcion_compras')}
-                    className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-md text-xs transition-all cursor-pointer ${
-                      logisticsSubTab === 'recepcion_compras'
-                        ? 'bg-[#001D3D] text-white shadow-sm font-black border border-[#001D3D]'
-                        : 'bg-slate-50/80 hover:bg-slate-100 text-slate-700 hover:text-slate-900 font-bold border border-slate-200/70 shadow-2xs'
-                    }`}
-                  >
-                    <Boxes className={`w-3.5 h-3.5 shrink-0 ${logisticsSubTab === 'recepcion_compras' ? 'text-amber-300' : 'text-amber-600'}`} />
-                    <span className="truncate">Recepción Compras</span>
-                    <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-bold shrink-0 ${
-                      logisticsSubTab === 'recepcion_compras' ? 'bg-amber-500/25 text-amber-200 border border-amber-400/30' : 'bg-amber-100 text-amber-800'
-                    }`}>
-                      {(Number(productStats.ocsPendientes) || 0)}
-                    </span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setLogisticsSubTab('traslados')}
-                    className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-md text-xs transition-all cursor-pointer ${
-                      logisticsSubTab === 'traslados'
-                        ? 'bg-[#001D3D] text-white shadow-sm font-black border border-[#001D3D]'
-                        : 'bg-slate-50/80 hover:bg-slate-100 text-slate-700 hover:text-slate-900 font-bold border border-slate-200/70 shadow-2xs'
-                    }`}
-                  >
-                    <ArrowLeftRight className={`w-3.5 h-3.5 shrink-0 ${logisticsSubTab === 'traslados' ? 'text-cyan-300' : 'text-cyan-600'}`} />
-                    <span className="truncate">Traslados Inter-Sedes</span>
-                    <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-bold shrink-0 ${
-                      logisticsSubTab === 'traslados' ? 'bg-cyan-500/25 text-cyan-200 border border-cyan-400/30' : 'bg-cyan-100 text-cyan-900'
-                    }`}>
-                      {trasladosStats.pendientesRecibo > 0 ? `${trasladosStats.pendientesRecibo} por recibir` : trasladosStats.total}
-                    </span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setLogisticsSubTab('despachos')}
-                    className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-md text-xs transition-all cursor-pointer ${
-                      logisticsSubTab === 'despachos'
-                        ? 'bg-[#001D3D] text-white shadow-sm font-black border border-[#001D3D]'
-                        : 'bg-slate-50/80 hover:bg-slate-100 text-slate-700 hover:text-slate-900 font-bold border border-slate-200/70 shadow-2xs'
-                    }`}
-                  >
-                    <Truck className={`w-3.5 h-3.5 shrink-0 ${logisticsSubTab === 'despachos' ? 'text-cyan-300' : 'text-slate-500'}`} />
-                    <span className="truncate">Despachos & Pedidos</span>
-                    <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-bold shrink-0 ${
-                      logisticsSubTab === 'despachos' ? 'bg-cyan-500/25 text-cyan-200 border border-cyan-400/30' : 'bg-slate-200/80 text-slate-700'
-                    }`}>
-                      {(Number(orderStats.total) || 0)}
-                    </span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setLogisticsSubTab('kardex')}
-                    className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-md text-xs transition-all cursor-pointer col-span-2 sm:col-span-1 ${
-                      logisticsSubTab === 'kardex'
-                        ? 'bg-[#001D3D] text-white shadow-sm font-black border border-[#001D3D]'
-                        : 'bg-slate-50/80 hover:bg-slate-100 text-slate-700 hover:text-slate-900 font-bold border border-slate-200/70 shadow-2xs'
-                    }`}
-                  >
-                    <Clock className={`w-3.5 h-3.5 shrink-0 ${logisticsSubTab === 'kardex' ? 'text-cyan-300' : 'text-slate-500'}`} />
-                    <span className="truncate">Historial Kardex</span>
-                  </button>
                 </div>
               </div>
 
@@ -4696,6 +5331,173 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
                       </table>
                     </div>
                   </div>
+                </div>
+              )}
+
+              {/* =====================================================================
+                  SUB-PESTAÑA 6: TAREAS ASIGNADAS A OPERACIONES & LOGÍSTICA
+              ===================================================================== */}
+              {logisticsSubTab === 'tareas_asignadas' && (
+                <div className="space-y-3 sm:space-y-4 animate-fadeIn">
+                  {/* Tarjetas KPIs de Tareas de Logística */}
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
+                    <div className="bg-white p-3 sm:p-3.5 rounded-xl border-t-2 border-t-blue-800 border-x border-b border-slate-200/90 shadow-2xs">
+                      <div className="flex items-center justify-between text-slate-500 text-[10px] font-black uppercase tracking-wider">
+                        <span>Total Asignadas</span>
+                        <ClipboardCheck className="w-4 h-4 text-blue-900" />
+                      </div>
+                      <span className="text-xl sm:text-2xl font-black text-slate-900 mt-1 block">
+                        {logisticsTasks.length}
+                      </span>
+                      <span className="text-[10px] text-slate-400 font-medium">Logística, CEDI y Bodega</span>
+                    </div>
+
+                    <div className="bg-white p-3 sm:p-3.5 rounded-xl border-t-2 border-t-amber-500 border-x border-b border-slate-200/90 shadow-2xs">
+                      <div className="flex items-center justify-between text-amber-700 text-[10px] font-black uppercase tracking-wider">
+                        <span>En Progreso</span>
+                        <Clock className="w-4 h-4 text-amber-600" />
+                      </div>
+                      <span className="text-xl sm:text-2xl font-black text-amber-600 mt-1 block">
+                        {logisticsTasks.filter((t) => t.estado === 'En progreso').length}
+                      </span>
+                      <span className="text-[10px] text-amber-700 font-medium">En ejecución activa</span>
+                    </div>
+
+                    <div className="bg-white p-3 sm:p-3.5 rounded-xl border-t-2 border-t-rose-500 border-x border-b border-slate-200/90 shadow-2xs">
+                      <div className="flex items-center justify-between text-rose-700 text-[10px] font-black uppercase tracking-wider">
+                        <span>Pendientes / Urgentes</span>
+                        <AlertTriangle className="w-4 h-4 text-rose-600" />
+                      </div>
+                      <span className="text-xl sm:text-2xl font-black text-rose-600 mt-1 block">
+                        {logisticsTasks.filter((t) => t.estado === 'Pendiente' || t.prioridad === 'Urgente').length}
+                      </span>
+                      <span className="text-[10px] text-rose-700 font-medium">Por iniciar o críticas</span>
+                    </div>
+
+                    <div className="bg-white p-3 sm:p-3.5 rounded-xl border-t-2 border-t-emerald-600 border-x border-b border-slate-200/90 shadow-2xs">
+                      <div className="flex items-center justify-between text-emerald-700 text-[10px] font-black uppercase tracking-wider">
+                        <span>Completadas</span>
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                      </div>
+                      <span className="text-xl sm:text-2xl font-black text-emerald-600 mt-1 block">
+                        {logisticsTasks.filter((t) => t.estado === 'Completada').length}
+                      </span>
+                      <span className="text-[10px] text-emerald-700 font-medium">Finalizadas con éxito</span>
+                    </div>
+                  </div>
+
+                  {/* Barra de Controles y Creación */}
+                  <div className="bg-white p-3 rounded-xl border border-slate-200/90 shadow-2xs flex flex-wrap items-center justify-between gap-2.5">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-black text-slate-800">
+                        Compromisos del Personal de Almacén y Rutas
+                      </span>
+                      <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-mono font-bold">
+                        {logisticsTasks.length} Registradas
+                      </span>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setIsNewTaskModalOpen(true)}
+                      className="px-3.5 py-1.5 rounded-lg bg-[#001D3D] hover:bg-blue-900 text-white font-bold text-xs shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5 text-cyan-300" />
+                      <span>+ Nueva Tarea Logística</span>
+                    </button>
+                  </div>
+
+                  {/* Grid de Tarjetas de Tareas */}
+                  {logisticsTasks.length === 0 ? (
+                    <div className="bg-white p-8 rounded-2xl border border-slate-200 text-center space-y-2">
+                      <ClipboardCheck className="w-10 h-10 text-slate-300 mx-auto" />
+                      <h4 className="font-bold text-sm text-slate-800">No hay tareas asignadas para Logística</h4>
+                      <p className="text-xs text-slate-500">
+                        Crea una nueva tarea de inventario, alistamiento, recepción o mantenimiento para tu equipo.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {logisticsTasks.map((t) => (
+                        <div
+                          key={t.id}
+                          onClick={() => setSelectedTaskForDetail(t)}
+                          className="bg-white p-4 rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md transition-all cursor-pointer space-y-3 flex flex-col justify-between"
+                        >
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between gap-1">
+                              <span className="text-[9.5px] font-black uppercase px-2 py-0.5 rounded bg-indigo-50 text-indigo-900 truncate">
+                                {t.areaNombre || 'Logística & Operaciones'}
+                              </span>
+                              <span
+                                className={`text-[9.5px] font-bold px-2 py-0.5 rounded ${
+                                  t.prioridad === 'Urgente'
+                                    ? 'bg-rose-100 text-rose-800'
+                                    : t.prioridad === 'Alta'
+                                    ? 'bg-amber-100 text-amber-800'
+                                    : 'bg-slate-100 text-slate-700'
+                                }`}
+                              >
+                                {t.prioridad}
+                              </span>
+                            </div>
+
+                            <h4 className="font-bold text-xs sm:text-sm text-slate-900 leading-snug line-clamp-2">
+                              {t.titulo}
+                            </h4>
+                            {t.descripcion && (
+                              <p className="text-[11px] text-slate-500 line-clamp-2 leading-relaxed">
+                                {t.descripcion}
+                              </p>
+                            )}
+                          </div>
+
+                          <div className="space-y-2 pt-2 border-t border-slate-100">
+                            <div className="flex items-center justify-between text-[11px]">
+                              <span className="text-slate-500 font-medium">Progreso</span>
+                              <span className="font-mono font-bold text-slate-800">{t.progresoPct}%</span>
+                            </div>
+                            <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                              <div
+                                className={`h-full ${
+                                  t.estado === 'Completada' ? 'bg-emerald-500' : 'bg-[#001D3D]'
+                                }`}
+                                style={{ width: `${t.progresoPct}%` }}
+                              />
+                            </div>
+
+                            <div className="flex items-center justify-between text-[10.5px] text-slate-500 pt-1">
+                              <span className="truncate max-w-[120px] font-medium text-slate-700">
+                                👤 {t.responsableNombre || 'Sin asignar'}
+                              </span>
+                              <span className="font-mono text-[10px] text-slate-400">
+                                📅 {t.fechaLimite || 'Sin fecha'}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center justify-between pt-1">
+                              <span
+                                className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                  t.estado === 'Completada'
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : t.estado === 'En progreso'
+                                    ? 'bg-amber-100 text-amber-800'
+                                    : t.estado === 'Bloqueada'
+                                    ? 'bg-rose-100 text-rose-800'
+                                    : 'bg-slate-100 text-slate-700'
+                                }`}
+                              >
+                                {t.estado}
+                              </span>
+                              <span className="text-[10px] text-cyan-700 font-bold hover:underline">
+                                Ver Ficha →
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -6567,18 +7369,54 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
           {activeTab === 'sac' && (
             <div className="space-y-6 animate-fadeIn">
               
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-3xl border border-slate-200 shadow-xs">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-900 uppercase">
-                      Integración Web Pública Activa
-                    </span>
-                    <span className="text-xs text-slate-400">Recepción Inmediata</span>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white px-4 py-3 sm:px-5 sm:py-3.5 rounded-2xl border border-slate-200/90 shadow-2xs">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#001D3D] via-[#002D5C] to-[#0A192F] text-emerald-300 flex items-center justify-center shrink-0 shadow-xs ring-1 ring-emerald-500/30">
+                    <HeadphonesIcon className="w-4 h-4" />
                   </div>
-                  <h2 className="text-xl font-black text-slate-900 mt-1">Bandeja de Atención al Cliente (SAC)</h2>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Respuestas oficiales a mensajes, chats y radicados de visitantes de la página de ColorLink.
-                  </p>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h2 className="text-sm sm:text-base font-black text-slate-900 tracking-tight leading-none">
+                        Atención al Cliente (SAC) • {
+                          ticketFilterTab === 'todos' ? 'Todos los Radicados' :
+                          ticketFilterTab === 'nuevos' ? 'Casos Nuevos (Urgentes)' :
+                          ticketFilterTab === 'en_proceso' ? 'Casos En Gestión' : 'Casos Resueltos'
+                        }
+                      </h2>
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9.5px] font-black bg-emerald-50 text-emerald-800 border border-emerald-200 font-mono">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                        {filteredTicketsSAC.length} Casos • SLA &lt; 8h
+                      </span>
+                    </div>
+                    <p className="text-[10.5px] text-slate-500 font-medium mt-0.5 leading-tight">
+                      Recepción y Seguimiento en Tiempo Real de Mensajes y PQRS del Formulario Web
+                    </p>
+                  </div>
+                </div>
+
+                {/* Selector de Sede CEDI activo */}
+                <div className="flex items-center gap-2 bg-slate-50 hover:bg-slate-100/90 py-1 px-2.5 rounded-md border border-slate-200/90 transition-all shadow-2xs self-start sm:self-auto shrink-0">
+                  <div className="w-5 h-5 rounded bg-cyan-50 text-cyan-700 flex items-center justify-center border border-cyan-200/80 shrink-0 shadow-2xs">
+                    <MapPin className="w-3 h-3" />
+                  </div>
+                  <div className="text-left">
+                    <label htmlFor="sedeSelectorSAC" className="text-[8.5px] font-black text-slate-400 uppercase tracking-wider block leading-none">
+                      Sede / CEDI Activo:
+                    </label>
+                    <select
+                      id="sedeSelectorSAC"
+                      value={selectedSede}
+                      onChange={(e) => setSelectedSede(e.target.value)}
+                      className="bg-transparent text-slate-900 font-black text-[11px] focus:outline-none cursor-pointer mt-0.5 pr-1 leading-tight"
+                    >
+                      <option value="todas">🏢 Todas las Sedes (Consolidado Nacional)</option>
+                      {SEDES_CEDI_CONFIG.map((sede) => (
+                        <option key={sede.id} value={sede.id}>
+                          📍 {sede.nombre}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
               </div>
 
@@ -6588,12 +7426,19 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
                 {/* Columna Izquierda: Lista de Tickets */}
                 <div className="lg:col-span-5 bg-white rounded-3xl border border-slate-200 shadow-xs p-4 space-y-3 flex flex-col">
                   <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-                    <span className="font-black text-xs text-slate-900">Casos Radicados ({ticketsSAC.length})</span>
-                    <span className="text-[10px] text-emerald-700 font-bold">SLA: &lt; 8 Horas</span>
+                    <span className="font-black text-xs text-slate-900">
+                      Casos Mostrados ({filteredTicketsSAC.length})
+                    </span>
+                    <span className="text-[10px] text-emerald-700 font-bold">Conexión Web Activa</span>
                   </div>
 
                   <div className="flex-1 space-y-2.5 overflow-y-auto">
-                    {ticketsSAC.map((t) => (
+                    {filteredTicketsSAC.length === 0 ? (
+                      <div className="p-8 text-center text-slate-400 text-xs">
+                        No hay casos con el filtro seleccionado ({ticketFilterTab}).
+                      </div>
+                    ) : (
+                      filteredTicketsSAC.map((t) => (
                       <div
                         key={t.id}
                         onClick={() => setSelectedTicketId(t.id)}
@@ -6621,7 +7466,7 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
                           <span className="text-[10px]">{t.fechaCreacion.slice(5)}</span>
                         </div>
                       </div>
-                    ))}
+                    )))}
                   </div>
                 </div>
 
@@ -6721,24 +7566,67 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
           ========================================================================= */}
           {activeTab === 'documentos' && (
             <div className="space-y-6 animate-fadeIn">
-              <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs">
-                <h2 className="text-xl font-black text-slate-900">Repositorio Normativo y Fichas Técnicas</h2>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Documentación oficial de ensayos de laboratorio, hojas de seguridad MSDS y procedimientos NTC 1335.
-                </p>
+              {/* Encabezado Dinámico: Submódulo Activo + Badge + Sede/CEDI Activo */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white px-4 py-3 sm:px-5 sm:py-3.5 rounded-2xl border border-slate-200/90 shadow-2xs">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#001D3D] via-[#002D5C] to-[#0A192F] text-cyan-300 flex items-center justify-center shrink-0 shadow-xs ring-1 ring-cyan-500/30">
+                    <FileText className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h2 className="text-sm sm:text-base font-black text-slate-900 tracking-tight leading-none">
+                        Manuales & NTC 1335 • {docCategoryFilter === 'fichas' ? 'Fichas MSDS & POE' : 'Repositorio Normativo'}
+                      </h2>
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9.5px] font-black bg-cyan-50 text-cyan-800 border border-cyan-200 font-mono">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                        Normativa ICONTEC NTC 1335 • Vigente 2026
+                      </span>
+                    </div>
+                    <p className="text-[10.5px] text-slate-500 font-medium mt-0.5 leading-tight">
+                      Ensayos de Laboratorio, Hojas de Seguridad MSDS y Procedimientos Oficiales
+                    </p>
+                  </div>
+                </div>
+
+                {/* Selector de Sede CEDI activo */}
+                <div className="flex items-center gap-2 bg-slate-50 hover:bg-slate-100/90 py-1 px-2.5 rounded-md border border-slate-200/90 transition-all shadow-2xs self-start sm:self-auto shrink-0">
+                  <div className="w-5 h-5 rounded bg-cyan-50 text-cyan-700 flex items-center justify-center border border-cyan-200/80 shrink-0 shadow-2xs">
+                    <MapPin className="w-3 h-3" />
+                  </div>
+                  <div className="text-left">
+                    <label htmlFor="sedeSelectorDocs" className="text-[8.5px] font-black text-slate-400 uppercase tracking-wider block leading-none">
+                      Sede / CEDI Activo:
+                    </label>
+                    <select
+                      id="sedeSelectorDocs"
+                      value={selectedSede}
+                      onChange={(e) => setSelectedSede(e.target.value)}
+                      className="bg-transparent text-slate-900 font-black text-[11px] focus:outline-none cursor-pointer mt-0.5 pr-1 leading-tight"
+                    >
+                      <option value="todas">🏢 Todas las Sedes (Consolidado Nacional)</option>
+                      {SEDES_CEDI_CONFIG.map((sede) => (
+                        <option key={sede.id} value={sede.id}>
+                          📍 {sede.nombre}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                <div className="p-5 rounded-3xl bg-white border border-slate-200 shadow-xs space-y-3">
-                  <div className="w-10 h-10 rounded-2xl bg-cyan-100 text-cyan-900 flex items-center justify-center font-bold">
-                    <FileText className="w-5 h-5" />
+                {(docCategoryFilter === 'todos' || docCategoryFilter === 'fichas') && (
+                  <div className="p-5 rounded-3xl bg-white border border-slate-200 shadow-xs space-y-3">
+                    <div className="w-10 h-10 rounded-2xl bg-cyan-100 text-cyan-900 flex items-center justify-center font-bold">
+                      <FileText className="w-5 h-5" />
+                    </div>
+                    <h3 className="font-bold text-sm text-slate-900">Norma ICONTEC NTC 1335 (Tipo 1)</h3>
+                    <p className="text-xs text-slate-500 leading-relaxed">
+                      Especificaciones técnicas obligatorias de lavabilidad, abrasión húmeda y poder de cubrimiento para recubrimientos arquitectónicos.
+                    </p>
+                    <span className="text-[10px] font-black text-emerald-700 block">Vigente 2026 • Verificado</span>
                   </div>
-                  <h3 className="font-bold text-sm text-slate-900">Norma ICONTEC NTC 1335 (Tipo 1)</h3>
-                  <p className="text-xs text-slate-500 leading-relaxed">
-                    Especificaciones técnicas obligatorias de lavabilidad, abrasión húmeda y poder de cubrimiento para recubrimientos arquitectónicos.
-                  </p>
-                  <span className="text-[10px] font-black text-emerald-700 block">Vigente 2026 • Verificado</span>
-                </div>
+                )}
 
                 <div className="p-5 rounded-3xl bg-white border border-slate-200 shadow-xs space-y-3">
                   <div className="w-10 h-10 rounded-2xl bg-blue-100 text-blue-900 flex items-center justify-center font-bold">
@@ -6770,20 +7658,63 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
           ========================================================================= */}
           {activeTab === 'auditoria' && (
             <div className="space-y-6 animate-fadeIn">
-              <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div>
-                  <h2 className="text-xl font-black text-slate-900">Registro de Auditoría & Trazabilidad</h2>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Historial inmutable de acciones administrativas, movimientos de inventario y respuestas emitidas.
-                  </p>
+              {/* Encabezado Dinámico: Submódulo Activo + Badge + Sede/CEDI Activo */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white px-4 py-3 sm:px-5 sm:py-3.5 rounded-2xl border border-slate-200/90 shadow-2xs">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#001D3D] via-[#002D5C] to-[#0A192F] text-violet-300 flex items-center justify-center shrink-0 shadow-xs ring-1 ring-violet-500/30">
+                    <ShieldCheck className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h2 className="text-sm sm:text-base font-black text-slate-900 tracking-tight leading-none">
+                        Auditoría & Informes • Registro de Trazabilidad
+                      </h2>
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9.5px] font-black bg-violet-50 text-violet-800 border border-violet-200 font-mono">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                        {auditoria.length} Registros Inmutables
+                      </span>
+                    </div>
+                    <p className="text-[10.5px] text-slate-500 font-medium mt-0.5 leading-tight">
+                      Historial Inmutable de Acciones Administrativas, Movimientos de Inventario y Respuestas
+                    </p>
+                  </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => handleExportCSV('auditoria')}
-                  className="px-4 py-2 rounded-xl bg-slate-900 text-white font-bold text-xs shadow-xs"
-                >
-                  Exportar Auditoría CSV
-                </button>
+
+                <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+                  {/* Selector de Sede CEDI activo */}
+                  <div className="flex items-center gap-2 bg-slate-50 hover:bg-slate-100/90 py-1 px-2.5 rounded-md border border-slate-200/90 transition-all shadow-2xs shrink-0">
+                    <div className="w-5 h-5 rounded bg-cyan-50 text-cyan-700 flex items-center justify-center border border-cyan-200/80 shrink-0 shadow-2xs">
+                      <MapPin className="w-3 h-3" />
+                    </div>
+                    <div className="text-left">
+                      <label htmlFor="sedeSelectorAuditoria" className="text-[8.5px] font-black text-slate-400 uppercase tracking-wider block leading-none">
+                        Sede / CEDI Activo:
+                      </label>
+                      <select
+                        id="sedeSelectorAuditoria"
+                        value={selectedSede}
+                        onChange={(e) => setSelectedSede(e.target.value)}
+                        className="bg-transparent text-slate-900 font-black text-[11px] focus:outline-none cursor-pointer mt-0.5 pr-1 leading-tight"
+                      >
+                        <option value="todas">🏢 Todas las Sedes (Consolidado Nacional)</option>
+                        {SEDES_CEDI_CONFIG.map((sede) => (
+                          <option key={sede.id} value={sede.id}>
+                            📍 {sede.nombre}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleExportCSV('auditoria')}
+                    className="px-3.5 py-1.5 rounded-xl bg-[#001D3D] hover:bg-blue-900 text-white font-bold text-xs shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5 text-cyan-300" />
+                    <span>Exportar CSV</span>
+                  </button>
+                </div>
               </div>
 
               <div className="bg-white rounded-3xl border border-slate-200 shadow-xs overflow-hidden">
