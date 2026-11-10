@@ -156,40 +156,39 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const [shippingState, setShippingStateInternal] = useState<ShippingState>(readInitialShipping);
 
-  const [shippingAddress, setShippingAddressState] = useState<string>(() => shippingState.shippingAddress);
-  const [shippingCity, setShippingCityState] = useState<string>(() => shippingState.city);
-  const [shippingDepartment, setShippingDepartmentState] = useState<string>(() => shippingState.department);
+  const shippingAddress = shippingState.deliveryAddress || shippingState.shippingAddress || '';
+  const shippingCity = shippingState.city || shippingState.shippingCity || 'Bogotá D.C.';
+  const shippingDepartment = shippingState.department || shippingState.shippingDepartment || 'Bogotá D.C.';
 
-  const persistShippingObject = (next: ShippingState) => {
+  // Sincronizar persistencia de shippingState
+  useEffect(() => {
     try {
-      localStorage.setItem(COLORLINK_QUOTE_DELIVERY_KEY, JSON.stringify(next));
-      localStorage.setItem(COLORLINK_SHIPPING_STATE_KEY, JSON.stringify(next));
-      if (next.deliveryAddress) {
-        localStorage.setItem(SHIPPING_ADDRESS_KEY, next.deliveryAddress);
-        localStorage.setItem(COLORLINK_SHIPPING_KEY, next.deliveryAddress);
+      localStorage.setItem(COLORLINK_QUOTE_DELIVERY_KEY, JSON.stringify(shippingState));
+      localStorage.setItem(COLORLINK_SHIPPING_STATE_KEY, JSON.stringify(shippingState));
+      if (shippingState.deliveryAddress) {
+        localStorage.setItem(SHIPPING_ADDRESS_KEY, shippingState.deliveryAddress);
+        localStorage.setItem(COLORLINK_SHIPPING_KEY, shippingState.deliveryAddress);
       }
-      if (next.city) {
-        localStorage.setItem('colorlink_shipping_city', next.city);
+      if (shippingState.city) {
+        localStorage.setItem('colorlink_shipping_city', shippingState.city);
       }
-      if (next.department) {
-        localStorage.setItem('colorlink_shipping_depto', next.department);
+      if (shippingState.department) {
+        localStorage.setItem('colorlink_shipping_depto', shippingState.department);
       }
-      if (next.modalidad) {
-        localStorage.setItem('colorlink_shipping_modalidad', next.modalidad);
+      if (shippingState.modalidad) {
+        localStorage.setItem('colorlink_shipping_modalidad', shippingState.modalidad);
       }
-      window.dispatchEvent(new CustomEvent('colorlink_quote_delivery_updated', { detail: next }));
-      window.dispatchEvent(new CustomEvent('colorlink_shipping_state_updated', { detail: next }));
-      window.dispatchEvent(new Event('storage'));
     } catch {}
-  };
+  }, [shippingState]);
 
   const setShippingState = (partial: Partial<ShippingState>) => {
     setShippingStateInternal((prev) => {
-      const next: ShippingState = {
+      const isPickup = partial.modalidad === 'retiro_tienda' || partial.deliveryMode === 'pickup' || (partial.modalidad === undefined && partial.deliveryMode === undefined && prev.modalidad === 'retiro_tienda');
+      return {
         ...prev,
         ...partial,
-        modalidad: (partial.modalidad || (partial.deliveryMode === 'pickup' ? 'retiro_tienda' : partial.deliveryMode === 'delivery' ? 'domicilio' : prev.modalidad)),
-        deliveryMode: (partial.deliveryMode || (partial.modalidad === 'retiro_tienda' ? 'pickup' : partial.modalidad === 'domicilio' ? 'delivery' : prev.deliveryMode)),
+        modalidad: isPickup ? 'retiro_tienda' : 'domicilio',
+        deliveryMode: isPickup ? 'pickup' : 'delivery',
         deliveryAddress: partial.deliveryAddress ?? partial.shippingAddress ?? prev.deliveryAddress,
         shippingAddress: partial.shippingAddress ?? partial.deliveryAddress ?? prev.shippingAddress,
         pickupStore: partial.pickupStore ?? partial.sede ?? prev.pickupStore,
@@ -198,15 +197,9 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
         shippingCity: partial.shippingCity ?? partial.city ?? prev.shippingCity,
         department: partial.department ?? partial.shippingDepartment ?? prev.department,
         shippingDepartment: partial.shippingDepartment ?? partial.department ?? prev.shippingDepartment,
+        costoFlete: isPickup ? 0 : (partial.costoFlete !== undefined ? Number(partial.costoFlete) : prev.costoFlete),
         isDefined: true,
       };
-
-      setShippingAddressState(next.deliveryAddress);
-      setShippingCityState(next.city);
-      setShippingDepartmentState(next.department);
-
-      persistShippingObject(next);
-      return next;
     });
   };
 
@@ -221,7 +214,6 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const setDeliveryAddress = (addr: string) => {
     const clean = addr.trim();
-    setShippingAddressState(clean);
     setShippingState({ deliveryAddress: clean, shippingAddress: clean });
   };
 
@@ -236,13 +228,11 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const setShippingCity = (city: string) => {
     const clean = city.trim();
-    setShippingCityState(clean);
     setShippingState({ city: clean, shippingCity: clean });
   };
 
   const setShippingDepartment = (dept: string) => {
     const clean = dept.trim();
-    setShippingDepartmentState(clean);
     setShippingState({ department: clean, shippingDepartment: clean });
   };
 
@@ -253,7 +243,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (data) {
         setShippingStateInternal((prev) => {
           const isPickup = data.modalidad === 'retiro_tienda' || data.deliveryMode === 'pickup';
-          const next: ShippingState = {
+          return {
             ...prev,
             modalidad: isPickup ? 'retiro_tienda' : 'domicilio',
             deliveryMode: isPickup ? 'pickup' : 'delivery',
@@ -269,10 +259,6 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
             hubDespacho: data.hubDespacho || prev.hubDespacho,
             isDefined: true,
           };
-          setShippingAddressState(next.deliveryAddress);
-          setShippingCityState(next.city);
-          setShippingDepartmentState(next.department);
-          return next;
         });
       }
     };
@@ -286,12 +272,10 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
-
   // Guardar en localStorage ante cualquier cambio
   useEffect(() => {
     try {
       localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(cart));
-      window.dispatchEvent(new Event('storage'));
     } catch (e) {
       console.warn('Error guardando carrito:', e);
     }

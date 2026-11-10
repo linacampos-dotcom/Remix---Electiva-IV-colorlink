@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { Sparkles, Move, X } from 'lucide-react';
+import { Sparkles, X } from 'lucide-react';
 import { checkIsIntranetRoute } from '../utils/safeNavigation';
 
 // Imagen oficial con transparencia real del personaje Asesor Técnico IA ColorLink
@@ -43,7 +43,7 @@ export const DraggableAIChatButton: React.FC<DraggableAIChatButtonProps> = ({
     }
   }, [hideOnIntranet, isCorporateView, currentTab]);
 
-  // Posición arrastrable en pantalla (inicialmente inferior derecha o restaurada de localStorage)
+  // Posición arrastrable en pantalla (inferior derecha o restaurada de localStorage)
   const [pos, setPos] = useState<{ x: number; y: number }>(() => {
     if (typeof window !== 'undefined') {
       try {
@@ -66,8 +66,10 @@ export const DraggableAIChatButton: React.FC<DraggableAIChatButtonProps> = ({
   });
 
   const [isDragging, setIsDragging] = useState(false);
-  const [isScrolling, setIsScrolling] = useState(false);
-  const [showBubble, setShowBubble] = useState(false);
+  // En reposo (página quieta): el widget está visible (isTucked = false)
+  const [isTucked, setIsTucked] = useState(false);
+  // En reposo: la burbuja "¿Puedo ayudarte?" está expandida
+  const [showBubble, setShowBubble] = useState(true);
   const [hasEntered, setHasEntered] = useState(false);
   const [activeRibbons, setActiveRibbons] = useState<BrushstrokeRibbon[]>([]);
   const [isPainting, setIsPainting] = useState(false);
@@ -75,9 +77,6 @@ export const DraggableAIChatButton: React.FC<DraggableAIChatButtonProps> = ({
 
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollDebounceTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const brushstrokeTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const bubbleShowTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const bubbleAutoHideTimerRef = useRef<NodeJS.Timeout | null>(null);
   const paintingResetTimerRef = useRef<NodeJS.Timeout | null>(null);
   const ribbonIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -121,76 +120,58 @@ export const DraggableAIChatButton: React.FC<DraggableAIChatButtonProps> = ({
     }, 2200);
   }, []);
 
-  // =========================================================================
-  // 1. TEMPORIZADOR INICIAL (5 SEGUNDOS) AL CARGAR
-  // Muestra el mensaje "¿Puedo ayudarte?" y se oculta automáticamente a los 5s
-  // =========================================================================
+  // Entrada inicial suave al cargar la página
   useEffect(() => {
-    const tEntry = setTimeout(() => {
+    const t = setTimeout(() => {
       setHasEntered(true);
+      setIsPainting(true);
+      triggerBrushRibbon();
 
-      brushstrokeTimerRef.current = setTimeout(() => {
-        setIsPainting(true);
-        triggerBrushRibbon();
-
-        // Mostrar el globo de texto inicial
-        bubbleShowTimerRef.current = setTimeout(() => {
-          setShowBubble(true);
-
-          // Auto-ocultar a los 5 segundos para no estorbar botones inferiores
-          bubbleAutoHideTimerRef.current = setTimeout(() => {
-            setShowBubble(false);
-          }, 5000);
-        }, 700);
-
-        paintingResetTimerRef.current = setTimeout(() => {
-          setIsPainting(false);
-        }, 1800);
-      }, 400);
+      paintingResetTimerRef.current = setTimeout(() => {
+        setIsPainting(false);
+      }, 1600);
     }, 200);
 
     return () => {
-      clearTimeout(tEntry);
-      if (brushstrokeTimerRef.current) clearTimeout(brushstrokeTimerRef.current);
-      if (bubbleShowTimerRef.current) clearTimeout(bubbleShowTimerRef.current);
-      if (bubbleAutoHideTimerRef.current) clearTimeout(bubbleAutoHideTimerRef.current);
+      clearTimeout(t);
       if (paintingResetTimerRef.current) clearTimeout(paintingResetTimerRef.current);
       if (ribbonIntervalRef.current) clearInterval(ribbonIntervalRef.current);
     };
   }, [triggerBrushRibbon]);
 
   // =========================================================================
-  // 2. AUTO-OCULTAMIENTO POR SCROLL
-  // El widget se desvanece durante el scroll y reaparece suavemente al detenerse
+  // LÓGICA DE SCROLL Y REPOSO:
+  // - AL HACER SCROLL: El widget se desliza y oculta hacia el lateral suavemente
+  //   para no estorbar la lectura del usuario.
+  // - PÁGINA QUIETA (IDLE): Al detenerse el scroll (~250ms), el widget vuelve
+  //   a mostrarse, saliendo desde el lateral y expandiendo "¿Puedo ayudarte?".
   // =========================================================================
   useEffect(() => {
     const handleScroll = () => {
-      // Si el usuario está arrastrando activamente, no intervenir
+      // Si el usuario está arrastrando el botón manualmente, ignorar scroll
       if (dragInfoRef.current.isPointerDown) return;
 
-      setIsScrolling(true);
+      if (scrollDebounceTimerRef.current) clearTimeout(scrollDebounceTimerRef.current);
+
+      // 1. Durante el scroll: se desliza y oculta hacia el lateral inmediatamente
+      setIsTucked(true);
       setShowBubble(false);
       setIsPainting(false);
 
-      if (scrollDebounceTimerRef.current) clearTimeout(scrollDebounceTimerRef.current);
-      if (brushstrokeTimerRef.current) clearTimeout(brushstrokeTimerRef.current);
-      if (bubbleShowTimerRef.current) clearTimeout(bubbleShowTimerRef.current);
-      if (bubbleAutoHideTimerRef.current) clearTimeout(bubbleAutoHideTimerRef.current);
-
+      // 2. Al detenerse el movimiento de scroll (página quieta): vuelve a aparecer
       scrollDebounceTimerRef.current = setTimeout(() => {
-        // Al detenerse el scroll (~320ms)
-        setIsScrolling(false);
-
-        // Reaparición fluida con brochazo
-        brushstrokeTimerRef.current = setTimeout(() => {
+        if (!dragInfoRef.current.isPointerDown) {
+          setIsTucked(false);
+          setShowBubble(true);
           setIsPainting(true);
           triggerBrushRibbon();
 
+          if (paintingResetTimerRef.current) clearTimeout(paintingResetTimerRef.current);
           paintingResetTimerRef.current = setTimeout(() => {
             setIsPainting(false);
-          }, 1800);
-        }, 300);
-      }, 320);
+          }, 1600);
+        }
+      }, 250);
     };
 
     window.addEventListener('scroll', handleScroll, { passive: true });
@@ -200,60 +181,52 @@ export const DraggableAIChatButton: React.FC<DraggableAIChatButtonProps> = ({
       window.removeEventListener('scroll', handleScroll);
       document.removeEventListener('scroll', handleScroll);
       if (scrollDebounceTimerRef.current) clearTimeout(scrollDebounceTimerRef.current);
+      if (paintingResetTimerRef.current) clearTimeout(paintingResetTimerRef.current);
     };
   }, [triggerBrushRibbon]);
 
-  // Ciclo periódico del brochazo en reposo
+  // Brochazo periódico sutil en reposo
   useEffect(() => {
-    if (!isDragging && !isScrolling) {
+    if (!isDragging && !isTucked) {
       ribbonIntervalRef.current = setInterval(() => {
         setIsPainting(true);
         triggerBrushRibbon();
         setTimeout(() => {
           setIsPainting(false);
-        }, 1800);
-      }, 10000);
+        }, 1600);
+      }, 18000);
     }
     return () => {
       if (ribbonIntervalRef.current) clearInterval(ribbonIntervalRef.current);
     };
-  }, [isDragging, isScrolling, triggerBrushRibbon]);
+  }, [isDragging, isTucked, triggerBrushRibbon]);
 
   // =========================================================================
-  // 3. EFECTO HOVER ("¿Puedo ayudarte?")
-  // Al pasar el cursor por encima, se despliega el texto de bienvenida
+  // EFECTO HOVER:
+  // - Al pasar el cursor, activa el balanceo (swing) y mantiene visible el mensaje.
   // =========================================================================
   const handleMouseEnter = () => {
     setIsHovered(true);
-    if (!isDragging && !isScrolling) {
-      if (bubbleAutoHideTimerRef.current) {
-        clearTimeout(bubbleAutoHideTimerRef.current);
-      }
+    if (!isDragging) {
+      setIsTucked(false);
       setShowBubble(true);
     }
   };
 
   const handleMouseLeave = () => {
     setIsHovered(false);
-    if (!isDragging) {
-      if (bubbleAutoHideTimerRef.current) {
-        clearTimeout(bubbleAutoHideTimerRef.current);
-      }
-      // Ocultar suavemente poco después de retirar el puntero
-      bubbleAutoHideTimerRef.current = setTimeout(() => {
-        setShowBubble(false);
-      }, 1800);
-    }
   };
 
   // =========================================================================
-  // 4. FUNCIONALIDAD DRAGGABLE (ARRASTRABLE CON MOUSE O TOUCH)
+  // FUNCIONALIDAD DRAGGABLE (ARRASTRABLE CON MOUSE O TOUCH)
   // =========================================================================
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    // Si se hizo clic en el botón de cerrar del globo, omitir arrastre
+    // Si se hizo clic en el botón de cerrar de la burbuja, omitir arrastre
     if ((e.target as HTMLElement).closest('[data-bubble-dismiss]')) {
       return;
     }
+
+    setIsTucked(false);
 
     dragInfoRef.current = {
       isPointerDown: true,
@@ -281,7 +254,7 @@ export const DraggableAIChatButton: React.FC<DraggableAIChatButtonProps> = ({
       if (!dragInfoRef.current.hasMoved) {
         dragInfoRef.current.hasMoved = true;
         setIsDragging(true);
-        setShowBubble(false); // Ocultar globo mientras se arrastra
+        setShowBubble(false);
       }
 
       const rawX = dragInfoRef.current.startPosX + dx;
@@ -310,12 +283,12 @@ export const DraggableAIChatButton: React.FC<DraggableAIChatButtonProps> = ({
     setIsDragging(false);
 
     if (wasMoved) {
-      // Guardar posición preferida en localStorage
       try {
         localStorage.setItem('colorlink_ai_chat_btn_pos', JSON.stringify(pos));
       } catch {}
+      setShowBubble(true);
     } else {
-      // Clic normal sin arrastrar: abrir el Asesor IA
+      // Clic normal sin arrastrar: abre el Asesor IA
       onClick();
     }
   };
@@ -324,8 +297,12 @@ export const DraggableAIChatButton: React.FC<DraggableAIChatButtonProps> = ({
     return null;
   }
 
-  // Determinar si el globo debe mostrarse a la izquierda o derecha según la posición en pantalla
-  const isNearLeftEdge = pos.x < 180;
+  // Determinar si está orientado hacia el borde izquierdo o derecho de la pantalla
+  const isNearLeft = typeof window !== 'undefined' ? pos.x < window.innerWidth / 2 : false;
+
+  // Desplazamiento lateral al hacer scroll (se desliza hacia afuera para despejar)
+  const tuckDistance = BUTTON_SIZE + 24;
+  const currentTranslateX = isDragging ? 0 : isTucked ? (isNearLeft ? -tuckDistance : tuckDistance) : 0;
 
   return (
     <div
@@ -346,44 +323,32 @@ export const DraggableAIChatButton: React.FC<DraggableAIChatButtonProps> = ({
         cursor: isDragging ? 'grabbing' : 'grab',
         touchAction: 'none',
         userSelect: 'none',
-        opacity: isScrolling ? 0 : hasEntered ? 1 : 0,
-        transform: isScrolling ? 'scale(0.85)' : 'scale(1)',
-        pointerEvents: isScrolling ? 'none' : 'auto',
+        opacity: hasEntered ? (isTucked ? 0 : 1) : 0,
+        transform: `translate3d(${currentTranslateX}px, 0, 0) scale(${
+          isDragging ? 1.05 : isTucked ? 0.85 : 1
+        })`,
+        pointerEvents: isTucked ? 'none' : 'auto',
         transition: isDragging
           ? 'none'
-          : 'opacity 0.35s ease, transform 0.35s cubic-bezier(0.16, 1, 0.3, 1)',
+          : 'transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.35s ease',
       }}
-      className="touch-none select-none flex items-center justify-center"
-      title="Asesor Técnico IA ColorLink • Arrastra para reubicar o haz clic para consultar"
+      className="touch-none select-none flex items-center justify-center group"
+      title="Asesor Técnico IA ColorLink • Clic para consultar o arrastra para reubicar"
     >
       {/* =========================================================================
           GLOBO DE MENSAJE FLOTANTE: "¿Puedo ayudarte?"
-          - Se muestra al cargar durante 5s
-          - Reaparece al pasar el cursor (hover)
-          - Se oculta automáticamente para no obstruir botones de la interfaz
+          - Visible en reposo (página quieta)
+          - No estorba en scroll (se oculta junto al avatar)
       ========================================================================= */}
-      {showBubble && !isDragging && !isScrolling && (
+      {showBubble && !isDragging && !isTucked && (
         <div
           data-chat-bubble
           onClick={(e) => {
             e.stopPropagation();
             onClick();
           }}
-          onMouseEnter={() => {
-            if (bubbleAutoHideTimerRef.current) {
-              clearTimeout(bubbleAutoHideTimerRef.current);
-            }
-          }}
-          onMouseLeave={() => {
-            if (bubbleAutoHideTimerRef.current) {
-              clearTimeout(bubbleAutoHideTimerRef.current);
-            }
-            bubbleAutoHideTimerRef.current = setTimeout(() => {
-              setShowBubble(false);
-            }, 1200);
-          }}
-          className={`absolute pointer-events-auto cursor-pointer flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-white/95 backdrop-blur-md text-slate-800 border border-sky-200/90 shadow-xl shadow-blue-900/20 transition-all duration-300 animate-fadeIn hover:scale-105 z-30 ${
-            isNearLeftEdge
+          className={`absolute pointer-events-auto cursor-pointer flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-white/95 backdrop-blur-md text-slate-800 border border-sky-200/90 shadow-xl shadow-blue-900/20 transition-all duration-300 animate-bubble-in hover:scale-105 z-40 ${
+            isNearLeft
               ? 'left-[100%] ml-2.5 top-1/2 -translate-y-1/2'
               : 'right-[100%] mr-2.5 top-1/2 -translate-y-1/2'
           }`}
@@ -401,16 +366,13 @@ export const DraggableAIChatButton: React.FC<DraggableAIChatButtonProps> = ({
 
           <Sparkles className="w-3.5 h-3.5 text-amber-500 animate-pulse shrink-0" />
 
-          {/* Botón manual para cerrar el globo si se desea */}
+          {/* Botón manual para cerrar la burbuja si se desea */}
           <button
             type="button"
             data-bubble-dismiss="true"
             onClick={(e) => {
               e.stopPropagation();
               setShowBubble(false);
-              if (bubbleAutoHideTimerRef.current) {
-                clearTimeout(bubbleAutoHideTimerRef.current);
-              }
             }}
             className="w-4 h-4 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-400 hover:text-slate-700 flex items-center justify-center text-[10px] ml-0.5 transition-colors cursor-pointer"
             title="Cerrar mensaje"
@@ -421,7 +383,7 @@ export const DraggableAIChatButton: React.FC<DraggableAIChatButtonProps> = ({
           {/* Flecha indicadora hacia el avatar */}
           <div
             className={`absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 bg-white/95 border-sky-200/90 rotate-45 ${
-              isNearLeftEdge
+              isNearLeft
                 ? '-left-1.5 border-l border-b'
                 : '-right-1.5 border-r border-t'
             }`}
@@ -433,7 +395,7 @@ export const DraggableAIChatButton: React.FC<DraggableAIChatButtonProps> = ({
       {/* =========================================================================
           ANIMACIÓN DE BROCHAZO DE PINTURA (SVG DETRÁS DEL PERSONAJE)
       ========================================================================= */}
-      {!isDragging && !isScrolling && (
+      {!isDragging && !isTucked && (
         <div className="absolute inset-0 pointer-events-none overflow-visible z-0 flex items-center justify-center">
           {activeRibbons.map((ribbon) => (
             <svg
@@ -518,15 +480,16 @@ export const DraggableAIChatButton: React.FC<DraggableAIChatButtonProps> = ({
       )}
 
       {/* =========================================================================
-          BOTÓN DEL PERSONAJE: SILUETA CIRCULAR CON INDICADOR DE ARRASTRE
+          BOTÓN DEL PERSONAJE: SILUETA LIMPIA CON BALANCEO (SWING) EN HOVER
+          - Sin botones extraños ni controles sobrepuestos
       ========================================================================= */}
       <div
-        className={`relative z-10 w-full h-full rounded-full flex items-center justify-center transition-all duration-200 ${
+        className={`relative z-10 w-full h-full rounded-full flex items-center justify-center transition-all duration-300 ${
           isDragging
             ? 'scale-105 shadow-2xl ring-4 ring-[#004B93]/30'
             : isHovered
-            ? 'scale-105 shadow-xl'
-            : isPainting
+            ? 'animate-character-swing'
+            : isPainting && !isTucked
             ? 'animate-paint-brushstroke'
             : ''
         }`}
@@ -541,18 +504,11 @@ export const DraggableAIChatButton: React.FC<DraggableAIChatButtonProps> = ({
           <img
             src={PINTUCO_AI_AVATAR_URL}
             alt="Asesor Técnico IA ColorLink"
-            className="w-full h-full object-contain pointer-events-none select-none filter drop-shadow-[0_8px_14px_rgba(0,34,68,0.3)]"
+            className="w-full h-full object-contain pointer-events-none select-none filter drop-shadow-[0_8px_14px_rgba(0,34,68,0.3)] transition-transform duration-300"
             loading="eager"
             draggable={false}
           />
         </div>
-
-        {/* Insignia indicadora de movilidad al hacer hover */}
-        {isHovered && !isDragging && (
-          <div className="absolute -top-1 -right-1 w-6 h-6 rounded-full bg-[#004B93] text-white flex items-center justify-center shadow-md animate-scaleUp z-20">
-            <Move className="w-3 h-3 text-[#FFD100]" />
-          </div>
-        )}
       </div>
     </div>
   );

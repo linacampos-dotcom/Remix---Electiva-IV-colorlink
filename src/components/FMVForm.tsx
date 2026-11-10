@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { 
   FMVFormData, 
   TipoDocumento, 
@@ -41,6 +41,8 @@ import {
   Check, 
   ChevronDown, 
   ChevronUp, 
+  ChevronLeft,
+  ChevronRight,
   Sliders, 
   MapPin, 
   User, 
@@ -582,25 +584,61 @@ export function getPaletteForProductName(productName: string): ColorPaletteItem[
 
 export function getPaintPrices(productName: string): { galon: number; cunete: number } {
   const p = (productName || '').toLowerCase();
-  if (p.includes('cielos') || p.includes('intervinil')) return { galon: 54900, cunete: 252500 };
-  if (p.includes('baños') || p.includes('banos') || p.includes('cocina')) return { galon: 96900, cunete: 445700 };
+  if (p.includes('altos sólidos') || p.includes('hospitalario')) return { galon: 165000, cunete: 759000 };
   if (p.includes('siliconada')) return { galon: 158000, cunete: 726800 };
-  if (p.includes('koraza')) return { galon: 142000, cunete: 653200 };
-  if (p.includes('aquablock')) return { galon: 118900, cunete: 546900 };
-  if (p.includes('tráfico') || p.includes('trafico')) return { galon: 125000, cunete: 575000 };
-  if (p.includes('madera') || p.includes('barniz')) return { galon: 79900, cunete: 367500 };
-  if (p.includes('pintulux') || p.includes('esmalte')) return { galon: 68900, cunete: 316900 };
-  return { galon: 84900, cunete: 390500 };
+  if (p.includes('pintucoat') || p.includes('epóxico') || p.includes('epoxico')) return { galon: 148000, cunete: 620000 };
+  if (p.includes('antialgas')) return { galon: 134000, cunete: 616400 };
+  if (p.includes('techos') || (p.includes('aquablock') && p.includes('membrana'))) return { galon: 128900, cunete: 592900 };
+  if (p.includes('5 a') || p.includes('5 años') || p.includes('5a')) return { galon: 119900, cunete: 551500 };
+  if (p.includes('tráfico') || p.includes('trafico')) {
+    if (p.includes('agua')) return { galon: 112000, cunete: 515200 };
+    return { galon: 119000, cunete: 499000 };
+  }
+  if (p.includes('canchas') || p.includes('antideslizante')) return { galon: 108900, cunete: 500900 };
+  if (p.includes('aquablock')) return { galon: 104900, cunete: 459000 };
+  if (p.includes('doble vida') || p.includes('sol & lluvia') || p.includes('sol y lluvia') || p.includes('tradicional') || p.includes('koraza')) {
+    return { galon: 98900, cunete: 429000 };
+  }
+  if (p.includes('antiviral')) return { galon: 95900, cunete: 441000 };
+  if (p.includes('fibrado')) return { galon: 94500, cunete: 434700 };
+  if (p.includes('acriltex')) return { galon: 92500, cunete: 399000 };
+  if (p.includes('vida') || p.includes('luz')) return { galon: 92500, cunete: 425500 };
+  if (p.includes('deck')) return { galon: 89900, cunete: 413500 };
+  if (p.includes('baños') || p.includes('banos') || p.includes('cocina')) return { galon: 89900, cunete: 389000 };
+  if (p.includes('seda')) return { galon: 87900, cunete: 404300 };
+  if (p.includes('marino') || p.includes('laca catalizada')) return { galon: 86500, cunete: 397900 };
+  if (p.includes('madera') || p.includes('barniz')) return { galon: 82900, cunete: 355000 };
+  if (p.includes('acua') || (p.includes('pintulux') && p.includes('agua'))) return { galon: 91900, cunete: 389000 };
+  if (p.includes('corrostyl') || p.includes('zinc')) return { galon: 76500, cunete: 329000 };
+  if (p.includes('pintulux') || p.includes('esmalte')) {
+    if (p.includes('doméstico') || p.includes('domestico')) return { galon: 58900, cunete: 270900 };
+    return { galon: 84900, cunete: 369000 };
+  }
+  if (p.includes('fill')) return { galon: 69900, cunete: 299000 };
+  if (p.includes('imprimante') || p.includes('50/50')) return { galon: 62900, cunete: 269000 };
+  if (p.includes('cielos')) return { galon: 54900, cunete: 239000 };
+  if (p.includes('estandar') || p.includes('estándar')) return { galon: 46900, cunete: 215700 };
+  if (p.includes('intervinil')) return { galon: 49900, cunete: 229500 };
+  if (p.includes('estuco')) return { galon: 42900, cunete: 197300 };
+  return { galon: 79900, cunete: 349000 };
 }
 
 export function getSkuForPaint(productName: string, type: 'cunete' | 'galon'): string {
   const p = (productName || '').toLowerCase();
   const suffix = type === 'cunete' ? 'CUN-05' : 'GAL-01';
+  if (p.includes('siliconada')) return `PIN-KRZ-SIL-${suffix}`;
   if (p.includes('koraza')) return `PIN-KRZ-${suffix}`;
   if (p.includes('baños') || p.includes('banos')) return `PIN-VTX-BC-${suffix}`;
-  if (p.includes('cielos') || p.includes('intervinil')) return `CIN-INT-${suffix}`;
+  if (p.includes('acriltex')) return `PIN-VTX-ACR-${suffix}`;
+  if (p.includes('vida') || p.includes('luz')) return `PIN-VTX-VL-${suffix}`;
+  if (p.includes('cielos')) return `CIN-INT-CIE-${suffix}`;
+  if (p.includes('intervinil')) return `CIN-INT-${suffix}`;
+  if (p.includes('corrostyl') || p.includes('zinc')) return `PIN-CORR-${suffix}`;
+  if (p.includes('acua') || (p.includes('pintulux') && p.includes('agua'))) return `PIN-PLX-ACU-${suffix}`;
   if (p.includes('pintulux') || p.includes('esmalte')) return `PIN-PLX-${suffix}`;
+  if (p.includes('fill')) return `PIN-AQB-FIL-${suffix}`;
   if (p.includes('aquablock')) return `PIN-AQB-${suffix}`;
+  if (p.includes('epóxico') || p.includes('epoxico') || p.includes('pintucoat')) return `PIN-PCOAT-${suffix}`;
   if (p.includes('tráfico') || p.includes('trafico')) return `PIN-TRF-${suffix}`;
   if (p.includes('madera') || p.includes('barniz')) return `PIN-MAD-${suffix}`;
   return `PIN-VTX-${suffix}`;
@@ -609,8 +647,9 @@ export function getSkuForPaint(productName: string, type: 'cunete' | 'galon'): s
 export function getImageUrlForPaint(productName: string): string {
   const p = (productName || '').toLowerCase();
   if (p.includes('koraza')) return '/src/assets/images/koraza_bucket_studio_1790894419359.jpg';
-  if (p.includes('aquablock')) return '/src/assets/images/aquablock_bucket_studio_1790894443907.jpg';
-  if (p.includes('pintulux') || p.includes('esmalte')) return '/src/assets/images/pintulux_can_studio_1790894432194.jpg';
+  if (p.includes('aquablock') || p.includes('fill')) return '/src/assets/images/koraza_bucket_studio_1790894419359.jpg';
+  if (p.includes('tráfico') || p.includes('trafico')) return '/src/assets/images/pintutrafico_bucket_studio_1790894438735.jpg';
+  if (p.includes('pintulux') || p.includes('esmalte') || p.includes('corrostyl')) return '/src/assets/images/pintulux_enamel_can_1790894428353.jpg';
   return '/src/assets/images/viniltex_can_studio_1790894409491.jpg';
 }
 
@@ -1287,11 +1326,37 @@ export const PAINT_LINE_OPTIONS: Record<'interiores' | 'exteriores' | 'especiale
       titulo: 'Viniltex Avanzado',
       subtitulo: 'Paredes Interiores, Salas y Alcobas',
       icono: '🎨',
-      precio: '$84.900/GL',
+      precio: '$79.900/GL',
       tag: 'Más Popular • NTC 1335 Tipo 1',
       tagColor: 'bg-emerald-100 text-emerald-800',
       badge: 'Tonos pastel, neutros y vivos',
       descripcion: 'Vinilo acrílico Tipo 1 de alta resistencia, máxima lavabilidad (+20.000 ciclos), bajo olor y cero VOC.',
+      familia: 'viniltex'
+    },
+    {
+      id: 'viniltex-acriltex',
+      nombre: 'Viniltex Acriltex Satinado Alta Resistencia',
+      titulo: 'Viniltex Acriltex',
+      subtitulo: 'Paredes de Alto Tráfico y Pasillos',
+      icono: '✨',
+      precio: '$92.500/GL',
+      tag: 'Acabado Satinado Sedoso',
+      tagColor: 'bg-purple-100 text-purple-800',
+      badge: 'Brillo Sedoso y Elegante',
+      descripcion: 'Pintura 100% acrílica con acabado satinado sedoso que aporta elegancia visual y facilidad de limpieza sin dejar brillos indeseados.',
+      familia: 'viniltex'
+    },
+    {
+      id: 'viniltex-banos',
+      nombre: 'Viniltex Baños y Cocinas Antibacterial',
+      titulo: 'Viniltex Baños y Cocinas',
+      subtitulo: 'Zonas Húmedas Interiores',
+      icono: '🚿',
+      precio: '$89.900/GL',
+      tag: 'Fungicida Activo',
+      tagColor: 'bg-teal-100 text-teal-800',
+      badge: 'Resistencia a Vapor y Grasa',
+      descripcion: 'Película protectora antibacterial y antihongos, resistente a condensación de vapor y lavado frecuente.',
       familia: 'viniltex'
     },
     {
@@ -1308,45 +1373,136 @@ export const PAINT_LINE_OPTIONS: Record<'interiores' | 'exteriores' | 'especiale
       familia: 'viniltex'
     },
     {
-      id: 'viniltex-banos',
-      nombre: 'Viniltex Baños y Cocinas Antibacterial',
-      titulo: 'Viniltex Baños y Cocinas',
-      subtitulo: 'Zonas Húmedas Interiores',
-      icono: '🚿',
-      precio: '$96.900/GL',
-      tag: 'Fungicida Activo',
+      id: 'viniltex-vida-luz',
+      nombre: 'Viniltex Vida & Luz Purificador de Aire',
+      titulo: 'Viniltex Vida & Luz',
+      subtitulo: 'Habitaciones Infantiles y Clínicas',
+      icono: '🌿',
+      precio: '$92.500/GL',
+      tag: 'Zero VOC & Olor Cero',
+      tagColor: 'bg-green-100 text-green-800',
+      badge: 'Salud & Purificación',
+      descripcion: 'Pintura ecológica de tecnología activa fotocatalítica que purifica el aire interior y elimina bacterias en un 99.9%.',
+      familia: 'viniltex'
+    },
+    {
+      id: 'intervinil-lavable-t2',
+      nombre: 'Intervinil Lavable Rendimiento Pro',
+      titulo: 'Intervinil Lavable',
+      subtitulo: 'Grandes Áreas, Proyectos y Primeras Manos',
+      icono: '🏢',
+      precio: '$49.900/GL',
+      tag: 'Rendimiento Pro NTC Tipo 2',
+      tagColor: 'bg-amber-100 text-amber-800',
+      badge: 'Máximo Poder Cubriente',
+      descripcion: 'Vinilo tipo 2 de alta economía y cubrimiento uniforme, ideal para obras nuevas, bodegas y primeras manos de fondeo.',
+      familia: 'viniltex'
+    },
+    {
+      id: 'viniltex-antiviral',
+      nombre: 'Viniltex Antiviral y Antibacterial Iones de Plata',
+      titulo: 'Viniltex Antiviral',
+      subtitulo: 'Espacios Clínicos, Consultorios y Hogar',
+      icono: '🛡️',
+      precio: '$95.900/GL',
+      tag: 'Iones de Plata Activos',
+      tagColor: 'bg-cyan-100 text-cyan-800',
+      badge: 'Grado Hospitalario',
+      descripcion: 'Formulación con micropartículas de plata que inactiva virus y bacterias al contacto en menos de 15 minutos.',
+      familia: 'viniltex'
+    },
+    {
+      id: 'viniltex-seda',
+      nombre: 'Viniltex Seda Acabado Satinado Suave',
+      titulo: 'Viniltex Seda',
+      subtitulo: 'Salas Contemporáneas y Dormitorios',
+      icono: '🌸',
+      precio: '$87.900/GL',
+      tag: 'Tacto Aterciopelado',
+      tagColor: 'bg-rose-100 text-rose-800',
+      badge: 'Elegancia Soft Touch',
+      descripcion: 'Pintura vinil-acrílica con tacto sedoso que atenúa el reflejo lumínico brindando calidez espacial superior.',
+      familia: 'viniltex'
+    },
+    {
+      id: 'intervinil-estandar',
+      nombre: 'Intervinil Estándar Tipo 2 Rendimiento Máximo',
+      titulo: 'Intervinil Estándar',
+      subtitulo: 'Cielos y Superficies de Bajo Roce',
+      icono: '📦',
+      precio: '$46.900/GL',
+      tag: 'Línea Económica Constructor',
+      tagColor: 'bg-slate-100 text-slate-800',
+      badge: 'Alta Blancura Mate',
+      descripcion: 'Pintura base agua económica para cielorrasos y superficies interiores con acabado mate de gran poder cubridor.',
+      familia: 'viniltex'
+    },
+    {
+      id: 'plx-agua-int',
+      nombre: 'Pintulux Agua Esmalte Ecológico Secado Rápido',
+      titulo: 'Pintulux Acua Interior',
+      subtitulo: 'Puertas, Marcos y Zócalos Habitados',
+      icono: '💧',
+      precio: '$91.900/GL',
+      tag: 'Base Agua Cero Olor',
       tagColor: 'bg-teal-100 text-teal-800',
-      badge: 'Resistencia a Vapor y Grasa',
-      descripcion: 'Película protectora antibacterial y antihongos, resistente a condensación de vapor y lavado frecuente.',
+      badge: 'Secado Rápido 30 Min',
+      descripcion: 'Esmalte 100% acrílico sin olor a solvente. No amarillea en interiores y permite habitar el espacio el mismo día.',
+      familia: 'pintulux'
+    },
+    {
+      id: 'estuco-acrilico-int',
+      nombre: 'Estuco Acrílico Profesional Interiores Blanco',
+      titulo: 'Estuco Acrílico Pro',
+      subtitulo: 'Alistamiento y Resane de Paredes',
+      icono: '🧱',
+      precio: '$42.900/GL',
+      tag: 'Base Preparación Acrílica',
+      tagColor: 'bg-violet-100 text-violet-800',
+      badge: 'Acabado Extra Liso',
+      descripcion: 'Masilla lista para usar de máxima blancura y fácil lijabilidad para emparejar y nivelar muros antes de pintar.',
       familia: 'viniltex'
     }
   ],
   exteriores: [
     {
       id: 'koraza-doble-vida',
-      nombre: 'Koraza Doble Vida Protección Clima Extremo',
+      nombre: 'Koraza Doble Vida Clima Extremo',
       titulo: 'Koraza Doble Vida',
       subtitulo: 'Fachadas, Muros Exteriores y Balcones',
       icono: '🛡️',
-      precio: '$142.000/GL',
-      tag: '10 Años Garantía',
+      precio: '$98.900/GL',
+      tag: '13 Años Garantía Certificada',
       tagColor: 'bg-blue-100 text-[#004B93]',
-      badge: 'Tonos resistentes exterior',
-      descripcion: 'Pintura 100% acrílica hidrorrepelente para intemperie. Protección extrema contra rayos UV, lluvia ácida y hongos.',
+      badge: 'Protección Extrema Fachadas',
+      descripcion: 'Pintura 100% acrílica hidrorrepelente para intemperie. Protección extrema contra rayos UV, lluvia torrencial y algas.',
       familia: 'koraza'
     },
     {
-      id: 'pintulux-esmalte',
-      nombre: 'Pintulux Esmalte Sintético Anticorrosivo',
-      titulo: 'Pintulux / Esmalte',
-      subtitulo: 'Rejas, Portones, Metales y Maderas',
-      icono: '⚙️',
-      precio: '$68.900/GL',
-      tag: 'Anticorrosivo Alquídico',
+      id: 'koraza-sol-lluvia',
+      nombre: 'Koraza Protección Sol & Lluvia Elastomérica',
+      titulo: 'Koraza Sol & Lluvia',
+      subtitulo: 'Muros Medianeros, Terrazas y Patios',
+      icono: '☀️',
+      precio: '$88.900/GL',
+      tag: '8 Años Garantía UV',
       tagColor: 'bg-amber-100 text-amber-900',
-      badge: 'Brillante y Semibrillante',
-      descripcion: 'Esmalte sintético de secado rápido con acción inhibidora del óxido y acabado brillante para cerramientos y carpintería.',
-      familia: 'pintulux'
+      badge: 'Filtro Solar Activo',
+      descripcion: 'Barrera protectora continua contra la radiación ultravioleta y el desgaste por cambios drásticos de temperatura ambiental.',
+      familia: 'koraza'
+    },
+    {
+      id: 'koraza-tradicional',
+      nombre: 'Koraza Tradicional Fachadas Tipo 1',
+      titulo: 'Koraza Tradicional',
+      subtitulo: 'Fachadas Clásicas y Cerramientos',
+      icono: '🏡',
+      precio: '$74.900/GL',
+      tag: '5 Años Durabilidad',
+      tagColor: 'bg-emerald-100 text-emerald-800',
+      badge: 'Fachadas Tipo 1',
+      descripcion: 'Fórmula clásica para fachadas y cerramientos con alta solidez a la intemperie y excelente relación costo-beneficio.',
+      familia: 'koraza'
     },
     {
       id: 'koraza-siliconada',
@@ -1360,6 +1516,110 @@ export const PAINT_LINE_OPTIONS: Record<'interiores' | 'exteriores' | 'especiale
       badge: 'Fachadas Siempre Limpias',
       descripcion: 'Nanotecnología siliconada que repele el polvo y el agua mediante el lavado natural de las lluvias sin decolorarse.',
       familia: 'koraza'
+    },
+    {
+      id: 'koraza-5a',
+      nombre: 'Koraza 5 Años Protección Exterior Acrílica',
+      titulo: 'Koraza 5 Años',
+      subtitulo: 'Muros Exteriores, Cerramientos y Patios',
+      icono: '☀️',
+      precio: '$119.900/GL',
+      tag: '5 Años Garantía',
+      tagColor: 'bg-indigo-100 text-indigo-800',
+      badge: 'Resistencia UV Equilibrada',
+      descripcion: 'Acrílica para intemperie con sellado elástico que previene microfisuras y resiste sol implacable a precio óptimo.',
+      familia: 'koraza'
+    },
+    {
+      id: 'pintulux-esmalte',
+      nombre: 'Pintulux Esmalte Sintético Anticorrosivo',
+      titulo: 'Pintulux / Esmalte',
+      subtitulo: 'Rejas, Portones, Metales y Maderas',
+      icono: '⚙️',
+      precio: '$84.900/GL',
+      tag: 'Anticorrosivo Alquídico',
+      tagColor: 'bg-amber-100 text-amber-900',
+      badge: 'Brillante y Semibrillante',
+      descripcion: 'Esmalte sintético de secado rápido con acción inhibidora del óxido y acabado brillante para cerramientos y carpintería.',
+      familia: 'pintulux'
+    },
+    {
+      id: 'pintulux-agua',
+      nombre: 'Pintulux Agua Esmalte Ecológico Secado Rápido',
+      titulo: 'Pintulux Acua',
+      subtitulo: 'Metales y Carpintería Sin Olor a Solvente',
+      icono: '💧',
+      precio: '$91.900/GL',
+      tag: 'Base Agua Cero Olor',
+      tagColor: 'bg-teal-100 text-teal-800',
+      badge: 'Secado Rápido en 30 Min',
+      descripcion: 'Esmalte 100% acrílico libre de solventes tóxicos, que no amarillea con el sol y permite pintar rejas y marcos habitando el hogar.',
+      familia: 'pintulux'
+    },
+    {
+      id: 'corrostyl-zinc',
+      nombre: 'Corrostyl Anticorrosivo Cromato de Zinc',
+      titulo: 'Corrostyl Anticorrosivo',
+      subtitulo: 'Estructuras Metálicas, Techos de Zinc y Perfiles',
+      icono: '🏗️',
+      precio: '$76.500/GL',
+      tag: 'Inhibidor de Óxido NTC 1651',
+      tagColor: 'bg-red-100 text-red-800',
+      badge: 'Protección Catódica',
+      descripcion: 'Fondo primario anticorrosivo de cromato de zinc de máxima adherencia sobre hierro negro, láminas galvanizadas y perfiles.',
+      familia: 'pintulux'
+    },
+    {
+      id: 'madera-barniz',
+      nombre: 'Barniz Poliuretano y Tintes Filtro Solar',
+      titulo: 'Barniz Poliuretano',
+      subtitulo: 'Puertas, Muebles, Pérgolas y Decks',
+      icono: '🪵',
+      precio: '$82.900/GL',
+      tag: 'Filtro Solar UV',
+      tagColor: 'bg-orange-100 text-orange-900',
+      badge: 'Tonos Naturales de Madera',
+      descripcion: 'Barniz uretanado y tintes protectores que realzan la veta natural de la madera con máxima elasticidad contra la intemperie.',
+      familia: 'madera'
+    },
+    {
+      id: 'madetec-deck',
+      nombre: 'Madetec Esmalte Poliuretano Madera & Deck',
+      titulo: 'Madetec Decks',
+      subtitulo: 'Decks de Madera, Terrazas y Pérgolas',
+      icono: '🌳',
+      precio: '$89.900/GL',
+      tag: 'Tráfico Peatonal Decks',
+      tagColor: 'bg-yellow-100 text-yellow-900',
+      badge: 'Alta Dureza Exterior',
+      descripcion: 'Recubrimiento protector de máxima dureza contra intemperie, lluvia constante y fricción peatonal en maderas exteriores.',
+      familia: 'madera'
+    },
+    {
+      id: 'koraza-antialgas',
+      nombre: 'Koraza Fachadas Antialgas Máxima Resistencia',
+      titulo: 'Koraza Antialgas',
+      subtitulo: 'Climas Húmedos, Costeros y Sombríos',
+      icono: '🌿',
+      precio: '$134.000/GL',
+      tag: 'Biocida Encapsulado',
+      tagColor: 'bg-emerald-100 text-emerald-900',
+      badge: 'Anti Musgo y Algas',
+      descripcion: 'Fórmula enriquecida con biocidas microencapsulados para climas húmedos donde proliferan hongos, musgo y algas verdes.',
+      familia: 'koraza'
+    },
+    {
+      id: 'esmalte-domestico',
+      nombre: 'Esmalte Doméstico Barniz Sintético Metales',
+      titulo: 'Esmalte Doméstico',
+      subtitulo: 'Rejas, Ventanas y Herrería Residencial',
+      icono: '🚪',
+      precio: '$58.900/GL',
+      tag: 'Uso General Doméstico',
+      tagColor: 'bg-slate-100 text-slate-800',
+      badge: 'Brillo Duradero',
+      descripcion: 'Esmalte económico de uso general para rejas, ventanas y tuberías expuestas a la intemperie con acabado brillante duradero.',
+      familia: 'pintulux'
     }
   ],
   especiales: [
@@ -1369,25 +1629,38 @@ export const PAINT_LINE_OPTIONS: Record<'interiores' | 'exteriores' | 'especiale
       titulo: 'Aquablock Antihumedad',
       subtitulo: 'Techos, Terrazas, Muros y Fisuras',
       icono: '💧',
-      precio: '$118.900/GL',
-      tag: 'Barrera Bloqueadora Activa',
+      precio: '$104.900/GL',
+      tag: 'Barrera Bloqueadora 7 Años',
       tagColor: 'bg-cyan-100 text-cyan-900',
-      badge: 'Tonos Elastoméricos Barrera Solar',
-      descripcion: 'Impermeabilizante fibrado que frena goteras, humedad por capilaridad y sella fisuras en techos y cubiertas.',
+      badge: 'Anticapilaridad Sótanos',
+      descripcion: 'Penetra en los poros de la mampostería cristalizando y bloqueando el paso de la humedad por capilaridad y eflorescencias.',
       familia: 'aquablock'
     },
     {
-      id: 'viniltex-banos-esp',
-      nombre: 'Viniltex Baños y Cocinas Antibacterial',
-      titulo: 'Viniltex Baños y Cocinas',
-      subtitulo: 'Zonas de Vapor y Humedad Crítica',
-      icono: '🛁',
-      precio: '$96.900/GL',
-      tag: 'Antihongos & Antibacterial',
-      tagColor: 'bg-teal-100 text-teal-800',
-      badge: 'Resiste Vapor y Lavado Químico',
-      descripcion: 'Protección con biocida contra moho para muros y techos con vapor constante en baños y cocinas.',
-      familia: 'viniltex'
+      id: 'pintuco-fill',
+      nombre: 'Pintuco Fill Masilla Elastomérica Grietas & Juntas',
+      titulo: 'Pintuco Fill Masilla',
+      subtitulo: 'Fisuras Activas, Grietas y Juntas de Muros',
+      icono: '🏠',
+      precio: '$69.900/GL',
+      tag: 'Puentea Fisuras Activas',
+      tagColor: 'bg-emerald-100 text-emerald-800',
+      badge: 'Elasticidad 8 Años',
+      descripcion: 'Resanador y sellador elastomérico de alto desempeño para fisuras activas, juntas de dilatación y pre-tratamiento.',
+      familia: 'aquablock'
+    },
+    {
+      id: 'imp-acr',
+      nombre: 'Imprimante Acrílico Sellador 50/50',
+      titulo: 'Imprimante Sellador 50/50',
+      subtitulo: 'Neutralizador de Alcalinidad en Revoques Nuevos',
+      icono: '🧪',
+      precio: '$62.900/GL',
+      tag: 'Neutralizador Alcalino',
+      tagColor: 'bg-blue-100 text-blue-900',
+      badge: 'Rendimiento 45 m²/GL',
+      descripcion: 'Fija partículas sueltas, neutraliza alcalinidad del cemento fresco y reduce drásticamente el consumo excesivo de pintura.',
+      familia: 'aquablock'
     },
     {
       id: 'pintutrafico-pisos',
@@ -1395,28 +1668,209 @@ export const PAINT_LINE_OPTIONS: Record<'interiores' | 'exteriores' | 'especiale
       titulo: 'Pintutráfico Pisos y Vías',
       subtitulo: 'Canchas, Parqueaderos y Pavimentos',
       icono: '🚜',
-      precio: '$125.000/GL',
-      tag: 'Norma NTC 1360',
+      precio: '$119.000/GL',
+      tag: 'Norma Vial NTC 1360',
       tagColor: 'bg-amber-100 text-amber-900',
       badge: 'Colores Reglamentarios',
-      descripcion: 'Pintura acrílica para concreto y asfalto de secado ultrarrápido y máxima resistencia al desgaste por fricción pesada.',
+      descripcion: 'Pintura acrílica alquídica para concreto y asfalto según norma NTC 1360 de secado ultrarrápido y máxima resistencia.',
       familia: 'trafico'
     },
     {
-      id: 'maderas-barnices',
-      nombre: 'Línea Maderas y Barnices Pintuco',
-      titulo: 'Maderas y Barnices',
-      subtitulo: 'Puertas, Muebles, Pérgolas y Decks',
-      icono: '🪵',
-      precio: '$79.900/GL',
-      tag: 'Filtro Solar UV',
-      tagColor: 'bg-orange-100 text-orange-900',
-      badge: 'Tonos Naturales de Madera',
-      descripcion: 'Barniz uretanado y tintes protectores que realzan la veta natural de la madera con máxima elasticidad contra la intemperie.',
+      id: 'pintucoat-epoxico',
+      nombre: 'Pintucoat Esmalte Epóxico Pisos & Tanques',
+      titulo: 'Pintucoat Epóxico',
+      subtitulo: 'Pisos de Hospitales, Garajes y Tanques',
+      icono: '🧪',
+      precio: '$148.000/GL',
+      tag: 'Grado Sanitario y Químico',
+      tagColor: 'bg-purple-100 text-purple-800',
+      badge: 'Brillo Alto Espejo',
+      descripcion: 'Sistema epóxico bicomponente de alta resistencia química y mecánica. Apto para pisos industriales y tanques de agua potable.',
+      familia: 'trafico'
+    },
+    {
+      id: 'viniltex-banos-esp',
+      nombre: 'Viniltex Baños y Cocinas Antibacterial Zonas Vapor',
+      titulo: 'Viniltex Baños y Cocinas',
+      subtitulo: 'Zonas de Vapor y Humedad Crítica',
+      icono: '🛁',
+      precio: '$89.900/GL',
+      tag: 'Antihongos & Antibacterial',
+      tagColor: 'bg-teal-100 text-teal-800',
+      badge: 'Resiste Vapor Constante',
+      descripcion: 'Protección con biocida contra moho para muros y techos con vapor constante en baños, cocinas industriales y lavanderías.',
+      familia: 'viniltex'
+    },
+    {
+      id: 'aquablock-techos',
+      nombre: 'Aquablock Techos & Terrazas Membrana Líquida',
+      titulo: 'Aquablock Techos & Terrazas',
+      subtitulo: 'Cubiertas, Losas y Techos Transitables',
+      icono: '🌊',
+      precio: '$128.900/GL',
+      tag: 'Membrana Fibrada Transitable',
+      tagColor: 'bg-sky-100 text-sky-900',
+      badge: 'Reflectivo Térmico Blanco',
+      descripcion: 'Impermeabilizante fibrado transitable para cubiertas y losas con microfibras sintéticas que eliminan filtraciones y goteras directas.',
+      familia: 'aquablock'
+    },
+    {
+      id: 'pintutrafico-agua',
+      nombre: 'Pintutráfico Acrílico Base Agua Vial NTC 1360',
+      titulo: 'Pintutráfico Acua Vial',
+      subtitulo: 'Parqueaderos, Ciclorrutas y Bodegas',
+      icono: '🚴',
+      precio: '$112.000/GL',
+      tag: 'Base Agua Ecológica Vial',
+      tagColor: 'bg-yellow-100 text-yellow-950',
+      badge: 'Bajo Olor y Rápido Secado',
+      descripcion: 'Pintura vial base agua de secado rápido, amigable con el medio ambiente y de alta visibilidad para demarcación urbana.',
+      familia: 'trafico'
+    },
+    {
+      id: 'madetec-marino',
+      nombre: 'Madetec Laca Catalizada y Barniz Marino',
+      titulo: 'Madetec Marino',
+      subtitulo: 'Carpintería Marina, Muelles y Puertas',
+      icono: '⛵',
+      precio: '$86.500/GL',
+      tag: 'Resistencia Salina Marina',
+      tagColor: 'bg-amber-100 text-amber-900',
+      badge: 'Alto Brillo Marino',
+      descripcion: 'Laca de alta viscosidad y dureza con filtro solar para carpintería marina, embarcaciones, muelles y puertas expuestas al rocío marino.',
       familia: 'madera'
+    },
+    {
+      id: 'epoxico-altos-solidos',
+      nombre: 'Epóxico Altos Sólidos Grado Sanitario Hospitalario',
+      titulo: 'Epóxico Altos Sólidos',
+      subtitulo: 'Quirófanos, Alimentos y Farmacéutica',
+      icono: '🏥',
+      precio: '$165.000/GL',
+      tag: 'Aprobación INVIMA Sanitaria',
+      tagColor: 'bg-indigo-100 text-indigo-900',
+      badge: 'Cero Porosidad Asepsia',
+      descripcion: 'Pintura epóxica libre de solventes para quirófanos, plantas procesadoras de alimentos y laboratorios farmacéuticos certificados.',
+      familia: 'trafico'
+    },
+    {
+      id: 'pisos-canchas-sport',
+      nombre: 'Pintura para Pisos y Canchas Antideslizante',
+      titulo: 'Pintura Canchas Sport',
+      subtitulo: 'Canchas Polideportivas, Rampas y Senderos',
+      icono: '🏀',
+      precio: '$108.900/GL',
+      tag: 'Textura Antideslizante',
+      tagColor: 'bg-green-100 text-green-900',
+      badge: 'Canchas Polideportivas',
+      descripcion: 'Recubrimiento acrílico antideslizante con textura mineral para canchas deportivas múltiples, senderos peatonales y rampas.',
+      familia: 'trafico'
+    },
+    {
+      id: 'sellador-fibrado',
+      nombre: 'Sellador Fibrado Impermeabilizante Frentes y Culatas',
+      titulo: 'Sellador Fibrado Culatas',
+      subtitulo: 'Muros Culata y Medianeros de Difícil Acceso',
+      icono: '🧱',
+      precio: '$94.500/GL',
+      tag: 'Refuerzo con Microfibras',
+      tagColor: 'bg-teal-100 text-teal-900',
+      badge: 'Muros Culata y Medianeros',
+      descripcion: 'Compuesto acrílico reforzado con fibras de polipropileno para impermeabilizar muros culatas y medianerías de difícil acceso.',
+      familia: 'aquablock'
     }
   ]
 };
+
+/**
+ * Mapea e inyecta dinámicamente todo el catálogo oficial sin ninguna restricción ni .slice()
+ */
+export function buildComprehensiveCatalogPaints(
+  category: 'interiores' | 'exteriores' | 'especiales',
+  supabaseProducts?: SupabaseProducto[]
+): PaintLineOptionItem[] {
+  const baseList: PaintLineOptionItem[] = [...(PAINT_LINE_OPTIONS[category] || [])];
+  const seenIds = new Set<string>(baseList.map(item => item.id.toLowerCase()));
+  const seenNames = new Set<string>(baseList.map(item => item.nombre.toLowerCase().trim()));
+
+  // 1. Inyección complementaria desde PINTUCO_CATALOG para garantizar que ninguna referencia oficial quede excluida
+  PINTUCO_CATALOG.forEach((p) => {
+    if (!p || p.categoriaCatalogo === 'herramientas') return;
+    const cat = p.categoriaCatalogo;
+    const nameLower = (p.nombre || '').toLowerCase();
+    const lineaLower = (p.linea || '').toLowerCase();
+    const tipoLower = (p.tipoPintura || '').toLowerCase();
+
+    let belongs = false;
+    if (category === 'interiores') {
+      belongs = cat === 'interiores' || lineaLower.includes('interior') || tipoLower.includes('vinilo') || nameLower.includes('viniltex') || nameLower.includes('intervinil') || nameLower.includes('cielos') || nameLower.includes('estuco');
+    } else if (category === 'exteriores') {
+      belongs = cat === 'exteriores' || cat === 'metales_madera' || lineaLower.includes('exterior') || lineaLower.includes('fachada') || nameLower.includes('koraza') || nameLower.includes('pintulux') || nameLower.includes('corrostyl') || nameLower.includes('madera') || nameLower.includes('barniz') || nameLower.includes('deck');
+    } else if (category === 'especiales') {
+      belongs = cat === 'especiales' || nameLower.includes('aquablock') || nameLower.includes('tráfico') || nameLower.includes('trafico') || nameLower.includes('epóxico') || nameLower.includes('epoxico') || nameLower.includes('fill') || nameLower.includes('imprimante') || nameLower.includes('baños') || nameLower.includes('banos') || nameLower.includes('sellador');
+    }
+
+    if (belongs && !seenIds.has(p.id.toLowerCase()) && !seenNames.has(nameLower.trim())) {
+      seenIds.add(p.id.toLowerCase());
+      seenNames.add(nameLower.trim());
+      const prices = getPaintPrices(p.nombre);
+      const isExt = category === 'exteriores';
+      const isEsp = category === 'especiales';
+      baseList.push({
+        id: p.id,
+        nombre: p.nombre,
+        titulo: p.nombre.replace(/Pintuco\s*/i, '').replace(/Máxima\s*/i, '').trim(),
+        subtitulo: p.linea || (isExt ? 'Fachadas y Muros Exteriores' : isEsp ? 'Uso Técnico Especial' : 'Paredes y Techos Interiores'),
+        icono: isExt ? '🛡️' : isEsp ? '💧' : '🎨',
+        precio: `$${(p.precioGalon || prices.galon).toLocaleString('es-CO')}/GL`,
+        tag: p.garantia || 'Pintuco Certificado',
+        tagColor: isExt ? 'bg-blue-100 text-[#004B93]' : isEsp ? 'bg-cyan-100 text-cyan-900' : 'bg-emerald-100 text-emerald-800',
+        badge: p.acabado || 'Acabado Profesional',
+        descripcion: p.descripcion || `${p.tipoPintura || 'Pintura'} de alto rendimiento para proyectos profesionales.`,
+        familia: isExt ? 'koraza' : isEsp ? 'aquablock' : 'viniltex'
+      });
+    }
+  });
+
+  // 2. Inyección dinámica de productos provenientes de base de datos Supabase
+  if (Array.isArray(supabaseProducts)) {
+    supabaseProducts.forEach((sp) => {
+      if (!sp || !sp.nombre) return;
+      const spName = sp.nombre.toLowerCase().trim();
+      let belongs = false;
+      if (category === 'interiores') {
+        belongs = spName.includes('viniltex') || spName.includes('intervinil') || spName.includes('interior') || spName.includes('cielos') || spName.includes('estuco');
+      } else if (category === 'exteriores') {
+        belongs = spName.includes('koraza') || spName.includes('exterior') || spName.includes('fachada') || spName.includes('pintulux') || spName.includes('esmalte') || spName.includes('corrostyl') || spName.includes('madera');
+      } else if (category === 'especiales') {
+        belongs = spName.includes('aquablock') || spName.includes('tráfico') || spName.includes('trafico') || spName.includes('epoxi') || spName.includes('fill') || spName.includes('sellador') || spName.includes('imprimante') || spName.includes('baños');
+      }
+
+      const spId = String(sp.id || sp.sku || sp.nombre);
+      if (belongs && !seenIds.has(spId.toLowerCase()) && !seenNames.has(spName)) {
+        seenIds.add(spId.toLowerCase());
+        seenNames.add(spName);
+        const prices = getPaintPrices(sp.nombre);
+        baseList.push({
+          id: spId,
+          nombre: sp.nombre,
+          titulo: sp.nombre,
+          subtitulo: sp.ambiente || 'Catálogo Oficial Pintuco',
+          icono: category === 'exteriores' ? '🛡️' : category === 'especiales' ? '💧' : '🎨',
+          precio: `$${prices.galon.toLocaleString('es-CO')}/GL`,
+          tag: 'Oficial Pintuco',
+          tagColor: 'bg-blue-100 text-[#004B93]',
+          badge: 'Stock Disponible',
+          descripcion: sp.rendimiento_m2 ? `Rendimiento estimado de ${sp.rendimiento_m2} m²/GL a dos manos.` : 'Pintura oficial garantizada de alta densidad y durabilidad.',
+          familia: category === 'exteriores' ? 'koraza' : category === 'especiales' ? 'aquablock' : 'viniltex'
+        });
+      }
+    });
+  }
+
+  // RETORNO COMPLETO SIN NINGÚN .slice(), LÍMITE O RESTRICCIÓN
+  return baseList;
+}
 
 export interface FMVFormProps {
   formData: FMVFormData;
@@ -1473,6 +1927,48 @@ export const FMVForm: React.FC<FMVFormProps> = ({
   // Pestaña rápida activa en 2.1 (Interiores | Exteriores | Zonas Húmedas / Especiales)
   const [paintFilterTab, setPaintFilterTab] = useState<'interiores' | 'exteriores' | 'especiales'>('interiores');
 
+  // Ref y estado para carrusel horizontal fluido de catálogo de pinturas (Paso 2)
+  const paintCarouselRef = useRef<HTMLDivElement>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(true);
+  const [carouselProgress, setCarouselProgress] = useState(0);
+
+  const updateCarouselScrollState = useCallback(() => {
+    const el = paintCarouselRef.current;
+    if (!el) return;
+    const { scrollLeft, scrollWidth, clientWidth } = el;
+    setCanScrollLeft(scrollLeft > 5);
+    setCanScrollRight(scrollLeft < scrollWidth - clientWidth - 5);
+    const maxScroll = scrollWidth - clientWidth;
+    if (maxScroll > 0) {
+      const pct = Math.max(0, Math.min(100, Math.round((scrollLeft / maxScroll) * 100)));
+      setCarouselProgress(pct);
+    } else {
+      setCarouselProgress(100);
+    }
+  }, []);
+
+  const handleCarouselScroll = useCallback((direction: 'left' | 'right') => {
+    const el = paintCarouselRef.current;
+    if (!el) return;
+    const scrollAmount = 330;
+    el.scrollBy({
+      left: direction === 'left' ? -scrollAmount : scrollAmount,
+      behavior: 'smooth'
+    });
+  }, []);
+
+  // Re-evaluar estado del carrusel al cambiar de pestaña y resetear scroll al inicio
+  useEffect(() => {
+    if (paintCarouselRef.current) {
+      paintCarouselRef.current.scrollTo({ left: 0, behavior: 'smooth' });
+    }
+    const timer = setTimeout(() => {
+      updateCarouselScrollState();
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [paintFilterTab, updateCarouselScrollState]);
+
   // Tools descartadas voluntariamente ("No me interesa / Omitir")
   const [dismissedTools, setDismissedTools] = useState<Record<string, boolean>>({});
 
@@ -1513,60 +2009,67 @@ export const FMVForm: React.FC<FMVFormProps> = ({
   // Autocompletar datos de entrega y facturación utilizando el perfil del usuario autenticado (Paso 3)
   useEffect(() => {
     if (userSession && userSession.isLoggedIn) {
-      let filledAny = false;
-      if (userSession.nombre && (!formData.nombre_razon_social || formData.nombre_razon_social.trim() === '')) {
-        onChange('nombre_razon_social', userSession.nombre);
-        filledAny = true;
-      }
-      if ((userSession.documento || userSession.cedula) && (!formData.documento || formData.documento.trim() === '')) {
-        onChange('documento', userSession.documento || userSession.cedula || '');
-        filledAny = true;
-      }
-      if (userSession.tipoDocumento && !formData.tipo_documento) {
-        onChange('tipo_documento', userSession.tipoDocumento);
-        filledAny = true;
-      }
-      if (userSession.telefono && (!formData.telefono || formData.telefono.trim() === '')) {
-        onChange('telefono', userSession.telefono);
-        filledAny = true;
-      }
-      if (userSession.email && (!formData.correo_electronico || formData.correo_electronico.trim() === '')) {
-        onChange('correo_electronico', userSession.email);
-        filledAny = true;
-      }
+      queueMicrotask(() => {
+        let filledAny = false;
+        if (userSession.nombre && (!formData.nombre_razon_social || formData.nombre_razon_social.trim() === '')) {
+          onChange('nombre_razon_social', userSession.nombre);
+          filledAny = true;
+        }
+        if ((userSession.documento || userSession.cedula) && (!formData.documento || formData.documento.trim() === '')) {
+          onChange('documento', userSession.documento || userSession.cedula || '');
+          filledAny = true;
+        }
+        if (userSession.tipoDocumento && !formData.tipo_documento) {
+          onChange('tipo_documento', userSession.tipoDocumento);
+          filledAny = true;
+        }
+        if (userSession.telefono && (!formData.telefono || formData.telefono.trim() === '')) {
+          onChange('telefono', userSession.telefono);
+          filledAny = true;
+        }
+        if (userSession.email && (!formData.correo_electronico || formData.correo_electronico.trim() === '')) {
+          onChange('correo_electronico', userSession.email);
+          filledAny = true;
+        }
 
-      // Dirección guardada en el perfil
-      const defaultAddr = userSession.direcciones?.find(d => d.esPredeterminada) || userSession.direcciones?.[0];
-      const savedAddr = defaultAddr?.direccion || userSession.direccion || userSession.address;
-      if (savedAddr && (!formData.direccion_obra || formData.direccion_obra.trim() === '')) {
-        onChange('direccion_obra', savedAddr);
-        filledAny = true;
-      }
+        // Dirección guardada en el perfil
+        const defaultAddr = userSession.direcciones?.find(d => d.esPredeterminada) || userSession.direcciones?.[0];
+        const savedAddr = defaultAddr?.direccion || userSession.direccion || userSession.address;
+        if (savedAddr && (!formData.direccion_obra || formData.direccion_obra.trim() === '')) {
+          onChange('direccion_obra', savedAddr);
+          filledAny = true;
+        }
 
-      const savedCity = defaultAddr?.ciudad || userSession.ciudad;
-      if (savedCity && (!formData.ciudad || formData.ciudad === 'Bogotá D.C.')) {
-        onChange('ciudad', savedCity);
-        filledAny = true;
-      }
+        const savedCity = defaultAddr?.ciudad || userSession.ciudad;
+        if (savedCity && (!formData.ciudad || formData.ciudad === 'Bogotá D.C.')) {
+          onChange('ciudad', savedCity);
+          filledAny = true;
+        }
 
-      const savedDepto = defaultAddr?.departamento || userSession.departamento;
-      if (savedDepto && !formData.departamento) {
-        onChange('departamento', savedDepto);
-        filledAny = true;
-      }
+        const savedDepto = defaultAddr?.departamento || userSession.departamento;
+        if (savedDepto && !formData.departamento) {
+          onChange('departamento', savedDepto);
+          filledAny = true;
+        }
 
-      if (filledAny) {
-        setAutocompletedFromProfile(true);
-      }
+        if (filledAny) {
+          setAutocompletedFromProfile(true);
+        }
+      });
     }
   }, [userSession]);
 
-  // Helper para buscar opción de línea de pintura
+  // Lista unificada y completa de todas las opciones de pintura sin restricciones ni .slice()
   const allPaintOptions = useMemo(() => [
-    ...PAINT_LINE_OPTIONS.interiores,
-    ...PAINT_LINE_OPTIONS.exteriores,
-    ...PAINT_LINE_OPTIONS.especiales,
-  ], []);
+    ...buildComprehensiveCatalogPaints('interiores', supabaseProducts),
+    ...buildComprehensiveCatalogPaints('exteriores', supabaseProducts),
+    ...buildComprehensiveCatalogPaints('especiales', supabaseProducts),
+  ], [supabaseProducts]);
+
+  // Lista de pinturas disponibles para la categoría activa
+  const currentCategoryPaints = useMemo(() => {
+    return buildComprehensiveCatalogPaints(paintFilterTab, supabaseProducts);
+  }, [paintFilterTab, supabaseProducts]);
 
   const findPaintOption = (nameOrId: string): PaintLineOptionItem => {
     return allPaintOptions.find(p => 
@@ -1580,9 +2083,9 @@ export const FMVForm: React.FC<FMVFormProps> = ({
   const [selectedPaints, setSelectedPaints] = useState<CotizadorPaintItem[]>(() => {
     const desired = formData.producto_deseado || 'Viniltex Avanzado Máxima Lavabilidad';
     const all = [
-      ...PAINT_LINE_OPTIONS.interiores,
-      ...PAINT_LINE_OPTIONS.exteriores,
-      ...PAINT_LINE_OPTIONS.especiales,
+      ...buildComprehensiveCatalogPaints('interiores', supabaseProducts),
+      ...buildComprehensiveCatalogPaints('exteriores', supabaseProducts),
+      ...buildComprehensiveCatalogPaints('especiales', supabaseProducts),
     ];
     const opt = all.find(p => p.nombre === desired || p.nombre.toLowerCase().includes(desired.toLowerCase())) || all[0];
     const prices = getPaintPrices(opt.nombre);
@@ -1651,43 +2154,41 @@ export const FMVForm: React.FC<FMVFormProps> = ({
 
   // Funciones de gestión de pinturas seleccionadas
   const handleTogglePaint = (option: PaintLineOptionItem) => {
-    setSelectedPaints(prev => {
-      const exists = prev.some(p => p.id === option.id || p.nombre === option.nombre);
-      if (exists) {
-        if (prev.length <= 1) return prev;
-        const next = prev.filter(p => p.id !== option.id && p.nombre !== option.nombre);
-        const totalArea = next.reduce((sum, p) => sum + p.area_m2, 0);
-        onChange('area_m2', Number(totalArea.toFixed(2)));
-        onChange('producto_deseado', next.length === 1 ? next[0].nombre : next.map(p => p.titulo).join(' + '));
-        return next;
-      } else {
-        const prices = getPaintPrices(option.nombre);
-        const palette = getPaletteForProductName(option.nombre);
-        const defColor = palette[0]?.name ?? 'Blanco Puro';
-        const defaultArea = 25;
-        const newPaint: CotizadorPaintItem = {
-          id: option.id,
-          nombre: option.nombre,
-          titulo: option.titulo,
-          subtitulo: option.subtitulo,
-          icono: option.icono,
-          familia: option.familia,
-          precioGalon: prices.galon,
-          precioCunete: prices.cunete,
-          area_m2: defaultArea,
-          color_acabado: defColor,
-          badge: option.badge,
-          tag: option.tag,
-          tagColor: option.tagColor,
-          descripcion: option.descripcion,
-        };
-        const next = [...prev, newPaint];
-        const totalArea = next.reduce((sum, p) => sum + p.area_m2, 0);
-        onChange('area_m2', Number(totalArea.toFixed(2)));
-        onChange('producto_deseado', next.map(p => p.titulo).join(' + '));
-        return next;
-      }
-    });
+    const exists = selectedPaints.some(p => p.id === option.id || p.nombre === option.nombre);
+    if (exists) {
+      if (selectedPaints.length <= 1) return;
+      const next = selectedPaints.filter(p => p.id !== option.id && p.nombre !== option.nombre);
+      const totalArea = next.reduce((sum, p) => sum + p.area_m2, 0);
+      setSelectedPaints(next);
+      onChange('area_m2', Number(totalArea.toFixed(2)));
+      onChange('producto_deseado', next.length === 1 ? next[0].nombre : next.map(p => p.titulo).join(' + '));
+    } else {
+      const prices = getPaintPrices(option.nombre);
+      const palette = getPaletteForProductName(option.nombre);
+      const defColor = palette[0]?.name ?? 'Blanco Puro';
+      const defaultArea = 25;
+      const newPaint: CotizadorPaintItem = {
+        id: option.id,
+        nombre: option.nombre,
+        titulo: option.titulo,
+        subtitulo: option.subtitulo,
+        icono: option.icono,
+        familia: option.familia,
+        precioGalon: prices.galon,
+        precioCunete: prices.cunete,
+        area_m2: defaultArea,
+        color_acabado: defColor,
+        badge: option.badge,
+        tag: option.tag,
+        tagColor: option.tagColor,
+        descripcion: option.descripcion,
+      };
+      const next = [...selectedPaints, newPaint];
+      const totalArea = next.reduce((sum, p) => sum + p.area_m2, 0);
+      setSelectedPaints(next);
+      onChange('area_m2', Number(totalArea.toFixed(2)));
+      onChange('producto_deseado', next.map(p => p.titulo).join(' + '));
+    }
   };
 
   const handleSelectOnlyPaint = (option: PaintLineOptionItem) => {
@@ -1717,22 +2218,18 @@ export const FMVForm: React.FC<FMVFormProps> = ({
 
   const handleUpdatePaintArea = (paintId: string, newArea: number) => {
     const safeArea = Math.max(0.1, Number(newArea.toFixed(2)));
-    setSelectedPaints(prev => {
-      const next = prev.map(p => p.id === paintId ? { ...p, area_m2: safeArea, editedCunetes: undefined, editedGalones: undefined } : p);
-      const totalArea = next.reduce((sum, p) => sum + p.area_m2, 0);
-      onChange('area_m2', Number(totalArea.toFixed(2)));
-      return next;
-    });
+    const next = selectedPaints.map(p => p.id === paintId ? { ...p, area_m2: safeArea, editedCunetes: undefined, editedGalones: undefined } : p);
+    const totalArea = next.reduce((sum, p) => sum + p.area_m2, 0);
+    setSelectedPaints(next);
+    onChange('area_m2', Number(totalArea.toFixed(2)));
   };
 
   const handleUpdatePaintColor = (paintId: string, newColor: string) => {
-    setSelectedPaints(prev => {
-      const next = prev.map(p => p.id === paintId ? { ...p, color_acabado: newColor } : p);
-      if (next.length > 0 && next[0].id === paintId) {
-        onChange('color_acabado', newColor);
-      }
-      return next;
-    });
+    const next = selectedPaints.map(p => p.id === paintId ? { ...p, color_acabado: newColor } : p);
+    setSelectedPaints(next);
+    if (next.length > 0 && next[0].id === paintId) {
+      onChange('color_acabado', newColor);
+    }
   };
 
   // Precios unitarios compatibles según producto principal
@@ -2042,7 +2539,6 @@ export const FMVForm: React.FC<FMVFormProps> = ({
       window.dispatchEvent(new CustomEvent('colorlink_shipping_address_updated', {
         detail: { address: deliveryPayload.direccion, city: deliveryPayload.ciudad }
       }));
-      window.dispatchEvent(new Event('storage'));
     } catch (e) {
       console.warn('Error saving delivery data to localStorage:', e);
     }
@@ -2133,8 +2629,10 @@ export const FMVForm: React.FC<FMVFormProps> = ({
       const isCurrentStoreValid = availableStores.some(s => s.nombre === formData.sede_retiro);
       if (!isCurrentStoreValid) {
         const defaultStore = availableStores[0];
-        onChange('sede_retiro', defaultStore.nombre);
-        onChange('direccion_obra', `Retiro en Tienda: ${defaultStore.nombre} - ${defaultStore.direccion}`);
+        queueMicrotask(() => {
+          onChange('sede_retiro', defaultStore.nombre);
+          onChange('direccion_obra', `Retiro en Tienda: ${defaultStore.nombre} - ${defaultStore.direccion}`);
+        });
       }
     }
   }, [currentModalidad, availableStores, formData.sede_retiro, onChange]);
@@ -2253,7 +2751,7 @@ export const FMVForm: React.FC<FMVFormProps> = ({
   };
 
   // Sincronización inteligente de pinturas según lo elegido en el Paso 1 (Espacio, Superficie y Condición)
-  const lastStep1Signature = useRef<string>('');
+  const lastStep1Signature = useRef<string>(`${formData.ambiente}|${formData.superficie}|${formData.condicion}`);
   useEffect(() => {
     const currentSig = `${formData.ambiente}|${formData.superficie}|${formData.condicion}`;
     if (lastStep1Signature.current !== currentSig) {
@@ -2263,41 +2761,43 @@ export const FMVForm: React.FC<FMVFormProps> = ({
       const amb = (formData.ambiente || '').toLowerCase();
       const sup = (formData.superficie || '').toLowerCase();
 
-      // 1. Humedad / Fisuras -> Preseleccionar Aquablock
-      if (cond.includes('humedad') || cond.includes('fisura')) {
-        setPaintFilterTab('especiales');
-        handleSelectPaintType('Aquablock Sellador Antihumedad Bloqueador');
-      } 
-      // 2. Fachadas / Exteriores -> Preseleccionar Koraza
-      else if (amb.includes('exterior') || amb.includes('fachada')) {
-        setPaintFilterTab('exteriores');
-        handleSelectPaintType('Koraza Doble Vida Protección Clima Extremo');
-      } 
-      // 3. Estructuras Metálicas -> Preseleccionar Pintulux Esmalte
-      else if (sup.includes('metal')) {
-        setPaintFilterTab('exteriores');
-        handleSelectPaintType('Pintulux Esmalte Sintético Anticorrosivo');
-      } 
-      // 4. Maderas -> Preseleccionar Línea Maderas y Barnices
-      else if (sup.includes('madera')) {
-        setPaintFilterTab('especiales');
-        handleSelectPaintType('Línea Maderas y Barnices Pintuco');
-      } 
-      // 5. Zonas Húmedas / Baños y Cocinas -> Preseleccionar Viniltex Baños y Cocinas
-      else if (amb.includes('baño') || amb.includes('cocina') || amb.includes('húmeda')) {
-        setPaintFilterTab('especiales');
-        handleSelectPaintType('Viniltex Baños y Cocinas Antibacterial');
-      } 
-      // 6. Techos / Cielorrasos -> Preseleccionar Intervinil Cielos Mate
-      else if (amb.includes('techo') || amb.includes('cielo')) {
-        setPaintFilterTab('interiores');
-        handleSelectPaintType('Intervinil Cielos Mate Antirreflejo');
-      } 
-      // 7. Interiores (Default) -> Viniltex Avanzado
-      else {
-        setPaintFilterTab('interiores');
-        handleSelectPaintType('Viniltex Avanzado Máxima Lavabilidad');
-      }
+      queueMicrotask(() => {
+        // 1. Humedad / Fisuras -> Preseleccionar Aquablock
+        if (cond.includes('humedad') || cond.includes('fisura')) {
+          setPaintFilterTab('especiales');
+          handleSelectPaintType('Aquablock Sellador Antihumedad Bloqueador');
+        } 
+        // 2. Fachadas / Exteriores -> Preseleccionar Koraza
+        else if (amb.includes('exterior') || amb.includes('fachada')) {
+          setPaintFilterTab('exteriores');
+          handleSelectPaintType('Koraza Doble Vida Protección Clima Extremo');
+        } 
+        // 3. Estructuras Metálicas -> Preseleccionar Pintulux Esmalte
+        else if (sup.includes('metal')) {
+          setPaintFilterTab('exteriores');
+          handleSelectPaintType('Pintulux Esmalte Sintético Anticorrosivo');
+        } 
+        // 4. Maderas -> Preseleccionar Línea Maderas y Barnices
+        else if (sup.includes('madera')) {
+          setPaintFilterTab('especiales');
+          handleSelectPaintType('Línea Maderas y Barnices Pintuco');
+        } 
+        // 5. Zonas Húmedas / Baños y Cocinas -> Preseleccionar Viniltex Baños y Cocinas
+        else if (amb.includes('baño') || amb.includes('cocina') || amb.includes('húmeda')) {
+          setPaintFilterTab('especiales');
+          handleSelectPaintType('Viniltex Baños y Cocinas Antibacterial');
+        } 
+        // 6. Techos / Cielorrasos -> Preseleccionar Intervinil Cielos Mate
+        else if (amb.includes('techo') || amb.includes('cielo')) {
+          setPaintFilterTab('interiores');
+          handleSelectPaintType('Intervinil Cielos Mate Antirreflejo');
+        } 
+        // 7. Interiores (Default) -> Viniltex Avanzado
+        else {
+          setPaintFilterTab('interiores');
+          handleSelectPaintType('Viniltex Avanzado Máxima Lavabilidad');
+        }
+      });
     }
   }, [formData.ambiente, formData.superficie, formData.condicion]);
 
@@ -2308,7 +2808,9 @@ export const FMVForm: React.FC<FMVFormProps> = ({
     if (lastPaletteTypeRef.current !== activePaintCategory.type) {
       lastPaletteTypeRef.current = activePaintCategory.type;
       if (activePaintCategory.palette.length > 0) {
-        onChange('color_acabado', activePaintCategory.palette[0].name);
+        queueMicrotask(() => {
+          onChange('color_acabado', activePaintCategory.palette[0].name);
+        });
       }
       return;
     }
@@ -2316,10 +2818,12 @@ export const FMVForm: React.FC<FMVFormProps> = ({
     // Si el color actual no pertenece a la paleta activa, resetear al primer tono disponible
     const currentPalette = activePaintCategory.palette;
     const isColorValid = currentPalette.some(
-      c => c.name === formData.color_acabado || formData.color_acabado.includes(c.code)
+      c => c.name === formData.color_acabado || (formData.color_acabado && formData.color_acabado.includes(c.code))
     );
     if (!isColorValid && currentPalette.length > 0) {
-      onChange('color_acabado', currentPalette[0].name);
+      queueMicrotask(() => {
+        onChange('color_acabado', currentPalette[0].name);
+      });
     }
   }, [activePaintCategory, formData.color_acabado, onChange]);
 
@@ -2403,7 +2907,6 @@ export const FMVForm: React.FC<FMVFormProps> = ({
 
       window.dispatchEvent(new CustomEvent('colorlink_quote_delivery_updated', { detail: deliveryPayload }));
       window.dispatchEvent(new CustomEvent('colorlink_shipping_state_updated', { detail: deliveryPayload }));
-      window.dispatchEvent(new Event('storage'));
     } catch {}
 
     if (cartContext && cartContext.setShippingState) {
@@ -3051,58 +3554,98 @@ export const FMVForm: React.FC<FMVFormProps> = ({
                 </div>
               </div>
 
-              {/* Pestañas de Filtrado Rápido: Interiores | Exteriores | Zonas Húmedas / Especiales */}
-              <div className="flex items-center gap-1.5 p-1 bg-slate-100/90 rounded-2xl w-full sm:w-fit border border-slate-200 flex-wrap">
-                <button
-                  type="button"
-                  onClick={() => setPaintFilterTab('interiores')}
-                  className={`flex-1 sm:flex-initial px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
-                    paintFilterTab === 'interiores'
-                      ? 'bg-[#004B93] text-white shadow-xs ring-1 ring-[#004B93]'
-                      : 'text-slate-700 hover:text-slate-900 hover:bg-slate-200/70'
-                  }`}
-                >
-                  <span>🏠</span>
-                  <span>Interiores</span>
-                  <span className="text-[10px] opacity-80 hidden md:inline font-normal">(Viniltex, Cielos)</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPaintFilterTab('exteriores')}
-                  className={`flex-1 sm:flex-initial px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
-                    paintFilterTab === 'exteriores'
-                      ? 'bg-[#004B93] text-white shadow-xs ring-1 ring-[#004B93]'
-                      : 'text-slate-700 hover:text-slate-900 hover:bg-slate-200/70'
-                  }`}
-                >
-                  <span>☀️</span>
-                  <span>Exteriores</span>
-                  <span className="text-[10px] opacity-80 hidden md:inline font-normal">(Koraza, Esmaltes)</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPaintFilterTab('especiales')}
-                  className={`flex-1 sm:flex-initial px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
-                    paintFilterTab === 'especiales'
-                      ? 'bg-[#004B93] text-white shadow-xs ring-1 ring-[#004B93]'
-                      : 'text-slate-700 hover:text-slate-900 hover:bg-slate-200/70'
-                  }`}
-                >
-                  <span>💧</span>
-                  <span>Zonas Húmedas / Especiales</span>
-                  <span className="text-[10px] opacity-80 hidden md:inline font-normal">(Aquablock, Tráfico, Maderas)</span>
-                </button>
+              {/* Encabezado de Pestañas y Navegación del Carrusel */}
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
+                {/* Pestañas de Filtrado Rápido: Interiores | Exteriores | Zonas Húmedas / Especiales */}
+                <div className="flex items-center gap-1.5 p-1 bg-slate-100/90 rounded-2xl w-full sm:w-fit border border-slate-200 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => setPaintFilterTab('interiores')}
+                    className={`flex-1 sm:flex-initial px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                      paintFilterTab === 'interiores'
+                        ? 'bg-[#004B93] text-white shadow-xs ring-1 ring-[#004B93]'
+                        : 'text-slate-700 hover:text-slate-900 hover:bg-slate-200/70'
+                    }`}
+                  >
+                    <span>🏠</span>
+                    <span>Interiores</span>
+                    <span className="text-[10px] opacity-80 font-normal">({buildComprehensiveCatalogPaints('interiores', supabaseProducts).length})</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPaintFilterTab('exteriores')}
+                    className={`flex-1 sm:flex-initial px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                      paintFilterTab === 'exteriores'
+                        ? 'bg-[#004B93] text-white shadow-xs ring-1 ring-[#004B93]'
+                        : 'text-slate-700 hover:text-slate-900 hover:bg-slate-200/70'
+                    }`}
+                  >
+                    <span>☀️</span>
+                    <span>Exteriores</span>
+                    <span className="text-[10px] opacity-80 font-normal">({buildComprehensiveCatalogPaints('exteriores', supabaseProducts).length})</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPaintFilterTab('especiales')}
+                    className={`flex-1 sm:flex-initial px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                      paintFilterTab === 'especiales'
+                        ? 'bg-[#004B93] text-white shadow-xs ring-1 ring-[#004B93]'
+                        : 'text-slate-700 hover:text-slate-900 hover:bg-slate-200/70'
+                    }`}
+                  >
+                    <span>💧</span>
+                    <span>Zonas Húmedas / Especiales</span>
+                    <span className="text-[10px] opacity-80 font-normal">({buildComprehensiveCatalogPaints('especiales', supabaseProducts).length})</span>
+                  </button>
+                </div>
+
+                {/* Controles rápidos de carrusel superior */}
+                <div className="hidden sm:flex items-center gap-2 text-xs text-slate-500 font-medium">
+                  <span className="text-[11px] bg-blue-50 text-[#004B93] border border-blue-200 font-bold px-2.5 py-1 rounded-lg">
+                    {currentCategoryPaints.length} referencias en catálogo
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => handleCarouselScroll('left')}
+                      disabled={!canScrollLeft}
+                      aria-label="Desplazar carrusel a la izquierda"
+                      className="w-8 h-8 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center text-slate-700 hover:text-[#004B93] transition-colors shadow-2xs cursor-pointer"
+                      title="Anterior"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleCarouselScroll('right')}
+                      disabled={!canScrollRight}
+                      aria-label="Desplazar carrusel a la derecha"
+                      className="w-8 h-8 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center text-slate-700 hover:text-[#004B93] transition-colors shadow-2xs cursor-pointer"
+                      title="Siguiente"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
               </div>
 
-              {/* Cuadrícula de Pinturas Filtradas con Soporte Multi-Selección */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 animate-fadeIn">
-                {PAINT_LINE_OPTIONS[paintFilterTab].map((item) => {
+              {/* Carrusel Horizontal Fluido con Soporte Multi-Selección */}
+              <div 
+                ref={paintCarouselRef}
+                onScroll={updateCarouselScrollState}
+                className="flex items-stretch gap-3.5 overflow-x-auto pb-2.5 pt-1 px-1 scroll-smooth snap-x snap-mandatory focus:outline-hidden touch-pan-x cursor-grab active:cursor-grabbing select-none"
+                style={{
+                  scrollbarWidth: 'thin',
+                  scrollbarColor: '#004B93 #E2E8F0',
+                }}
+              >
+                {currentCategoryPaints.map((item) => {
                   const isSelected = selectedPaints.some(p => p.id === item.id || p.nombre === item.nombre);
                   return (
                     <div
                       key={item.id}
                       onClick={() => handleTogglePaint(item)}
-                      className={`p-4 rounded-2xl border-2 transition-all cursor-pointer flex flex-col justify-between group relative ${
+                      className={`w-[290px] sm:w-[325px] shrink-0 snap-start p-4 rounded-2xl border-2 transition-all cursor-pointer flex flex-col justify-between group relative select-none ${
                         isSelected
                           ? 'border-[#004B93] bg-blue-50/80 shadow-xs ring-1 ring-[#004B93]/20'
                           : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/50'
@@ -3164,6 +3707,56 @@ export const FMVForm: React.FC<FMVFormProps> = ({
                     </div>
                   );
                 })}
+              </div>
+
+              {/* Barra de Navegación y Desplazamiento Visible del Carrusel */}
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-2.5 pt-1 text-xs text-slate-600 bg-slate-50/90 border border-slate-200/80 rounded-xl px-3.5 py-2">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-[#004B93] animate-pulse"></span>
+                  <span className="font-semibold text-slate-700">
+                    Catálogo: {paintFilterTab === 'interiores' ? 'Interiores' : paintFilterTab === 'exteriores' ? 'Exteriores' : 'Zonas Húmedas / Especiales'}
+                  </span>
+                  <span className="text-[11px] text-slate-500 font-medium hidden md:inline">
+                    ({currentCategoryPaints.length} referencias • Desliza para explorar)
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end">
+                  {/* Barra de progreso de desplazamiento visible */}
+                  <div className="flex items-center gap-2 flex-1 sm:flex-initial" title={`Progreso del carrusel: ${carouselProgress}%`}>
+                    <span className="text-[10px] font-mono text-slate-400 hidden xs:inline">Scroll</span>
+                    <div className="w-24 sm:w-36 h-2 bg-slate-200 rounded-full overflow-hidden p-0.5">
+                      <div 
+                        className="h-full bg-[#004B93] rounded-full transition-all duration-200"
+                        style={{ width: `${Math.max(16, carouselProgress)}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Botones de navegación horizontal */}
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => handleCarouselScroll('left')}
+                      disabled={!canScrollLeft}
+                      aria-label="Desplazar a la izquierda"
+                      className="w-7 h-7 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center text-slate-700 hover:text-[#004B93] transition-colors shadow-2xs cursor-pointer"
+                      title="Referencia anterior"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleCarouselScroll('right')}
+                      disabled={!canScrollRight}
+                      aria-label="Desplazar a la derecha"
+                      className="w-7 h-7 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center text-slate-700 hover:text-[#004B93] transition-colors shadow-2xs cursor-pointer"
+                      title="Siguiente referencia"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
 

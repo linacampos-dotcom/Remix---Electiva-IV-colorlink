@@ -27,7 +27,19 @@ if (process.env.VITE_SUPABASE_URL) {
 }
 
 const app = express();
-const PORT = Number(process.env.PORT) || 3000;
+
+function resolvePort(): number {
+  const portArgIndex = process.argv.indexOf('--port');
+  if (portArgIndex !== -1 && process.argv[portArgIndex + 1]) {
+    const parsed = parseInt(process.argv[portArgIndex + 1], 10);
+    if (!isNaN(parsed)) return parsed;
+  }
+  if (process.env.NODE_ENV !== 'production') {
+    return 3000;
+  }
+  return Number(process.env.PORT) || 3000;
+}
+const PORT = resolvePort();
 
 // Catch unhandled errors gracefully so process does not terminate prematurely
 process.on('uncaughtException', (err) => {
@@ -3302,7 +3314,10 @@ async function startServer() {
   } else {
     console.log('[Server] Initializing Vite middleware in development mode...');
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: false,
+      },
       appType: 'spa',
     });
     // Mount Vite dev middleware first so it handles all module transforms and dev assets
@@ -3315,6 +3330,23 @@ async function startServer() {
     app.use('/images', express.static(path.join(process.cwd(), 'public/images')));
     app.use('/images', express.static(path.join(process.cwd(), 'src/assets/images')));
     app.use(express.static(path.join(process.cwd(), 'public')));
+
+    // SPA fallback: transform index.html for any GET request that is not an API or static file
+    app.use('*', async (req, res, next) => {
+      const url = req.originalUrl;
+      if (url.startsWith('/api') || url.startsWith('/health') || url.startsWith('/src') || url.startsWith('/@') || url.includes('.')) {
+        return next();
+      }
+      try {
+        const indexHtmlPath = path.resolve(process.cwd(), 'index.html');
+        let template = fs.readFileSync(indexHtmlPath, 'utf-8');
+        template = await vite.transformIndexHtml(url, template);
+        res.status(200).set({ 'Content-Type': 'text/html' }).end(template);
+      } catch (e) {
+        vite.ssrFixStacktrace(e as Error);
+        next(e);
+      }
+    });
   }
 
   app.listen(PORT, '0.0.0.0', () => {

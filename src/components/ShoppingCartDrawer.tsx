@@ -248,7 +248,6 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
       window.dispatchEvent(new CustomEvent('colorlink_shipping_address_updated', {
         detail: { address: newVal, city: selectedCiudad }
       }));
-      window.dispatchEvent(new Event('storage'));
     } catch {}
   };
 
@@ -382,12 +381,10 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
 
     window.addEventListener('colorlink_quote_delivery_updated', handleCustomUpdate);
     window.addEventListener('colorlink_shipping_state_updated', handleCustomUpdate);
-    window.addEventListener('storage', syncQuoteDelivery);
 
     return () => {
       window.removeEventListener('colorlink_quote_delivery_updated', handleCustomUpdate);
       window.removeEventListener('colorlink_shipping_state_updated', handleCustomUpdate);
-      window.removeEventListener('storage', syncQuoteDelivery);
     };
   }, [isOpen, userSession]);
 
@@ -415,9 +412,9 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
     return PINTUCO_STORE_HUBS.find(h => h.nombre === selectedSede) || availableStores[0] || PINTUCO_STORE_HUBS[0];
   }, [selectedSede, availableStores]);
 
-  if (!isOpen) return null;
-
   const activeCartItems = useMemo(() => cart.filter(item => item.cantidad > 0), [cart]);
+
+  if (!isOpen) return null;
 
   const totalItems = activeCartItems.reduce((sum, item) => sum + item.cantidad, 0);
   const subtotalCOP = activeCartItems.reduce((sum, item) => sum + item.cantidad * item.precioUnitario, 0);
