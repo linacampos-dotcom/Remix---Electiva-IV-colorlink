@@ -1872,6 +1872,16 @@ export function buildComprehensiveCatalogPaints(
   return baseList;
 }
 
+export const normalizeTipoDocumento = (raw?: string): TipoDocumento => {
+  if (!raw) return 'CC';
+  const val = raw.toUpperCase().trim();
+  if (val.includes('NIT')) return 'NIT';
+  if (val.includes('RUT')) return 'RUT';
+  if (val.includes('EXTRANJER') || val === 'CE') return 'CE';
+  if (val.includes('PASAPORTE') || val === 'PAS') return 'Pasaporte';
+  return 'CC';
+};
+
 export interface FMVFormProps {
   formData: FMVFormData;
   onChange: (field: keyof FMVFormData, value: any) => void;
@@ -1902,6 +1912,7 @@ export interface FMVFormProps {
   isSaving?: boolean;
   onOpenPrintable?: () => void;
   onOpenChat?: () => void;
+  onOpenAuth?: () => void;
 }
 
 export const FMVForm: React.FC<FMVFormProps> = ({
@@ -1919,6 +1930,7 @@ export const FMVForm: React.FC<FMVFormProps> = ({
   isSaving = false,
   onOpenPrintable,
   onOpenChat,
+  onOpenAuth,
 }) => {
   const cartContext = useCart();
   // Wizard current active step (1: ¿Qué vas a pintar?, 2: Medidas y Color, 3: Datos y Forma de Entrega, 4: Resumen y Consejo)
@@ -2006,58 +2018,120 @@ export const FMVForm: React.FC<FMVFormProps> = ({
   // Modal de Complementos Sugeridos (Pre-Checkout)
   const [showComplementsModal, setShowComplementsModal] = useState<boolean>(false);
 
-  // Autocompletar datos de entrega y facturación utilizando el perfil del usuario autenticado (Paso 3)
+  // Autocompletar y sincronizar datos de facturación y contacto utilizando el perfil del usuario autenticado (Paso 3.2)
   useEffect(() => {
-    if (userSession && userSession.isLoggedIn) {
-      queueMicrotask(() => {
-        let filledAny = false;
-        if (userSession.nombre && (!formData.nombre_razon_social || formData.nombre_razon_social.trim() === '')) {
-          onChange('nombre_razon_social', userSession.nombre);
-          filledAny = true;
+    // 1. Obtener la sesión activa más confiable (prop userSession o sesión guardada en localStorage)
+    let activeUser: any = userSession;
+    if (!activeUser || !activeUser.isLoggedIn) {
+      try {
+        const saved = localStorage.getItem('currentUser') || localStorage.getItem('colorlink_user_session') || localStorage.getItem('colorlink_active_session');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed && (parsed.isLoggedIn || parsed.email || parsed.nombre || parsed.documento)) {
+            activeUser = parsed;
+          }
         }
-        if ((userSession.documento || userSession.cedula) && (!formData.documento || formData.documento.trim() === '')) {
-          onChange('documento', userSession.documento || userSession.cedula || '');
-          filledAny = true;
-        }
-        if (userSession.tipoDocumento && !formData.tipo_documento) {
-          onChange('tipo_documento', userSession.tipoDocumento);
-          filledAny = true;
-        }
-        if (userSession.telefono && (!formData.telefono || formData.telefono.trim() === '')) {
-          onChange('telefono', userSession.telefono);
-          filledAny = true;
-        }
-        if (userSession.email && (!formData.correo_electronico || formData.correo_electronico.trim() === '')) {
-          onChange('correo_electronico', userSession.email);
-          filledAny = true;
-        }
+      } catch {}
+    }
 
-        // Dirección guardada en el perfil
-        const defaultAddr = userSession.direcciones?.find(d => d.esPredeterminada) || userSession.direcciones?.[0];
-        const savedAddr = defaultAddr?.direccion || userSession.direccion || userSession.address;
+    // 2. Datos respaldados de pasos anteriores o checkout
+    let storedName = '';
+    let storedDoc = '';
+    let storedPhone = '';
+    let storedTipoDoc = '';
+    let storedEmail = '';
+    try {
+      storedName = localStorage.getItem('colorlink_customer_name') || '';
+      storedDoc = localStorage.getItem('colorlink_customer_doc') || '';
+      storedPhone = localStorage.getItem('colorlink_customer_phone') || '';
+      storedTipoDoc = localStorage.getItem('colorlink_customer_tipodoc') || '';
+      storedEmail = localStorage.getItem('colorlink_customer_email') || '';
+    } catch {}
+
+    const resolvedName = (activeUser?.nombre || storedName || '').trim();
+    const resolvedDoc = (activeUser?.documento || activeUser?.cedula || storedDoc || '').trim();
+    const resolvedPhone = (activeUser?.telefono || storedPhone || '').trim();
+    const resolvedEmail = (activeUser?.email || storedEmail || '').trim();
+
+    // Determinar tipo de documento respetando si es NIT/RUT (Empresa) o CC (Persona Natural)
+    let resolvedTipoDoc: TipoDocumento = 'CC';
+    if (activeUser?.tipoDocumento) {
+      resolvedTipoDoc = normalizeTipoDocumento(activeUser.tipoDocumento);
+    } else if (storedTipoDoc) {
+      resolvedTipoDoc = normalizeTipoDocumento(storedTipoDoc);
+    } else if (resolvedDoc.includes('-') || resolvedDoc.length > 10) {
+      resolvedTipoDoc = 'NIT';
+    }
+
+    queueMicrotask(() => {
+      let filledAny = false;
+
+      // Sincronizar Nombre Completo o Razón Social si está vacío
+      if (resolvedName && (!formData.nombre_razon_social || formData.nombre_razon_social.trim() === '')) {
+        onChange('nombre_razon_social', resolvedName);
+        if (!formData.responsable_contacto || formData.responsable_contacto.trim() === '') {
+          onChange('responsable_contacto', resolvedName);
+        }
+        filledAny = true;
+      }
+
+      // Sincronizar Número de Documento / Cédula / NIT si está vacío
+      if (resolvedDoc && (!formData.documento || formData.documento.trim() === '')) {
+        onChange('documento', resolvedDoc);
+        filledAny = true;
+      }
+
+      // Sincronizar Tipo de Documento respetando Persona Natural (CC) vs Empresa (NIT/RUT)
+      if (resolvedTipoDoc) {
+        const currentNorm = normalizeTipoDocumento(formData.tipo_documento);
+        // Si el formulario aún no tiene documento o el documento coincide con la sesión o está en el NIT por defecto
+        if (!formData.documento || formData.documento.trim() === '' || formData.documento === resolvedDoc || (formData.tipo_documento === 'NIT' && resolvedTipoDoc === 'CC')) {
+          if (formData.tipo_documento !== resolvedTipoDoc || currentNorm !== resolvedTipoDoc) {
+            onChange('tipo_documento', resolvedTipoDoc);
+            filledAny = true;
+          }
+        }
+      }
+
+      // Sincronizar Teléfono / Celular de Contacto si está vacío
+      if (resolvedPhone && (!formData.telefono || formData.telefono.trim() === '')) {
+        onChange('telefono', resolvedPhone);
+        filledAny = true;
+      }
+
+      // Sincronizar Correo Electrónico
+      if (resolvedEmail && (!formData.correo_electronico || formData.correo_electronico.trim() === '')) {
+        onChange('correo_electronico', resolvedEmail);
+        filledAny = true;
+      }
+
+      // Dirección guardada en el perfil
+      if (activeUser) {
+        const defaultAddr = activeUser.direcciones?.find((d: any) => d.esPredeterminada) || activeUser.direcciones?.[0];
+        const savedAddr = defaultAddr?.direccion || activeUser.direccion || activeUser.address;
         if (savedAddr && (!formData.direccion_obra || formData.direccion_obra.trim() === '')) {
           onChange('direccion_obra', savedAddr);
           filledAny = true;
         }
 
-        const savedCity = defaultAddr?.ciudad || userSession.ciudad;
+        const savedCity = defaultAddr?.ciudad || activeUser.ciudad;
         if (savedCity && (!formData.ciudad || formData.ciudad === 'Bogotá D.C.')) {
           onChange('ciudad', savedCity);
           filledAny = true;
         }
 
-        const savedDepto = defaultAddr?.departamento || userSession.departamento;
+        const savedDepto = defaultAddr?.departamento || activeUser.departamento;
         if (savedDepto && !formData.departamento) {
           onChange('departamento', savedDepto);
           filledAny = true;
         }
+      }
 
-        if (filledAny) {
-          setAutocompletedFromProfile(true);
-        }
-      });
-    }
-  }, [userSession]);
+      if (filledAny || (resolvedName && resolvedDoc)) {
+        setAutocompletedFromProfile(true);
+      }
+    });
+  }, [userSession, currentStep]);
 
   // Lista unificada y completa de todas las opciones de pintura sin restricciones ni .slice()
   const allPaintOptions = useMemo(() => [
@@ -4356,55 +4430,181 @@ export const FMVForm: React.FC<FMVFormProps> = ({
 
             {/* 3.2 IDENTIFICACIÓN DEL CLIENTE */}
             <div className="space-y-3.5 p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs">
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
-                3.2 Datos de Facturación y Contacto
-              </label>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-1 border-b border-slate-100">
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded-lg bg-[#004B93]/10 text-[#004B93] flex items-center justify-center font-bold text-xs shrink-0">
+                    {normalizeTipoDocumento(formData.tipo_documento) === 'NIT' || normalizeTipoDocumento(formData.tipo_documento) === 'RUT' ? (
+                      <Building2 className="w-3.5 h-3.5" />
+                    ) : (
+                      <User className="w-3.5 h-3.5" />
+                    )}
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-800">
+                      3.2 Datos de Facturación y Contacto
+                    </label>
+                    <span className="text-[11px] text-slate-500 font-medium">
+                      {normalizeTipoDocumento(formData.tipo_documento) === 'NIT' || normalizeTipoDocumento(formData.tipo_documento) === 'RUT'
+                        ? 'Empresa / Persona Jurídica (NIT / RUT)'
+                        : 'Persona Natural (Cédula de Ciudadanía)'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Badge de Sincronización */}
+                {((userSession && userSession.isLoggedIn) || autocompletedFromProfile || (formData.nombre_razon_social && formData.documento)) && (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 self-start sm:self-auto">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                    {userSession?.isLoggedIn ? `Sincronizado con ${userSession.nombre}` : 'Autocompletado desde tu perfil'}
+                  </span>
+                )}
+              </div>
+
+              {/* Alerta si no hay sesión iniciada para invitar a iniciar sesión antes de pagar */}
+              {(!userSession || !userSession.isLoggedIn) && (
+                <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-950 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shadow-2xs">
+                  <div className="flex items-start sm:items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5 sm:mt-0" />
+                    <div>
+                      <span className="font-bold text-amber-950 block">¿Tienes una cuenta en Pintuco?</span>
+                      <span className="text-[11px] text-amber-800">
+                        Inicia sesión para capturar tu Cédula/NIT, Nombre y Teléfono en 1 clic y evitar formularios vacíos.
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (onOpenAuth) {
+                        onOpenAuth();
+                      } else {
+                        window.dispatchEvent(new CustomEvent('colorlink_open_auth', {
+                          detail: { mode: 'login', reason: 'Inicia sesión para autocompletar tus datos de facturación.' }
+                        }));
+                      }
+                    }}
+                    className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-[11px] shrink-0 transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-xs self-start sm:self-auto"
+                  >
+                    <User className="w-3.5 h-3.5" />
+                    <span>Iniciar Sesión Rápido</span>
+                  </button>
+                </div>
+              )}
               
-              <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-3.5 pt-1">
                 <div className="sm:col-span-4">
                   <label className="block text-xs font-semibold text-slate-700 mb-1">Tipo Documento</label>
                   <select
-                    value={formData.tipo_documento}
-                    onChange={(e) => onChange('tipo_documento', e.target.value as TipoDocumento)}
-                    className="w-full text-xs font-bold p-2.5 rounded-xl border border-slate-300 bg-slate-50"
+                    value={normalizeTipoDocumento(formData.tipo_documento)}
+                    onChange={(e) => {
+                      const newType = e.target.value as TipoDocumento;
+                      onChange('tipo_documento', newType);
+                      try {
+                        localStorage.setItem('colorlink_customer_tipodoc', newType);
+                      } catch {}
+                    }}
+                    className="w-full text-xs font-bold p-2.5 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white focus:border-[#004B93] focus:ring-1 focus:ring-[#004B93] transition-colors"
                   >
-                    <option value="CC">Cédula de Ciudadanía (CC)</option>
-                    <option value="NIT">NIT (Empresa)</option>
+                    <option value="CC">Cédula de Ciudadanía (CC) - Natural</option>
+                    <option value="NIT">NIT - Empresa / Jurídica</option>
                     <option value="CE">Cédula Extranjería (CE)</option>
                     <option value="RUT">RUT</option>
+                    <option value="Pasaporte">Pasaporte</option>
                   </select>
                 </div>
 
                 <div className="sm:col-span-8">
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Número de Documento / Cédula</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    {normalizeTipoDocumento(formData.tipo_documento) === 'NIT'
+                      ? 'Número de NIT (con o sin dígito de verificación)'
+                      : normalizeTipoDocumento(formData.tipo_documento) === 'RUT'
+                      ? 'Número de Identificación Tributaria (RUT)'
+                      : normalizeTipoDocumento(formData.tipo_documento) === 'CE'
+                      ? 'Número de Cédula de Extranjería'
+                      : normalizeTipoDocumento(formData.tipo_documento) === 'Pasaporte'
+                      ? 'Número de Pasaporte'
+                      : 'Número de Documento / Cédula'}
+                  </label>
                   <input
                     type="text"
-                    placeholder="Ej: 1028727371 o 900.845.120-4"
-                    value={formData.documento}
-                    onChange={(e) => onChange('documento', e.target.value)}
-                    className="w-full text-xs font-bold p-2.5 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white"
+                    placeholder={
+                      normalizeTipoDocumento(formData.tipo_documento) === 'NIT'
+                        ? 'Ej: 900.845.120-4'
+                        : normalizeTipoDocumento(formData.tipo_documento) === 'RUT'
+                        ? 'Ej: 900.845.120-4'
+                        : 'Ej: 1028727371'
+                    }
+                    value={formData.documento || ''}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      onChange('documento', val);
+                      try {
+                        localStorage.setItem('colorlink_customer_doc', val);
+                      } catch {}
+                    }}
+                    className="w-full text-xs font-bold p-2.5 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white focus:border-[#004B93] focus:ring-1 focus:ring-[#004B93] transition-colors"
                   />
                 </div>
 
                 <div className="sm:col-span-6">
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Nombre Completo o Razón Social</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    {normalizeTipoDocumento(formData.tipo_documento) === 'NIT' || normalizeTipoDocumento(formData.tipo_documento) === 'RUT'
+                      ? 'Razón Social de la Empresa'
+                      : 'Nombre Completo o Razón Social'}
+                  </label>
                   <input
                     type="text"
-                    placeholder="Ej: Carlos Gómez o Constructora Bolivar"
-                    value={formData.nombre_razon_social}
-                    onChange={(e) => onChange('nombre_razon_social', e.target.value)}
-                    className="w-full text-xs font-bold p-2.5 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white"
+                    placeholder={
+                      normalizeTipoDocumento(formData.tipo_documento) === 'NIT' || normalizeTipoDocumento(formData.tipo_documento) === 'RUT'
+                        ? 'Ej: Constructora Bolívar S.A.'
+                        : 'Ej: Carlos Gómez'
+                    }
+                    value={formData.nombre_razon_social || ''}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      onChange('nombre_razon_social', val);
+                      onChange('responsable_contacto', val);
+                      try {
+                        localStorage.setItem('colorlink_customer_name', val);
+                      } catch {}
+                    }}
+                    className="w-full text-xs font-bold p-2.5 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white focus:border-[#004B93] focus:ring-1 focus:ring-[#004B93] transition-colors"
                   />
                 </div>
 
                 <div className="sm:col-span-6">
                   <label className="block text-xs font-semibold text-slate-700 mb-1">Teléfono / Celular de Contacto</label>
                   <input
-                    type="text"
+                    type="tel"
                     placeholder="Ej: 310 456 7890"
                     value={formData.telefono || ''}
-                    onChange={(e) => onChange('telefono', e.target.value)}
-                    className="w-full text-xs font-bold p-2.5 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white"
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      onChange('telefono', val);
+                      try {
+                        localStorage.setItem('colorlink_customer_phone', val);
+                      } catch {}
+                    }}
+                    className="w-full text-xs font-bold p-2.5 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white focus:border-[#004B93] focus:ring-1 focus:ring-[#004B93] transition-colors"
+                  />
+                </div>
+
+                <div className="sm:col-span-12">
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Correo Electrónico (para cotizaciones, facturación electrónica y despacho)
+                  </label>
+                  <input
+                    type="email"
+                    placeholder="Ej: cliente@correo.com"
+                    value={formData.correo_electronico || ''}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      onChange('correo_electronico', val);
+                      try {
+                        localStorage.setItem('colorlink_customer_email', val);
+                      } catch {}
+                    }}
+                    className="w-full text-xs font-bold p-2.5 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white focus:border-[#004B93] focus:ring-1 focus:ring-[#004B93] transition-colors"
                   />
                 </div>
               </div>

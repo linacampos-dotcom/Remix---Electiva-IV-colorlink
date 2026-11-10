@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { CartItem, UserSession, COLORLINKOrder, TipoDocumento } from '../types';
+import { CartItem, UserSession, COLORLINKOrder, TipoDocumento, FMVFormData } from '../types';
 import { 
   X, 
   Trash2, 
@@ -106,10 +106,171 @@ export const CART_COMPLEMENTARY_TOOLS: CartComplementaryTool[] = [
   },
 ];
 
+export const normalizeTipoDocumento = (val?: string): TipoDocumento => {
+  if (!val) return 'Cédula de Ciudadanía';
+  const v = val.trim();
+  const upper = v.toUpperCase();
+  if (upper === 'CC' || upper.includes('CIUDADAN') || upper.includes('CEDULA') || upper.includes('CÉDULA')) {
+    return 'Cédula de Ciudadanía';
+  }
+  if (upper === 'NIT' || upper.includes('NIT') || upper === 'RUT') {
+    return 'NIT';
+  }
+  if (upper === 'CE' || upper.includes('EXTRANJER')) {
+    return 'Cédula de Extranjería';
+  }
+  if (upper.includes('PASAPORTE')) {
+    return 'Pasaporte';
+  }
+  return (val as TipoDocumento) || 'Cédula de Ciudadanía';
+};
+
+export const resolveInitialCustomerData = (
+  userSession?: UserSession | null,
+  formData?: FMVFormData
+) => {
+  let nombre = '';
+  let documento = '';
+  let tipoDoc: TipoDocumento = 'Cédula de Ciudadanía';
+  let telefono = '';
+  let email = '';
+  let direccion = '';
+  let ciudad = '';
+  let departamento = '';
+  let modalidad: 'domicilio' | 'retiro_tienda' = 'domicilio';
+  let sede = '';
+
+  // 1. Prioridad: Sesión activa del usuario (userSession prop o localStorage)
+  let activeSession = userSession;
+  if (!activeSession) {
+    try {
+      const savedSession = localStorage.getItem('colorlink_user_session') || localStorage.getItem('currentUser') || localStorage.getItem('colorlink_active_session');
+      if (savedSession) {
+        activeSession = JSON.parse(savedSession);
+      }
+    } catch {}
+  }
+
+  if (activeSession) {
+    if (activeSession.nombre) nombre = activeSession.nombre;
+    if (activeSession.documento || activeSession.cedula) documento = activeSession.documento || activeSession.cedula || '';
+    if (activeSession.tipoDocumento) tipoDoc = normalizeTipoDocumento(activeSession.tipoDocumento);
+    if (activeSession.telefono) telefono = activeSession.telefono;
+    if (activeSession.email) email = activeSession.email;
+
+    const defAddr = activeSession.direcciones?.find(d => d.esPredeterminada) || activeSession.direcciones?.[0];
+    if (defAddr?.direccion || activeSession.direccion || activeSession.address) {
+      direccion = defAddr?.direccion || activeSession.direccion || activeSession.address || '';
+    }
+    if (defAddr?.ciudad || activeSession.ciudad) {
+      ciudad = defAddr?.ciudad || activeSession.ciudad || '';
+    }
+    if (defAddr?.departamento || activeSession.departamento) {
+      departamento = defAddr?.departamento || activeSession.departamento || '';
+    }
+  }
+
+  // 2. Datos del Cotizador Inteligente (formData prop o colorlink_current_fmv)
+  let currentFmv = formData;
+  if (!currentFmv) {
+    try {
+      const savedFmv = localStorage.getItem('colorlink_current_fmv');
+      if (savedFmv) currentFmv = JSON.parse(savedFmv);
+    } catch {}
+  }
+
+  if (currentFmv) {
+    if (!nombre && (currentFmv.nombre_razon_social || currentFmv.responsable_contacto)) {
+      nombre = currentFmv.nombre_razon_social || currentFmv.responsable_contacto || '';
+    }
+    if (!documento && currentFmv.documento) {
+      documento = currentFmv.documento;
+    }
+    if (currentFmv.tipo_documento && tipoDoc === 'Cédula de Ciudadanía') {
+      tipoDoc = normalizeTipoDocumento(currentFmv.tipo_documento);
+    }
+    if (!telefono && currentFmv.telefono) {
+      telefono = currentFmv.telefono;
+    }
+    if (!email && currentFmv.correo_electronico) {
+      email = currentFmv.correo_electronico;
+    }
+    if (!direccion && currentFmv.direccion_obra) {
+      direccion = currentFmv.direccion_obra;
+    }
+    if (!ciudad && currentFmv.ciudad) {
+      ciudad = currentFmv.ciudad;
+    }
+    if (!departamento && currentFmv.departamento) {
+      departamento = currentFmv.departamento;
+    }
+    if (currentFmv.modalidad_entrega) {
+      modalidad = currentFmv.modalidad_entrega;
+    }
+    if (currentFmv.sede_retiro) {
+      sede = currentFmv.sede_retiro;
+    }
+  }
+
+  // 3. Datos previos de despacho/cotización en localStorage (colorlink_quote_delivery o colorlink_shipping_state)
+  try {
+    const rawQuote = localStorage.getItem('colorlink_quote_delivery') || localStorage.getItem('colorlink_shipping_state');
+    if (rawQuote) {
+      const q = JSON.parse(rawQuote);
+      if (!nombre && (q.nombre || q.customerName)) nombre = q.nombre || q.customerName;
+      if (!documento && (q.documento || q.customerDocument)) documento = q.documento || q.customerDocument;
+      if (q.tipoDocumento || q.tipoDoc) tipoDoc = normalizeTipoDocumento(q.tipoDocumento || q.tipoDoc);
+      if (!telefono && (q.telefono || q.customerPhone)) telefono = q.telefono || q.customerPhone;
+      if (!email && (q.email || q.customerEmail || q.correo)) email = q.email || q.customerEmail || q.correo;
+      if (!direccion && (q.direccion || q.deliveryAddress || q.shippingAddress)) {
+        const d = q.direccion || q.deliveryAddress || q.shippingAddress;
+        if (!d.startsWith('Retiro en Tienda')) direccion = d;
+      }
+      if (!ciudad && (q.ciudad || q.city)) ciudad = q.ciudad || q.city;
+      if (!departamento && (q.departamento || q.department)) departamento = q.departamento || q.department;
+      if (q.modalidad || q.deliveryMode) {
+        const rawM = q.modalidad || q.deliveryMode;
+        modalidad = rawM === 'pickup' || rawM === 'retiro_tienda' ? 'retiro_tienda' : 'domicilio';
+      }
+      if (!sede && (q.sede || q.pickupStore)) sede = q.sede || q.pickupStore;
+    }
+  } catch {}
+
+  // 4. Claves individuales de respaldo en localStorage
+  try {
+    if (!nombre) nombre = localStorage.getItem('colorlink_customer_name') || '';
+    if (!documento) documento = localStorage.getItem('colorlink_customer_doc') || '';
+    if (!telefono) telefono = localStorage.getItem('colorlink_customer_phone') || '';
+    if (!email) email = localStorage.getItem('colorlink_customer_email') || '';
+    const savedTipo = localStorage.getItem('colorlink_customer_tipodoc');
+    if (savedTipo) tipoDoc = normalizeTipoDocumento(savedTipo);
+    if (!direccion) {
+      const a = localStorage.getItem('colorlink_shipping_address') || localStorage.getItem('shippingAddress') || localStorage.getItem('colorlink_user_address') || '';
+      if (!a.startsWith('Retiro en Tienda')) direccion = a;
+    }
+    if (!ciudad) ciudad = localStorage.getItem('colorlink_shipping_city') || '';
+    if (!departamento) departamento = localStorage.getItem('colorlink_shipping_depto') || '';
+  } catch {}
+
+  return {
+    nombre: nombre.trim(),
+    documento: documento.trim(),
+    tipoDoc,
+    telefono: telefono.trim(),
+    email: email.trim(),
+    direccion: direccion.trim(),
+    ciudad: ciudad || 'Bogotá D.C.',
+    departamento: departamento || 'Bogotá D.C.',
+    modalidad,
+    sede: sede || PINTUCO_STORE_HUBS[0].nombre,
+  };
+};
+
 interface ShoppingCartDrawerProps {
   isOpen: boolean;
   onClose: () => void;
   cart: CartItem[];
+  formData?: FMVFormData;
   onUpdateQuantity: (id: string, newQty: number) => void;
   onRemoveItem: (id: string) => void;
   onClearCart: () => void;
@@ -120,12 +281,14 @@ interface ShoppingCartDrawerProps {
   onUpdateUserSession?: (updatedSession: UserSession) => void;
   onConfirmOrder?: (newOrder: COLORLINKOrder) => void;
   onOpenTracking?: () => void;
+  onOpenAuth?: () => void;
 }
 
 export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
   isOpen,
   onClose,
   cart,
+  formData,
   onUpdateQuantity,
   onRemoveItem,
   onClearCart,
@@ -136,48 +299,23 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
   onUpdateUserSession,
   onConfirmOrder,
   onOpenTracking,
+  onOpenAuth,
 }) => {
   const [isCheckoutStep, setIsCheckoutStep] = useState(false);
   const [dismissedTools, setDismissedTools] = useState<Record<string, boolean>>({});
+
+  // Ubicación y Modalidad sincronizadas con estado global y cotizador
   const [modalidad, setModalidad] = useState<'domicilio' | 'retiro_tienda'>(() => {
-    try {
-      const saved = localStorage.getItem('colorlink_quote_delivery');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed.modalidad) return parsed.modalidad;
-      }
-    } catch {}
-    return 'domicilio';
+    return resolveInitialCustomerData(userSession, formData).modalidad;
   });
   const [selectedDepto, setSelectedDepto] = useState<string>(() => {
-    try {
-      const saved = localStorage.getItem('colorlink_quote_delivery');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed.departamento) return parsed.departamento;
-      }
-    } catch {}
-    return 'Bogotá D.C.';
+    return resolveInitialCustomerData(userSession, formData).departamento;
   });
   const [selectedCiudad, setSelectedCiudad] = useState<string>(() => {
-    try {
-      const saved = localStorage.getItem('colorlink_quote_delivery');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed.ciudad) return parsed.ciudad;
-      }
-    } catch {}
-    return 'Bogotá D.C.';
+    return resolveInitialCustomerData(userSession, formData).ciudad;
   });
   const [selectedSede, setSelectedSede] = useState<string>(() => {
-    try {
-      const saved = localStorage.getItem('colorlink_quote_delivery');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed.sede) return parsed.sede;
-      }
-    } catch {}
-    return PINTUCO_STORE_HUBS[0].nombre;
+    return resolveInitialCustomerData(userSession, formData).sede;
   });
 
   // Estado para la tarjeta de confirmación del cotizador y modo edición
@@ -193,18 +331,24 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
   });
   const [isModifyingDelivery, setIsModifyingDelivery] = useState<boolean>(false);
 
-  // Checkout Form State
-  const [checkoutNombre, setCheckoutNombre] = useState('');
-  const [checkoutTipoDoc, setCheckoutTipoDoc] = useState<TipoDocumento>('Cédula de Ciudadanía');
-  const [checkoutDocumento, setCheckoutDocumento] = useState('');
-  const [checkoutTelefono, setCheckoutTelefono] = useState('');
-  const [checkoutEmail, setCheckoutEmail] = useState('');
+  // Checkout Form State con autocompletado automático inicial
+  const [checkoutNombre, setCheckoutNombre] = useState<string>(() => {
+    return resolveInitialCustomerData(userSession, formData).nombre;
+  });
+  const [checkoutTipoDoc, setCheckoutTipoDoc] = useState<TipoDocumento>(() => {
+    return resolveInitialCustomerData(userSession, formData).tipoDoc;
+  });
+  const [checkoutDocumento, setCheckoutDocumento] = useState<string>(() => {
+    return resolveInitialCustomerData(userSession, formData).documento;
+  });
+  const [checkoutTelefono, setCheckoutTelefono] = useState<string>(() => {
+    return resolveInitialCustomerData(userSession, formData).telefono;
+  });
+  const [checkoutEmail, setCheckoutEmail] = useState<string>(() => {
+    return resolveInitialCustomerData(userSession, formData).email;
+  });
   const [checkoutDireccion, setCheckoutDireccion] = useState<string>(() => {
-    try {
-      return localStorage.getItem('shippingAddress') || localStorage.getItem('colorlink_shipping_address') || '';
-    } catch {
-      return '';
-    }
+    return resolveInitialCustomerData(userSession, formData).direccion;
   });
   const [checkoutNotas, setCheckoutNotas] = useState('');
   const [metodoPago, setMetodoPago] = useState<'tarjeta' | 'pse' | 'contraentrega'>('tarjeta');
@@ -285,88 +429,81 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
   };
 
   // Sync userSession values when opening or when userSession changes
-  useEffect(() => {
-    if (userSession && userSession.isLoggedIn) {
-      if (userSession.nombre) setCheckoutNombre(userSession.nombre);
-      if (userSession.documento) setCheckoutDocumento(userSession.documento);
-      if (userSession.tipoDocumento) setCheckoutTipoDoc(userSession.tipoDocumento);
-      if (userSession.telefono) setCheckoutTelefono(userSession.telefono);
-      if (userSession.email) setCheckoutEmail(userSession.email);
-      
-      const defaultAddr = userSession.direcciones?.find(d => d.esPredeterminada) || userSession.direcciones?.[0];
-      const userResidencia = defaultAddr?.direccion || userSession.direccion || userSession.address || localStorage.getItem('colorlink_user_address');
+  // Sincronización Integral y Automática de Datos del Cliente y Despacho
+  const syncAllCustomerAndDeliveryData = useCallback(() => {
+    const resolved = resolveInitialCustomerData(userSession, formData);
 
-      if (modalidad === 'domicilio') {
-        if (userResidencia && (!checkoutDireccion || checkoutDireccion.startsWith('Retiro en Tienda'))) {
-          setCheckoutDireccion(userResidencia);
-        }
-      }
-      if (defaultAddr?.ciudad || userSession.ciudad) {
-        setSelectedCiudad(defaultAddr?.ciudad || userSession.ciudad || 'Bogotá D.C.');
-      }
-      if (defaultAddr?.departamento || userSession.departamento) {
-        setSelectedDepto(defaultAddr?.departamento || userSession.departamento || 'Bogotá D.C.');
-      }
-    } else {
-      const localAddr = localStorage.getItem('colorlink_user_address') || localStorage.getItem('colorlink_shipping_address');
-      if (localAddr && modalidad === 'domicilio' && (!checkoutDireccion || checkoutDireccion.startsWith('Retiro en Tienda'))) {
-        setCheckoutDireccion(localAddr);
-      }
-    }
-  }, [userSession, isOpen, modalidad]);
-
-  // Sincronizar datos de entrega del Cotizador automáticamente al abrir o recibir evento
-  useEffect(() => {
-    const syncQuoteDelivery = () => {
+    // 1. Capturar de inmediato los datos del perfil activo (Nombre, Doc, TipoDoc, Teléfono y Correo)
+    let activeSession = userSession;
+    if (!activeSession || !activeSession.isLoggedIn) {
       try {
-        const saved = localStorage.getItem('colorlink_quote_delivery') || localStorage.getItem('colorlink_shipping_state');
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          if (parsed.departamento || parsed.department) {
-            setSelectedDepto(parsed.departamento || parsed.department);
-          }
-          if (parsed.ciudad || parsed.city) {
-            setSelectedCiudad(parsed.ciudad || parsed.city);
-          }
-          
-          const rawMod = parsed.modalidad || parsed.deliveryMode;
-          const isPickup = rawMod === 'retiro_tienda' || rawMod === 'pickup';
-          setModalidad(isPickup ? 'retiro_tienda' : 'domicilio');
-
-          if (parsed.sede || parsed.pickupStore) {
-            setSelectedSede(parsed.sede || parsed.pickupStore);
-          }
-
-          if (isPickup) {
-            const storeObj = PINTUCO_STORE_HUBS.find(h => h.nombre === (parsed.sede || parsed.pickupStore)) ||
-              PINTUCO_STORE_HUBS.find(h => h.ciudad.toLowerCase() === (parsed.ciudad || '').toLowerCase()) ||
-              PINTUCO_STORE_HUBS[0];
-            const pickupText = `Retiro en Tienda: ${storeObj.nombre} - ${storeObj.direccion}`;
-            setCheckoutDireccion(pickupText);
-          } else {
-            const defaultAddr = userSession?.direcciones?.find(d => d.esPredeterminada) || userSession?.direcciones?.[0];
-            const userHome = defaultAddr?.direccion || userSession?.direccion || userSession?.address || localStorage.getItem('colorlink_user_address');
-            if (userHome) {
-              setCheckoutDireccion(userHome);
-            } else if (parsed.direccion && !parsed.direccion.startsWith('Retiro en Tienda')) {
-              setCheckoutDireccion(parsed.direccion);
-            }
-          }
-
-          if (parsed.nombre) setCheckoutNombre(parsed.nombre);
-          if (parsed.documento) setCheckoutDocumento(parsed.documento);
-          if (parsed.telefono) setCheckoutTelefono(parsed.telefono);
-          if (parsed.tipoDocumento) setCheckoutTipoDoc(parsed.tipoDocumento);
-          if (parsed.isDefined || parsed.departamento || parsed.ciudad) {
-            setIsQuoteDeliveryActive(true);
-            setIsModifyingDelivery(false);
+        const raw = localStorage.getItem('currentUser') || localStorage.getItem('colorlink_user_session') || localStorage.getItem('colorlink_active_session');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && (parsed.isLoggedIn || parsed.email || parsed.nombre || parsed.documento)) {
+            activeSession = parsed;
           }
         }
       } catch {}
-    };
+    }
 
+    if (activeSession && (activeSession.isLoggedIn || activeSession.nombre || activeSession.documento || activeSession.email)) {
+      if (activeSession.nombre) setCheckoutNombre(activeSession.nombre);
+      if (activeSession.documento || activeSession.cedula) setCheckoutDocumento(activeSession.documento || activeSession.cedula);
+      if (activeSession.tipoDocumento) setCheckoutTipoDoc(normalizeTipoDocumento(activeSession.tipoDocumento));
+      if (activeSession.telefono) setCheckoutTelefono(activeSession.telefono);
+      if (activeSession.email) setCheckoutEmail(activeSession.email);
+    } else {
+      setCheckoutNombre((prev) => (prev.trim() ? prev : resolved.nombre));
+      setCheckoutDocumento((prev) => (prev.trim() ? prev : resolved.documento));
+      setCheckoutTipoDoc((prev) => (prev ? normalizeTipoDocumento(prev) : resolved.tipoDoc));
+      setCheckoutTelefono((prev) => (prev.trim() ? prev : resolved.telefono));
+      setCheckoutEmail((prev) => (prev.trim() ? prev : resolved.email));
+    }
+
+    // 2. Sincronizar ubicación y modalidad
+    if (resolved.departamento) {
+      setSelectedDepto(resolved.departamento);
+    }
+    if (resolved.ciudad) {
+      setSelectedCiudad(resolved.ciudad);
+    }
+    if (resolved.modalidad) {
+      setModalidad(resolved.modalidad);
+    }
+    if (resolved.sede) {
+      setSelectedSede(resolved.sede);
+    }
+
+    // 3. Sincronizar dirección según modalidad
+    if (resolved.modalidad === 'retiro_tienda') {
+      const storeObj = PINTUCO_STORE_HUBS.find(h => h.nombre === resolved.sede) ||
+        PINTUCO_STORE_HUBS.find(h => h.ciudad.toLowerCase() === resolved.ciudad.toLowerCase()) ||
+        PINTUCO_STORE_HUBS[0];
+      const pickupText = `Retiro en Tienda: ${storeObj.nombre} - ${storeObj.direccion}`;
+      setCheckoutDireccion(pickupText);
+    } else {
+      if (resolved.direccion && !resolved.direccion.startsWith('Retiro en Tienda')) {
+        setCheckoutDireccion((prev) => (prev.trim() && !prev.startsWith('Retiro en Tienda') ? prev : resolved.direccion));
+      }
+    }
+
+    try {
+      const saved = localStorage.getItem('colorlink_quote_delivery');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.isDefined || parsed.departamento || parsed.ciudad) {
+          setIsQuoteDeliveryActive(true);
+        }
+      }
+    } catch {}
+  }, [userSession, formData]);
+
+  // Ejecutar sincronización al abrir el drawer o al cambiar a la vista de checkout
+  useEffect(() => {
     if (isOpen) {
-      syncQuoteDelivery();
+      syncAllCustomerAndDeliveryData();
+
       try {
         if (sessionStorage.getItem('colorlink_open_checkout_step') === 'true') {
           setIsCheckoutStep(true);
@@ -375,18 +512,22 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
       } catch {}
     }
 
-    const handleCustomUpdate = () => {
-      syncQuoteDelivery();
+    const handleExternalUpdate = () => {
+      syncAllCustomerAndDeliveryData();
     };
 
-    window.addEventListener('colorlink_quote_delivery_updated', handleCustomUpdate);
-    window.addEventListener('colorlink_shipping_state_updated', handleCustomUpdate);
+    window.addEventListener('colorlink_quote_delivery_updated', handleExternalUpdate);
+    window.addEventListener('colorlink_shipping_state_updated', handleExternalUpdate);
+    window.addEventListener('colorlink_shipping_address_updated', handleExternalUpdate);
+    window.addEventListener('colorlink_user_session_updated', handleExternalUpdate);
 
     return () => {
-      window.removeEventListener('colorlink_quote_delivery_updated', handleCustomUpdate);
-      window.removeEventListener('colorlink_shipping_state_updated', handleCustomUpdate);
+      window.removeEventListener('colorlink_quote_delivery_updated', handleExternalUpdate);
+      window.removeEventListener('colorlink_shipping_state_updated', handleExternalUpdate);
+      window.removeEventListener('colorlink_shipping_address_updated', handleExternalUpdate);
+      window.removeEventListener('colorlink_user_session_updated', handleExternalUpdate);
     };
-  }, [isOpen, userSession]);
+  }, [isOpen, isCheckoutStep, syncAllCustomerAndDeliveryData]);
 
   // Reset checkout step when closing
   useEffect(() => {
@@ -595,6 +736,19 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
   const handleConfirmCheckout = (e: React.FormEvent) => {
     e.preventDefault();
     setCheckoutError(null);
+
+    const isUserAuth = Boolean(userSession && userSession.isLoggedIn);
+    if (!isUserAuth) {
+      setCheckoutError('Debes iniciar sesión con tu cuenta oficial Pintuco antes de continuar al pago para emitir tu factura legal y validar tu despacho.');
+      if (onOpenAuth) {
+        onOpenAuth();
+      } else {
+        window.dispatchEvent(new CustomEvent('colorlink_open_auth', {
+          detail: { mode: 'login', reason: 'Inicia sesión para autocompletar tus datos y continuar al pago de tu pedido.' }
+        }));
+      }
+      return;
+    }
 
     if (!checkoutNombre.trim()) {
       setCheckoutError('Por favor ingresa tu Nombre Completo o Razón Social.');
@@ -921,6 +1075,58 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
                 </div>
               </div>
 
+              {/* VERIFICACIÓN DE SESIÓN Y AUTOCOMPLETADO */}
+              {userSession && userSession.isLoggedIn ? (
+                <div className="p-3 rounded-2xl bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 text-emerald-950 flex items-center justify-between gap-2.5 shadow-2xs">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-7 h-7 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
+                      <CheckCircle2 className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-extrabold text-xs text-emerald-950">Sesión Activa Verificada</span>
+                        <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-200 text-emerald-900">
+                          {userSession.userType || 'Cliente'} Oficial
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-emerald-800 font-medium">
+                        {userSession.nombre} • {checkoutTipoDoc}: {checkoutDocumento || 'Registrado'} • Datos autocompletados
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-4 rounded-2xl bg-amber-50 border-2 border-amber-300 text-amber-950 space-y-2.5 shadow-xs animate-fadeIn">
+                  <div className="flex items-start gap-2.5">
+                    <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                    <div>
+                      <h5 className="font-black text-xs uppercase tracking-wide text-amber-950">
+                        Inicia sesión antes de pagar
+                      </h5>
+                      <p className="text-[11px] text-amber-800 leading-snug mt-0.5">
+                        Para emitir tu factura legal oficial y evitar que el formulario quede vacío, inicia sesión. Tu Nombre, Cédula/NIT, Teléfono y Correo se autocompletarán de inmediato.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (onOpenAuth) {
+                        onOpenAuth();
+                      } else {
+                        window.dispatchEvent(new CustomEvent('colorlink_open_auth', {
+                          detail: { mode: 'login', reason: 'Inicia sesión para autocompletar tus datos y continuar al pago.' }
+                        }));
+                      }
+                    }}
+                    className="w-full py-2.5 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-slate-950 font-black text-xs flex items-center justify-center gap-2 shadow-sm transition-transform active:scale-95 cursor-pointer"
+                  >
+                    <User className="w-4 h-4" />
+                    <span>Iniciar Sesión / Registrarse para Autocompletar</span>
+                  </button>
+                </div>
+              )}
+
               {/* 1. Datos del Cliente / Identificación (CÉDULA / NIT OBLIGATORIO) */}
               <div className="space-y-3">
                 <h4 className="text-xs font-black uppercase tracking-wider text-slate-800 flex items-center gap-2">
@@ -937,7 +1143,13 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
                     required
                     placeholder="Ej: Constructora San Jerónimo o Juan Pérez"
                     value={checkoutNombre}
-                    onChange={(e) => setCheckoutNombre(e.target.value)}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setCheckoutNombre(val);
+                      try {
+                        localStorage.setItem('colorlink_customer_name', val);
+                      } catch {}
+                    }}
                     className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-red-500 bg-white"
                   />
                 </div>
@@ -949,13 +1161,22 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
                     </label>
                     <select
                       value={checkoutTipoDoc}
-                      onChange={(e) => setCheckoutTipoDoc(e.target.value as TipoDocumento)}
+                      onChange={(e) => {
+                        const val = normalizeTipoDocumento(e.target.value);
+                        setCheckoutTipoDoc(val);
+                        try {
+                          localStorage.setItem('colorlink_customer_tipodoc', val);
+                        } catch {}
+                      }}
                       className="w-full px-2.5 py-2 text-xs rounded-xl border border-slate-300 font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-red-500 bg-white cursor-pointer"
                     >
-                      <option value="Cédula de Ciudadanía">Cédula (CC)</option>
+                      <option value="Cédula de Ciudadanía">Cédula de Ciudadanía (CC)</option>
+                      <option value="CC">Cédula (CC)</option>
                       <option value="NIT">NIT (Empresa)</option>
-                      <option value="Cédula de Extranjería">C.E.</option>
+                      <option value="Cédula de Extranjería">Cédula de Extranjería (CE)</option>
+                      <option value="CE">C.E. Extranjería</option>
                       <option value="Pasaporte">Pasaporte</option>
+                      <option value="RUT">RUT</option>
                     </select>
                   </div>
 
@@ -970,7 +1191,13 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
                         required
                         placeholder="Ej: 1.020.304.506 o 900.845.120-4"
                         value={checkoutDocumento}
-                        onChange={(e) => setCheckoutDocumento(e.target.value)}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setCheckoutDocumento(val);
+                          try {
+                            localStorage.setItem('colorlink_customer_doc', val);
+                          } catch {}
+                        }}
                         className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border-2 border-red-300 font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-red-500 bg-white"
                       />
                       <FileText className="w-4 h-4 text-red-500 absolute left-2.5 top-2.5" />
@@ -989,7 +1216,13 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
                         required
                         placeholder="Ej: 310 123 4567"
                         value={checkoutTelefono}
-                        onChange={(e) => setCheckoutTelefono(e.target.value)}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setCheckoutTelefono(val);
+                          try {
+                            localStorage.setItem('colorlink_customer_phone', val);
+                          } catch {}
+                        }}
                         className="w-full pl-8 pr-3 py-2 text-xs rounded-xl border border-slate-300 font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-red-500 bg-white"
                       />
                       <Phone className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
@@ -1005,7 +1238,13 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
                         type="email"
                         placeholder="tu-correo@ejemplo.com"
                         value={checkoutEmail}
-                        onChange={(e) => setCheckoutEmail(e.target.value)}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setCheckoutEmail(val);
+                          try {
+                            localStorage.setItem('colorlink_customer_email', val);
+                          } catch {}
+                        }}
                         className="w-full pl-8 pr-3 py-2 text-xs rounded-xl border border-slate-300 font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-red-500 bg-white"
                       />
                       <Mail className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
@@ -1032,11 +1271,17 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
                     type="button"
                     onClick={() => {
                       setModalidad('domicilio');
+                      try {
+                        const saved = localStorage.getItem('colorlink_quote_delivery');
+                        const parsed = saved ? JSON.parse(saved) : {};
+                        localStorage.setItem('colorlink_quote_delivery', JSON.stringify({ ...parsed, modalidad: 'domicilio' }));
+                      } catch {}
                       if (!checkoutDireccion || checkoutDireccion.startsWith('Retiro en Tienda')) {
                         const defaultAddr = userSession?.direcciones?.find(d => d.esPredeterminada) || userSession?.direcciones?.[0];
                         const savedHome = defaultAddr?.direccion ||
                           userSession?.direccion ||
                           userSession?.address ||
+                          formData?.direccion_obra ||
                           localStorage.getItem('colorlink_user_address') ||
                           '';
                         if (savedHome) {
@@ -1057,6 +1302,11 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
                     type="button"
                     onClick={() => {
                       setModalidad('retiro_tienda');
+                      try {
+                        const saved = localStorage.getItem('colorlink_quote_delivery');
+                        const parsed = saved ? JSON.parse(saved) : {};
+                        localStorage.setItem('colorlink_quote_delivery', JSON.stringify({ ...parsed, modalidad: 'retiro_tienda' }));
+                      } catch {}
                       const pickupText = `Retiro en Tienda: ${matchingStore?.nombre || selectedSede} - ${matchingStore?.direccion || 'Sede oficial autorizada'}`;
                       handleAddressChange(pickupText);
                     }}
@@ -1069,6 +1319,59 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
                     <Warehouse className="w-3.5 h-3.5 text-[#004B93]" />
                     <span>Retiro en Tienda ($0)</span>
                   </button>
+                </div>
+
+                {/* Selectores de Departamento y Ciudad sincronizados */}
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <label className="text-[10px] text-slate-600 font-bold block mb-1 uppercase">
+                      Departamento Destino:
+                    </label>
+                    <select
+                      value={selectedDepto}
+                      onChange={(e) => {
+                        const newDepto = e.target.value;
+                        handleDeptoChange(newDepto);
+                        try {
+                          const saved = localStorage.getItem('colorlink_quote_delivery');
+                          const parsed = saved ? JSON.parse(saved) : {};
+                          localStorage.setItem('colorlink_quote_delivery', JSON.stringify({ ...parsed, departamento: newDepto }));
+                        } catch {}
+                      }}
+                      className="w-full text-xs rounded-xl border border-slate-300 px-2.5 py-2 bg-white text-slate-800 font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      {DEPARTAMENTOS_COLOMBIA.map((d) => (
+                        <option key={d.codigoDANE} value={d.nombre}>
+                          {d.nombre}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] text-slate-600 font-bold block mb-1 uppercase">
+                      Ciudad / Municipio:
+                    </label>
+                    <select
+                      value={selectedCiudad}
+                      onChange={(e) => {
+                        const newCity = e.target.value;
+                        setSelectedCiudad(newCity);
+                        try {
+                          const saved = localStorage.getItem('colorlink_quote_delivery');
+                          const parsed = saved ? JSON.parse(saved) : {};
+                          localStorage.setItem('colorlink_quote_delivery', JSON.stringify({ ...parsed, ciudad: newCity }));
+                        } catch {}
+                      }}
+                      className="w-full text-xs rounded-xl border border-slate-300 px-2.5 py-2 bg-white text-slate-800 font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      {currentDeptoObj.municipios.map((m) => (
+                        <option key={m.nombre} value={m.nombre}>
+                          {m.nombre}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
 
                 {modalidad === 'domicilio' ? (
@@ -1086,7 +1389,7 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
                         className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-red-500 bg-white"
                       />
                       <div className="flex items-center justify-between text-[10px] text-slate-500 mt-1">
-                        <span>Destino: <strong>{selectedCiudad}, {selectedDepto}</strong></span>
+                        <span>Destino confirmado: <strong>{selectedCiudad}, {selectedDepto}</strong></span>
                         <span className="text-emerald-700 font-bold">{shipping.tiempoEstimado}</span>
                       </div>
                     </div>
@@ -1904,6 +2207,34 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
               </div>
             </div>
 
+            {/* Alerta clara si no ha iniciado sesión antes de continuar al pago */}
+            {(!userSession || !userSession.isLoggedIn) && (
+              <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200 text-amber-950 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-2xs">
+                <div className="flex items-start sm:items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5 sm:mt-0" />
+                  <span className="text-[11px] font-semibold text-amber-900 leading-tight">
+                    Inicia sesión para capturar tu Cédula/NIT y continuar al pago sin formularios vacíos.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (onOpenAuth) {
+                      onOpenAuth();
+                    } else {
+                      window.dispatchEvent(new CustomEvent('colorlink_open_auth', {
+                        detail: { mode: 'login', reason: 'Inicia sesión para autocompletar tus datos y continuar al pago.' }
+                      }));
+                    }
+                  }}
+                  className="px-2.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-[11px] shrink-0 transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-xs self-start sm:self-auto"
+                >
+                  <User className="w-3.5 h-3.5" />
+                  <span>Iniciar Sesión</span>
+                </button>
+              </div>
+            )}
+
             <div className="flex items-center gap-2 pt-1">
               <button
                 type="button"
@@ -1918,7 +2249,14 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
                   if (userSession && userSession.isLoggedIn) {
                     setIsCheckoutStep(true);
                   } else {
-                    onCheckout();
+                    if (onOpenAuth) {
+                      onOpenAuth();
+                    } else {
+                      window.dispatchEvent(new CustomEvent('colorlink_open_auth', {
+                        detail: { mode: 'login', reason: 'Inicia sesión o regístrate para capturar tu información de despacho y facturación y continuar con tu compra.' }
+                      }));
+                      onCheckout();
+                    }
                   }
                 }}
                 className="flex-1 py-3 px-4 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs sm:text-sm shadow-lg shadow-red-600/30 flex items-center justify-center gap-2 transition-transform hover:scale-[1.02] cursor-pointer"

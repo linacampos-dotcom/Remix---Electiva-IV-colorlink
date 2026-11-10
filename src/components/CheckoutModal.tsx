@@ -23,16 +23,18 @@ import {
   CheckCircle2,
   ExternalLink
 } from 'lucide-react';
-import { CartItem, COLORLINKOrder, UserSession, TipoDocumento } from '../types';
+import { CartItem, COLORLINKOrder, UserSession, TipoDocumento, FMVFormData } from '../types';
 import { PINTUCO_STORE_HUBS, DEPARTAMENTOS_COLOMBIA, calculateShipping } from '../data/colombiaLogistics';
 import { paymentService } from '../services/paymentService';
 import { useCart } from '../context/CartContext';
+import { normalizeTipoDocumento, resolveInitialCustomerData } from './ShoppingCartDrawer';
 
 export interface CheckoutModalProps {
   isOpen: boolean;
   onClose: () => void;
   cart: CartItem[];
   userSession?: UserSession | null;
+  formData?: FMVFormData;
   onOpenAuth?: (mode?: 'login' | 'register') => void;
   onConfirmOrder?: (order: COLORLINKOrder) => void;
   onClearCart?: () => void;
@@ -47,6 +49,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   onClose,
   cart,
   userSession,
+  formData,
   onOpenAuth,
   onConfirmOrder,
   onClearCart,
@@ -59,20 +62,40 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   const [step, setStep] = useState<CheckoutStep>('review_and_shipping');
 
   // Modalidad de entrega: Domicilio a Obra o Retiro en Tienda Pintuco
-  const [modalidad, setModalidad] = useState<'domicilio' | 'retiro_tienda'>('domicilio');
+  const [modalidad, setModalidad] = useState<'domicilio' | 'retiro_tienda'>(() => {
+    return resolveInitialCustomerData(userSession, formData).modalidad;
+  });
 
   // Ubicación Geográfica
-  const [selectedDepto, setSelectedDepto] = useState<string>('Bogotá D.C.');
-  const [selectedCiudad, setSelectedCiudad] = useState<string>('Bogotá D.C.');
-  const [selectedSede, setSelectedSede] = useState<string>('');
+  const [selectedDepto, setSelectedDepto] = useState<string>(() => {
+    return resolveInitialCustomerData(userSession, formData).departamento;
+  });
+  const [selectedCiudad, setSelectedCiudad] = useState<string>(() => {
+    return resolveInitialCustomerData(userSession, formData).ciudad;
+  });
+  const [selectedSede, setSelectedSede] = useState<string>(() => {
+    return resolveInitialCustomerData(userSession, formData).sede;
+  });
 
   // Datos de Facturación y Contacto
-  const [nombre, setNombre] = useState('');
-  const [tipoDoc, setTipoDoc] = useState<TipoDocumento>('Cédula de Ciudadanía');
-  const [documento, setDocumento] = useState('');
-  const [telefono, setTelefono] = useState('');
-  const [email, setEmail] = useState('');
-  const [direccion, setDireccion] = useState('');
+  const [nombre, setNombre] = useState<string>(() => {
+    return resolveInitialCustomerData(userSession, formData).nombre;
+  });
+  const [tipoDoc, setTipoDoc] = useState<TipoDocumento>(() => {
+    return resolveInitialCustomerData(userSession, formData).tipoDoc;
+  });
+  const [documento, setDocumento] = useState<string>(() => {
+    return resolveInitialCustomerData(userSession, formData).documento;
+  });
+  const [telefono, setTelefono] = useState<string>(() => {
+    return resolveInitialCustomerData(userSession, formData).telefono;
+  });
+  const [email, setEmail] = useState<string>(() => {
+    return resolveInitialCustomerData(userSession, formData).email;
+  });
+  const [direccion, setDireccion] = useState<string>(() => {
+    return resolveInitialCustomerData(userSession, formData).direccion;
+  });
   const [notas, setNotas] = useState('');
   const [metodoPago, setMetodoPago] = useState<'contraentrega' | 'pse' | 'credito'>('contraentrega');
 
@@ -91,6 +114,23 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
 
   // Sincronizar datos de entrega y usuario
   useEffect(() => {
+    if (!isOpen) return;
+
+    const resolved = resolveInitialCustomerData(userSession, formData);
+
+    // Sincronizar datos del cliente
+    setNombre((prev) => (userSession?.nombre ? userSession.nombre : (prev.trim() ? prev : resolved.nombre)));
+    setDocumento((prev) => {
+      if (userSession?.documento || userSession?.cedula) return userSession.documento || userSession.cedula || '';
+      return prev.trim() ? prev : resolved.documento;
+    });
+    setTipoDoc((prev) => {
+      if (userSession?.tipoDocumento) return normalizeTipoDocumento(userSession.tipoDocumento);
+      return prev ? normalizeTipoDocumento(prev) : resolved.tipoDoc;
+    });
+    setTelefono((prev) => (userSession?.telefono ? userSession.telefono : (prev.trim() ? prev : resolved.telefono)));
+    setEmail((prev) => (userSession?.email ? userSession.email : (prev.trim() ? prev : resolved.email)));
+
     // Sincronizar datos previos del Cotizador Inteligente
     const quoteDeliveryRaw = localStorage.getItem('colorlink_quote_delivery');
     let quoteData: any = null;
@@ -98,35 +138,30 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
       try { quoteData = JSON.parse(quoteDeliveryRaw); } catch {}
     }
 
-    const rawMode = (shippingState?.modalidad as string) || (quoteData?.modalidad as string);
+    const rawMode = (shippingState?.modalidad as string) || (quoteData?.modalidad as string) || resolved.modalidad;
     if (rawMode) {
       setModalidad(rawMode === 'pickup' || rawMode === 'retiro_tienda' ? 'retiro_tienda' : 'domicilio');
     }
 
-    const effectiveDepto = shippingState?.department || quoteData?.department;
+    const effectiveDepto = shippingState?.department || quoteData?.department || resolved.departamento;
     if (effectiveDepto) {
       setSelectedDepto(effectiveDepto);
     }
 
-    const effectiveCiudad = shippingState?.city || quoteData?.city;
+    const effectiveCiudad = shippingState?.city || quoteData?.city || resolved.ciudad;
     if (effectiveCiudad) {
       setSelectedCiudad(effectiveCiudad);
     }
 
-    const effectiveSede = shippingState?.sede || shippingState?.pickupStore || quoteData?.pickupStore || quoteData?.sede;
+    const effectiveSede = shippingState?.sede || shippingState?.pickupStore || quoteData?.pickupStore || quoteData?.sede || resolved.sede;
     if (effectiveSede) {
       setSelectedSede(effectiveSede);
     }
 
-    const quoteAddr = shippingState?.deliveryAddress || quoteData?.deliveryAddress;
+    const quoteAddr = shippingState?.deliveryAddress || quoteData?.deliveryAddress || resolved.direccion;
 
     if (userSession && userSession.isLoggedIn) {
-      if (userSession.nombre) setNombre(userSession.nombre);
-      if (userSession.documento) setDocumento(userSession.documento);
-      if (userSession.tipoDocumento) setTipoDoc(userSession.tipoDocumento);
-      if (userSession.telefono) setTelefono(userSession.telefono);
-      if (userSession.email) setEmail(userSession.email);
-      if (quoteAddr) {
+      if (quoteAddr && !quoteAddr.startsWith('Retiro en Tienda')) {
         setDireccion(quoteAddr);
       } else if (userSession.direccion) {
         setDireccion(userSession.direccion);
@@ -135,14 +170,14 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
       }
       if (!effectiveCiudad && userSession.ciudad) setSelectedCiudad(userSession.ciudad);
     } else {
-      if (quoteAddr) {
+      if (quoteAddr && !quoteAddr.startsWith('Retiro en Tienda')) {
         setDireccion(quoteAddr);
       } else {
         const savedAddr = globalAddr || localStorage.getItem('shippingAddress') || localStorage.getItem('colorlink_shipping_address');
         if (savedAddr) setDireccion(savedAddr);
       }
     }
-  }, [userSession, globalAddr, shippingState, isOpen]);
+  }, [userSession, formData, globalAddr, shippingState, isOpen]);
 
   // Temporizador para reenvío de OTP (60s)
   useEffect(() => {
@@ -703,12 +738,16 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                     <div className="flex gap-2">
                       <select
                         value={tipoDoc}
-                        onChange={(e) => setTipoDoc(e.target.value as TipoDocumento)}
+                        onChange={(e) => setTipoDoc(normalizeTipoDocumento(e.target.value))}
                         className="w-28 text-xs rounded-xl border border-slate-300 px-2 py-2 bg-white text-slate-800 font-semibold shrink-0"
                       >
                         <option value="Cédula de Ciudadanía">C.C.</option>
+                        <option value="CC">CC</option>
                         <option value="NIT">NIT</option>
                         <option value="Cédula de Extranjería">C.E.</option>
+                        <option value="CE">CE</option>
+                        <option value="Pasaporte">Pasaporte</option>
+                        <option value="RUT">RUT</option>
                       </select>
                       <input
                         type="text"

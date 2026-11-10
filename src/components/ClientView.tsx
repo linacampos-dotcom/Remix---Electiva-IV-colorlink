@@ -78,11 +78,13 @@ interface ClientViewProps {
   favoriteIds?: string[];
   onToggleFavorite?: (productId: string) => void;
   onOpenInstallmentCalculator?: () => void;
+  onOpenAuth?: () => void;
 }
 
 export const ClientView: React.FC<ClientViewProps> = ({
   formData,
   userSession,
+  onOpenAuth,
   onChange,
   onApplyPreset,
   onReset,
@@ -420,6 +422,7 @@ export const ClientView: React.FC<ClientViewProps> = ({
             isSaving={isSaving}
             onOpenPrintable={onOpenPrintable}
             onOpenChat={onOpenChat}
+            onOpenAuth={onOpenAuth}
           />
         </div>
       )}

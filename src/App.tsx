@@ -123,15 +123,46 @@ export default function App() {
   const [isAdminLoginOpen, setIsAdminLoginOpen] = useState<boolean>(false);
 
   const [formData, setFormData] = useState<FMVFormData>(() => {
+    let initial = { ...INITIAL_FORM_DATA };
     const saved = localStorage.getItem('colorlink_current_fmv');
     if (saved) {
       try {
-        return JSON.parse(saved);
+        initial = { ...initial, ...JSON.parse(saved) };
       } catch (e) {
-        return INITIAL_FORM_DATA;
+        // fallback
       }
     }
-    return INITIAL_FORM_DATA;
+
+    try {
+      const savedSession = localStorage.getItem('currentUser') || localStorage.getItem('colorlink_user_session') || localStorage.getItem('colorlink_active_session');
+      let sessionUser: any = null;
+      if (savedSession) {
+        sessionUser = JSON.parse(savedSession);
+      }
+      
+      const doc = sessionUser?.documento || sessionUser?.cedula || localStorage.getItem('colorlink_customer_doc') || '';
+      const name = sessionUser?.nombre || localStorage.getItem('colorlink_customer_name') || '';
+      const phone = sessionUser?.telefono || localStorage.getItem('colorlink_customer_phone') || '';
+      const email = sessionUser?.email || localStorage.getItem('colorlink_customer_email') || '';
+      const savedTipo = sessionUser?.tipoDocumento || localStorage.getItem('colorlink_customer_tipodoc') || '';
+
+      if (!initial.documento && doc) initial.documento = doc;
+      if (!initial.nombre_razon_social && name) {
+        initial.nombre_razon_social = name;
+        initial.responsable_contacto = name;
+      }
+      if (!initial.telefono && phone) initial.telefono = phone;
+      if (!initial.correo_electronico && email) initial.correo_electronico = email;
+      
+      if (savedTipo) {
+        const norm = savedTipo.toUpperCase().includes('NIT') ? 'NIT' : savedTipo.toUpperCase().includes('RUT') ? 'RUT' : savedTipo.toUpperCase().includes('CE') ? 'CE' : 'CC';
+        initial.tipo_documento = norm as any;
+      } else if (doc) {
+        initial.tipo_documento = doc.includes('-') ? 'NIT' : 'CC';
+      }
+    } catch {}
+
+    return initial;
   });
 
   const [orders, setOrders] = useState<COLORLINKOrder[]>(() => {
@@ -513,6 +544,58 @@ export default function App() {
       };
     }
   }, []);
+
+  // Sincronización continua de la sesión activa del usuario con el formulario FMV / Cotizador
+  useEffect(() => {
+    if (userSession && (userSession.isLoggedIn || userSession.email || userSession.documento)) {
+      setFormData((prev) => {
+        const doc = userSession.documento || userSession.cedula || '';
+        const name = userSession.nombre || '';
+        const phone = userSession.telefono || '';
+        const email = userSession.email || '';
+        const rawTipo = userSession.tipoDocumento || (doc.includes('-') ? 'NIT' : 'CC');
+        const normTipo = rawTipo.toUpperCase().includes('NIT') ? 'NIT' : rawTipo.toUpperCase().includes('RUT') ? 'RUT' : rawTipo.toUpperCase().includes('CE') ? 'CE' : 'CC';
+
+        let changed = false;
+        const next = { ...prev };
+
+        if (!next.nombre_razon_social || next.nombre_razon_social.trim() === '') {
+          if (name) {
+            next.nombre_razon_social = name;
+            next.responsable_contacto = name;
+            changed = true;
+          }
+        }
+
+        if (!next.documento || next.documento.trim() === '') {
+          if (doc) {
+            next.documento = doc;
+            next.tipo_documento = normTipo as any;
+            changed = true;
+          }
+        } else if (next.documento === doc && next.tipo_documento !== normTipo) {
+          next.tipo_documento = normTipo as any;
+          changed = true;
+        }
+
+        if (!next.telefono || next.telefono.trim() === '') {
+          if (phone) {
+            next.telefono = phone;
+            changed = true;
+          }
+        }
+
+        if (!next.correo_electronico || next.correo_electronico.trim() === '') {
+          if (email) {
+            next.correo_electronico = email;
+            changed = true;
+          }
+        }
+
+        return changed ? next : prev;
+      });
+    }
+  }, [userSession]);
 
   // Mis Favoritos vinculados estrictamente al perfil del usuario autenticado
   const [favoriteIds, setFavoriteIds] = useState<string[]>(() => {
@@ -953,10 +1036,27 @@ export default function App() {
 
   // Handle Field Change
   const handleFieldChange = (field: keyof FMVFormData, value: any) => {
-    setFormData((prev) => ({
-      ...prev,
-      [field]: value,
-    }));
+    setFormData((prev) => {
+      const updated = {
+        ...prev,
+        [field]: value,
+      };
+      try {
+        localStorage.setItem('colorlink_current_fmv', JSON.stringify(updated));
+        if (field === 'nombre_razon_social') {
+          localStorage.setItem('colorlink_customer_name', String(value));
+        } else if (field === 'documento') {
+          localStorage.setItem('colorlink_customer_doc', String(value));
+        } else if (field === 'tipo_documento') {
+          localStorage.setItem('colorlink_customer_tipodoc', String(value));
+        } else if (field === 'telefono') {
+          localStorage.setItem('colorlink_customer_phone', String(value));
+        } else if (field === 'correo_electronico') {
+          localStorage.setItem('colorlink_customer_email', String(value));
+        }
+      } catch {}
+      return updated;
+    });
   };
 
   // Apply Preset
@@ -1581,6 +1681,7 @@ export default function App() {
         isOpen={isCartOpen}
         onClose={() => setIsCartOpen(false)}
         cart={cart}
+        formData={formData}
         onUpdateQuantity={handleUpdateCartQuantity}
         onRemoveItem={handleRemoveCartItem}
         onClearCart={handleClearCart}
