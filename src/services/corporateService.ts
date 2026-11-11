@@ -344,6 +344,135 @@ export interface NotificacionCorp {
 }
 
 // -------------------------------------------------------------
+// GESTIÓN DE ACTAS DE REUNIÓN Y COMITÉS CORPORATIVOS
+// -------------------------------------------------------------
+export interface CompromisoActa {
+  id: string;
+  descripcion: string;
+  responsableNombre: string;
+  responsableCargo?: string;
+  fechaLimite: string;
+  estado: 'Pendiente' | 'En Progreso' | 'Cumplido';
+}
+
+export interface FirmaAsistenteActa {
+  funcionarioId: string;
+  nombre: string;
+  cargo: string;
+  areaNombre: string;
+  firmado: boolean;
+  fechaFirma?: string;
+}
+
+export interface ActaReunionCorp {
+  id: string;
+  consecutivo: string; // ej. "ACT-2026-001"
+  titulo: string;
+  tipo: 'Comité Operativo' | 'Auditoría de Calidad NTC 1335' | 'Control de Inventarios y Bodega' | 'Comité SAC / PQRS' | 'Dirección y Gerencia General';
+  fecha: string;
+  horaInicio: string;
+  horaFin: string;
+  sedeId: string;
+  sedeNombre: string;
+  lugar: string;
+  moderadorNombre: string;
+  moderadorCargo: string;
+  asistentes: FirmaAsistenteActa[];
+  invitadosExternos: string[];
+  ordenDelDia: string[];
+  temasTratados: string;
+  conclusiones: string;
+  compromisos: CompromisoActa[];
+  estado: 'Borrador' | 'En Firma' | 'Aprobada';
+  creadoPor: string;
+  fechaCreacion: string;
+}
+
+// -------------------------------------------------------------
+// INFORMES Y REPORTES DE AUDITORÍA (NTC 1335 / ISO / CEDI)
+// -------------------------------------------------------------
+export interface HallazgoAuditoria {
+  id: string;
+  tipo: 'No Conformidad Mayor' | 'No Conformidad Menor' | 'Observación' | 'Oportunidad de Mejora';
+  clausulaNorma: string;
+  descripcion: string;
+  evidencia: string;
+  estado: 'Abierto' | 'En Tratamiento' | 'Cerrado';
+  responsable: string;
+  fechaCierreEstimada: string;
+}
+
+export interface InformeAuditoriaCorp {
+  id: string;
+  codigoInforme: string;
+  titulo: string;
+  tipoAuditoria: 'Inspección NTC 1335 de Calidad' | 'Auditoría de Procesos de Bodega y CEDI' | 'Control de Calidad y Tiempos SAC' | 'Calibración y Metrología Tintométrica';
+  fechaAuditoria: string;
+  auditorLider: string;
+  equipoAuditor: string[];
+  sedeId: string;
+  sedeNombre: string;
+  alcance: string;
+  porcentajeCumplimiento: number;
+  nivelRiesgo: 'Bajo' | 'Medio' | 'Alto';
+  resumenEjecutivo: string;
+  hallazgos: HallazgoAuditoria[];
+  conclusionesGenerales: string;
+  estado: 'Emitido' | 'En Seguimiento' | 'Cerrado';
+  fechaAprobacion: string;
+}
+
+// -------------------------------------------------------------
+// NO CONFORMIDADES Y ACCIONES CORRECTIVAS (RNC CRUZADAS)
+// -------------------------------------------------------------
+export type CriticidadRNC = 'Baja' | 'Media' | 'Alta' | 'Crítica';
+export type EstadoRNC = 'Abierta' | 'En Análisis' | 'En Plan de Acción' | 'Cerrada / Verificada';
+export type TipoHallazgoRNC = 
+  | 'Incumplimiento de NTC 1335'
+  | 'Desviación de Proceso'
+  | 'Error de Inventario / Kardex'
+  | 'Falla Operativa en Despacho'
+  | 'Incompatibilidad de Almacenamiento MSDS'
+  | 'Reclamación Técnica SAC'
+  | 'Descalibración Tintométrica';
+
+export interface EvidenciaRNC {
+  id: string;
+  nombre: string;
+  tipo: 'imagen' | 'documento';
+  url?: string;
+  fechaSubida: string;
+}
+
+export interface NoConformidadRNC {
+  id: string;
+  consecutivo: string; // ej. "RNC-2026-001"
+  titulo: string;
+  areaEmisoraId: string;
+  areaEmisoraNombre: string;
+  reportadoPor: string;
+  reportadoPorCargo?: string;
+  areaDestinoId: string;
+  areaDestinoNombre: string;
+  responsableDestinoNombre: string;
+  sedeId: string;
+  sedeNombre: string;
+  tipoHallazgo: TipoHallazgoRNC;
+  criticidad: CriticidadRNC;
+  descripcion: string;
+  normaAsociada?: string;
+  planAccionPropuesto: string;
+  accionesInmediatas?: string;
+  fechaReporte: string;
+  fechaLimiteCierre: string;
+  fechaCierreReal?: string;
+  estado: EstadoRNC;
+  verificadoPor?: string;
+  notasCierre?: string;
+  evidencias: EvidenciaRNC[];
+}
+
+// -------------------------------------------------------------
 // CATÁLOGO INICIAL DE LAS 13 ÁREAS ORGANIZACIONALES
 // -------------------------------------------------------------
 export const AREAS_INICIALES: AreaCorporativa[] = [
@@ -3453,5 +3582,1356 @@ export function corroborarYRecibirOrdenCompra(
 
   return { ordenActualizada, inventarioActualizado };
 }
+
+// =============================================================
+// GESTIÓN DE ACTAS DE REUNIÓN Y COMITÉS (STORAGE & PERSISTENCIA)
+// =============================================================
+export const STORAGE_ACTAS_REUNION = 'colorlink_corp_actas_reunion_v1';
+export const STORAGE_INFORMES_AUDITORIA = 'colorlink_corp_informes_auditoria_v1';
+
+export const ACTAS_REUNION_INICIALES: ActaReunionCorp[] = [
+  {
+    id: 'act-1',
+    consecutivo: 'ACT-2026-001',
+    titulo: 'Comité de Eficiencia Logística y Despachos B2B - CEDI Siberia',
+    tipo: 'Comité Operativo',
+    fecha: '2026-10-18',
+    horaInicio: '08:30',
+    horaFin: '10:15',
+    sedeId: 'bogota',
+    sedeNombre: 'Bogotá (CEDI Siberia)',
+    lugar: 'Sala de Operaciones CEDI Siberia & Microsoft Teams',
+    moderadorNombre: 'Ing. Carlos Mendoza',
+    moderadorCargo: 'Jefe de Logística y Cadena de Suministro',
+    asistentes: [
+      { funcionarioId: 'func-carlos', nombre: 'Carlos Mendoza', cargo: 'Jefe de Logística', areaNombre: 'Logística & Bodega', firmado: true, fechaFirma: '2026-10-18 10:20' },
+      { funcionarioId: 'func-laura', nombre: 'Laura Restrepo', cargo: 'Coordinadora de Inventarios', areaNombre: 'Logística & Bodega', firmado: true, fechaFirma: '2026-10-18 10:25' },
+      { funcionarioId: 'func-juan', nombre: 'Juan Pablo Morales', cargo: 'Superintendente CEDI', areaNombre: 'Operaciones', firmado: true, fechaFirma: '2026-10-18 10:30' },
+      { funcionarioId: 'func-mariana', nombre: 'Mariana Gómez', cargo: 'Coordinadora SAC', areaNombre: 'Atención al Cliente', firmado: true, fechaFirma: '2026-10-18 10:35' },
+    ],
+    invitadosExternos: [
+      'Ing. Andrés Silva (Transportes Interoceánicos S.A.S)',
+      'Arq. Rodrigo Vega (Interventoría Constructora Bolívar)',
+    ],
+    ordenDelDia: [
+      '1. Verificación del quórum y aprobación del orden del día',
+      '2. Revisión de SLAs de entrega en proyectos B2B de Bogotá y Cundinamarca',
+      '3. Calibración de inventarios de seguridad para Viniltex Avanzado y Koraza',
+      '4. Implementación del protocolo de remisiones electrónicas inter-sedes',
+    ],
+    temasTratados: 'Se evaluó el comportamiento de despachos durante el último mes, identificando una tasa de cumplimiento de entregas del 98.7% en obras de gran escala. Se acordó incrementar el stock de seguridad de cuñetes en CEDI Siberia para evitar quiebres de inventario los fines de semana. Se presentó el nuevo procedimiento de traslados con control de precinto y pesaje de salida.',
+    conclusiones: 'La operación logística en CEDI Siberia mantiene estándares de excelencia. Se autoriza la habilitación de la segunda rampa de cargue rápido para vehículos de carga pesada a partir del 1 de noviembre.',
+    compromisos: [
+      {
+        id: 'comp-101',
+        descripcion: 'Ajustar los niveles de reorden en sistema ERP a 450 cuñetes de Viniltex Blanco Puro',
+        responsableNombre: 'Laura Restrepo',
+        responsableCargo: 'Coordinadora de Inventarios',
+        fechaLimite: '2026-10-25',
+        estado: 'Cumplido',
+      },
+      {
+        id: 'comp-102',
+        descripcion: 'Capacitar a los conductores de flota tercerizada en el uso de la app de confirmación de entrega',
+        responsableNombre: 'Carlos Mendoza',
+        responsableCargo: 'Jefe de Logística',
+        fechaLimite: '2026-11-05',
+        estado: 'En Progreso',
+      },
+      {
+        id: 'comp-103',
+        descripcion: 'Publicar informe mensual consolidado de mermas y roturas de envases',
+        responsableNombre: 'Juan Pablo Morales',
+        responsableCargo: 'Superintendente CEDI',
+        fechaLimite: '2026-11-10',
+        estado: 'Pendiente',
+      },
+    ],
+    estado: 'Aprobada',
+    creadoPor: 'Carlos Mendoza',
+    fechaCreacion: '2026-10-18 10:15',
+  },
+  {
+    id: 'act-2',
+    consecutivo: 'ACT-2026-002',
+    titulo: 'Auditoría Extraordinaria de Cumplimiento Norma NTC 1335 y Fichas MSDS Planta Rionegro',
+    tipo: 'Auditoría de Calidad NTC 1335',
+    fecha: '2026-10-25',
+    horaInicio: '09:00',
+    horaFin: '12:00',
+    sedeId: 'rionegro',
+    sedeNombre: 'Medellín (Planta Rionegro)',
+    lugar: 'Laboratorio Central de Ensayos Físico-Químicos y Metrología',
+    moderadorNombre: 'Dra. Valentina Restrepo',
+    moderadorCargo: 'Directora de Calidad & Asuntos Normativos',
+    asistentes: [
+      { funcionarioId: 'func-valentina', nombre: 'Valentina Restrepo', cargo: 'Directora de Calidad', areaNombre: 'Auditoría & Calidad', firmado: true, fechaFirma: '2026-10-25 12:15' },
+      { funcionarioId: 'func-diego', nombre: 'Diego Fernando Henao', cargo: 'Líder de Laboratorio', areaNombre: 'Producción & Calidad', firmado: true, fechaFirma: '2026-10-25 12:20' },
+      { funcionarioId: 'func-sandra', nombre: 'Sandra Milena Castro', cargo: 'Supervisora de Tintometría', areaNombre: 'Operaciones', firmado: false },
+    ],
+    invitadosExternos: [
+      'Ing. Felipe Arango (Auditor Técnico Delegado ICONTEC Internacional)',
+    ],
+    ordenDelDia: [
+      '1. Inspección de equipos de ensayo de abrasión húmeda Gardner',
+      '2. Auditoría metrológica a dosificadoras tintométricas automáticas (tolerancia ±0.05 mL)',
+      '3. Verificación de archivo de retención de contramuestras por 12 meses',
+      '4. Actualización de fichas de seguridad MSDS bajo SGA Rev. 9',
+    ],
+    temasTratados: 'El equipo auditor inspeccionó 12 lotes de pintura Viniltex Avanzado Tipo 1. Los ensayos de lavabilidad superaron los 1.150 ciclos sin rotura de película sobre panel Leneta. En tintometría se evidenció un cumplimiento del 99.4% en repetibilidad cromática Delta E < 0.8. Se identificó una oportunidad de mejora en la rotulación de estibas en el cuarto climatizado de muestras.',
+    conclusiones: 'Se ratifica la conformidad técnica total de los productos ensayados frente a la norma NTC 1335 Cuarta Revisión. No se levantaron no conformidades mayores.',
+    compromisos: [
+      {
+        id: 'comp-201',
+        descripcion: 'Implementar código QR en etiquetas de muestras de retención para trazabilidad inmediata',
+        responsableNombre: 'Diego Fernando Henao',
+        responsableCargo: 'Líder de Laboratorio',
+        fechaLimite: '2026-11-15',
+        estado: 'En Progreso',
+      },
+      {
+        id: 'comp-202',
+        descripcion: 'Enviar informe final de calibración a la mesa de auditoría ICONTEC',
+        responsableNombre: 'Valentina Restrepo',
+        responsableCargo: 'Directora de Calidad',
+        fechaLimite: '2026-11-02',
+        estado: 'Cumplido',
+      },
+    ],
+    estado: 'En Firma',
+    creadoPor: 'Valentina Restrepo',
+    fechaCreacion: '2026-10-25 12:05',
+  },
+  {
+    id: 'act-3',
+    consecutivo: 'ACT-2026-003',
+    titulo: 'Comité SAC & PQRS: Optimización de Tiempos de Respuesta y Asesoría Técnica B2B',
+    tipo: 'Comité SAC / PQRS',
+    fecha: '2026-11-04',
+    horaInicio: '14:00',
+    horaFin: '15:30',
+    sedeId: 'todas',
+    sedeNombre: 'Todas las Sedes (Consolidado Nacional)',
+    lugar: 'Sala Virtual de Comités SAC Omnicanal',
+    moderadorNombre: 'Mariana Gómez',
+    moderadorCargo: 'Coordinadora Nacional SAC & Experiencia de Cliente',
+    asistentes: [
+      { funcionarioId: 'func-mariana', nombre: 'Mariana Gómez', cargo: 'Coordinadora SAC', areaNombre: 'Atención al Cliente', firmado: true, fechaFirma: '2026-11-04 15:40' },
+      { funcionarioId: 'func-esteban', nombre: 'Esteban Osorio', cargo: 'Asesor Técnico Pintuco', areaNombre: 'Soporte Técnico', firmado: true, fechaFirma: '2026-11-04 15:45' },
+      { funcionarioId: 'func-camila', nombre: 'Camila Torres', cargo: 'Agente SAC', areaNombre: 'Atención al Cliente', firmado: true, fechaFirma: '2026-11-04 15:50' },
+    ],
+    invitadosExternos: [
+      'Dra. Claudia Barrientos (Asociación Colombiana de Técnicos en Recubrimientos)',
+    ],
+    ordenDelDia: [
+      '1. Revisión de tiempos SLA de respuesta a PQRS (meta: < 4 horas hábiles)',
+      '2. Tipificación de consultas técnicas sobre preparación de superficies con humedad',
+      '3. Difusión del manual de diagnóstico NTC 1335 a través del portal de clientes',
+    ],
+    temasTratados: 'Durante el último periodo se recibieron 48 solicitudes técnicas y reclamos, de las cuales el 92% fueron resueltas en primera instancia. La principal inquietud de los clientes se relaciona con el secado en zonas húmedas, lo que se subsana asesorando el uso de selladores antialcalinos.',
+    conclusiones: 'Se implementará una plantilla unificada de respuesta técnica basada en los capítulos 3 y 4 de la norma NTC 1335.',
+    compromisos: [
+      {
+        id: 'comp-301',
+        descripcion: 'Cargar las 8 plantillas técnicas de respuesta en la base de conocimiento del chatbot SAC',
+        responsableNombre: 'Esteban Osorio',
+        responsableCargo: 'Asesor Técnico',
+        fechaLimite: '2026-11-12',
+        estado: 'En Progreso',
+      },
+    ],
+    estado: 'Aprobada',
+    creadoPor: 'Mariana Gómez',
+    fechaCreacion: '2026-11-04 15:35',
+  },
+];
+
+export const INFORMES_AUDITORIA_INICIALES: InformeAuditoriaCorp[] = [
+  {
+    id: 'inf-1',
+    codigoInforme: 'INF-AUD-2026-01',
+    titulo: 'Auditoría de Certificación y Cumplimiento Norma ICONTEC NTC 1335 en Planta Rionegro',
+    tipoAuditoria: 'Inspección NTC 1335 de Calidad',
+    fechaAuditoria: '2026-10-22',
+    auditorLider: 'Dra. Valentina Restrepo (Directora de Calidad)',
+    equipoAuditor: ['Ing. Diego Fernando Henao', 'Ing. Felipe Arango (Auditor Externo ICONTEC)'],
+    sedeId: 'rionegro',
+    sedeNombre: 'Medellín (Planta Rionegro)',
+    alcance: 'Línea de producción de emulsiones arquitectónicas Tipo 1 (Viniltex Avanzado y Koraza 5)',
+    porcentajeCumplimiento: 98.6,
+    nivelRiesgo: 'Bajo',
+    resumenEjecutivo: 'La evaluación metrológica y físico-química demostró adherencia estricta a los requisitos obligatorios de la norma NTC 1335 Cuarta Revisión. Los ensayos de lavabilidad y poder cubriente superan holgadamente las cotas mínimas exigidas por la reglamentación colombiana.',
+    hallazgos: [
+      {
+        id: 'hal-101',
+        tipo: 'Oportunidad de Mejora',
+        clausulaNorma: 'NTC 1335 Numeral 5.1 (Registro de Muestras Leneta)',
+        descripcion: 'Implementar código QR digital en paneles de ensayo para automatizar la captura de ciclos en máquina Gardner.',
+        evidencia: 'Los paneles Leneta se rotulan manualmente con marcador indeleble.',
+        estado: 'En Tratamiento',
+        responsable: 'Diego Fernando Henao',
+        fechaCierreEstimada: '2026-11-20',
+      },
+      {
+        id: 'hal-102',
+        tipo: 'Observación',
+        clausulaNorma: 'ISO 9001:2015 Cláusula 7.1.5 (Calibración de Termo-higrómetros)',
+        descripcion: 'Dos termo-higrómetros ambientales del laboratorio presentaban certificación con vencimiento próximo a 15 días.',
+        evidencia: 'Certificados de calibración con vigencia hasta noviembre 2026.',
+        estado: 'Cerrado',
+        responsable: 'Valentina Restrepo',
+        fechaCierreEstimada: '2026-10-28',
+      },
+    ],
+    conclusionesGenerales: 'Planta Rionegro mantiene la certificación ICONTEC con calificación Sobresaliente. Se recomienda emitir renovación del sello de calidad por el periodo 2026-2027.',
+    estado: 'Emitido',
+    fechaAprobacion: '2026-10-24',
+  },
+  {
+    id: 'inf-2',
+    codigoInforme: 'INF-AUD-2026-02',
+    titulo: 'Auditoría Integral de Buenas Prácticas de Almacenamiento, Estibado y Fichas MSDS en CEDI Siberia',
+    tipoAuditoria: 'Auditoría de Procesos de Bodega y CEDI',
+    fechaAuditoria: '2026-10-29',
+    auditorLider: 'Ing. Jorge H. Cárdenas (Auditor Senior SST-MA)',
+    equipoAuditor: ['Ing. Carlos Mendoza', 'Laura Restrepo'],
+    sedeId: 'bogota',
+    sedeNombre: 'Bogotá (CEDI Siberia)',
+    alcance: 'Instalaciones de almacenamiento de producto terminado, muelles de despacho y cuarto de tintometría',
+    porcentajeCumplimiento: 96.4,
+    nivelRiesgo: 'Bajo',
+    resumenEjecutivo: 'Se evidenció excelente ordenamiento y delimitación de pasillos según norma RETIE y NTC 1335. El estibado de cuñetes cumple con el límite seguro de 3 niveles. Las hojas de datos de seguridad MSDS se encuentran visibles en cada estación.',
+    hallazgos: [
+      {
+        id: 'hal-201',
+        tipo: 'No Conformidad Menor',
+        clausulaNorma: 'MSDS SGA Sección 6 (Kit de Derrames Químicos)',
+        descripcion: 'El kit absorbente para derrames del muelle 3 contaba con material inerte por debajo del volumen mínimo reglamentario (falta arena seca).',
+        evidencia: 'Tambor de contingencia con 15 kg de material absorbente en vez de 30 kg reglamentarios.',
+        estado: 'Cerrado',
+        responsable: 'Carlos Mendoza',
+        fechaCierreEstimada: '2026-11-01',
+      },
+      {
+        id: 'hal-202',
+        tipo: 'Observación',
+        clausulaNorma: 'POE-BOD-014 (Señalización de Pallets en Tránsito)',
+        descripcion: 'Tres estibas de producto en cuarentena temporal carecían de cinta perimetral de aislamiento visual.',
+        evidencia: 'Lote #2026-PT-883 ubicado cerca de la zona de consolidación.',
+        estado: 'En Tratamiento',
+        responsable: 'Laura Restrepo',
+        fechaCierreEstimada: '2026-11-15',
+      },
+    ],
+    conclusionesGenerales: 'CEDI Siberia opera con altos estándares de seguridad industrial y preservación del recubrimiento. Las acciones correctivas fueron levantadas oportunamente.',
+    estado: 'Emitido',
+    fechaAprobacion: '2026-10-31',
+  },
+  {
+    id: 'inf-3',
+    codigoInforme: 'INF-AUD-2026-03',
+    titulo: 'Auditoría Metrológica de Dosificación Tintométrica en CEDIs Nacionales',
+    tipoAuditoria: 'Calibración y Metrología Tintométrica',
+    fechaAuditoria: '2026-11-07',
+    auditorLider: 'Ing. Marcos Rivera (Especialista en Metrología Industrial)',
+    equipoAuditor: ['Sandra Milena Castro', 'Diego Fernando Henao'],
+    sedeId: 'todas',
+    sedeNombre: 'Todas las Sedes (Consolidado Nacional)',
+    alcance: 'Dispensadores automáticos Corob y agitación giroscópica en 8 centros de distribución',
+    porcentajeCumplimiento: 99.1,
+    nivelRiesgo: 'Bajo',
+    resumenEjecutivo: 'Se corroboró el calibrado gravimétrico con balanza de precisión de 3 decimales. La dispersión promedio de micro-dosis fue de ±0.015 mL, muy por debajo de la tolerancia admisible de ±0.05 mL establecida en el POE-LAB-CAL-042.',
+    hallazgos: [
+      {
+        id: 'hal-301',
+        tipo: 'Oportunidad de Mejora',
+        clausulaNorma: 'POE-01 (Registro Matutino de Purgas Tintométricas)',
+        descripcion: 'Migrar el cuaderno físico de purgas a registro digital en la Intranet Corporativa para auditoría en tiempo real.',
+        evidencia: 'Registro de purga diaria en bitácora impresa de mesa.',
+        estado: 'En Tratamiento',
+        responsable: 'Sandra Milena Castro',
+        fechaCierreEstimada: '2026-11-25',
+      },
+    ],
+    conclusionesGenerales: 'Exactitud colorimétrica certificada para toda la red de distribución. No se requiere recalibración de bombas.',
+    estado: 'Emitido',
+    fechaAprobacion: '2026-11-08',
+  },
+];
+
+// Métodos de acceso para Actas de Reunión
+export function getActasReunion(): ActaReunionCorp[] {
+  return loadOrInit(STORAGE_ACTAS_REUNION, ACTAS_REUNION_INICIALES);
+}
+
+export function saveActasReunion(actas: ActaReunionCorp[]): void {
+  save(STORAGE_ACTAS_REUNION, actas);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('colorlink_actas_updated'));
+  }
+}
+
+export function crearActaReunion(data: Omit<ActaReunionCorp, 'id' | 'consecutivo' | 'fechaCreacion'>): ActaReunionCorp {
+  const current = getActasReunion();
+  const nextNum = current.length + 1;
+  const consecutivo = `ACT-2026-${String(nextNum).padStart(3, '0')}`;
+  const nuevaActa: ActaReunionCorp = {
+    ...data,
+    id: `act-${Date.now()}`,
+    consecutivo,
+    fechaCreacion: new Date().toISOString().replace('T', ' ').slice(0, 16),
+  };
+
+  saveActasReunion([nuevaActa, ...current]);
+  registrarAuditoria(
+    'Seguridad',
+    'Radicación de Nueva Acta de Reunión',
+    `Acta radicado oficial: ${consecutivo} - ${nuevaActa.titulo} (${nuevaActa.tipo}) en ${nuevaActa.sedeNombre}. Moderador: ${nuevaActa.moderadorNombre}. ${nuevaActa.compromisos.length} compromisos establecidos.`,
+    nuevaActa.creadoPor || 'Personal Autorizado'
+  );
+
+  return nuevaActa;
+}
+
+export function actualizarActaReunion(id: string, updates: Partial<ActaReunionCorp>): ActaReunionCorp | null {
+  const current = getActasReunion();
+  const idx = current.findIndex((a) => a.id === id);
+  if (idx === -1) return null;
+
+  const actualizada: ActaReunionCorp = {
+    ...current[idx],
+    ...updates,
+  };
+  current[idx] = actualizada;
+  saveActasReunion(current);
+  return actualizada;
+}
+
+export function firmarActaReunion(actaId: string, funcionarioId: string, funcionarioNombre: string): ActaReunionCorp | null {
+  const current = getActasReunion();
+  const idx = current.findIndex((a) => a.id === actaId);
+  if (idx === -1) return null;
+
+  const acta = current[idx];
+  const now = new Date().toISOString().replace('T', ' ').slice(0, 16);
+  
+  let asistenteEncontrado = false;
+  const asistentesActualizados = acta.asistentes.map((asistente) => {
+    if (asistente.funcionarioId === funcionarioId || asistente.nombre.toLowerCase() === funcionarioNombre.toLowerCase()) {
+      asistenteEncontrado = true;
+      return {
+        ...asistente,
+        firmado: true,
+        fechaFirma: now,
+      };
+    }
+    return asistente;
+  });
+
+  if (!asistenteEncontrado) {
+    asistentesActualizados.push({
+      funcionarioId,
+      nombre: funcionarioNombre,
+      cargo: 'Funcionario Autorizado',
+      areaNombre: 'Auditoría & Operaciones',
+      firmado: true,
+      fechaFirma: now,
+    });
+  }
+
+  // Si todos los asistentes firmaron, promover de "En Firma" a "Aprobada"
+  const todosFirmaron = asistentesActualizados.every((a) => a.firmado);
+  const nuevoEstado: ActaReunionCorp['estado'] = todosFirmaron ? 'Aprobada' : 'En Firma';
+
+  const actualizada: ActaReunionCorp = {
+    ...acta,
+    asistentes: asistentesActualizados,
+    estado: nuevoEstado,
+  };
+
+  current[idx] = actualizada;
+  saveActasReunion(current);
+
+  registrarAuditoria(
+    'Seguridad',
+    'Firma Digital de Acta de Reunión',
+    `Firma digital de ${funcionarioNombre} asentada en Acta ${acta.consecutivo} (${acta.titulo}). Estado actual: ${nuevoEstado}.`,
+    funcionarioNombre
+  );
+
+  return actualizada;
+}
+
+// Métodos de acceso para Informes de Auditoría
+export function getInformesAuditoria(): InformeAuditoriaCorp[] {
+  return loadOrInit(STORAGE_INFORMES_AUDITORIA, INFORMES_AUDITORIA_INICIALES);
+}
+
+export function saveInformesAuditoria(informes: InformeAuditoriaCorp[]): void {
+  save(STORAGE_INFORMES_AUDITORIA, informes);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('colorlink_informes_auditoria_updated'));
+  }
+}
+
+export function crearInformeAuditoria(data: Omit<InformeAuditoriaCorp, 'id' | 'codigoInforme'>): InformeAuditoriaCorp {
+  const current = getInformesAuditoria();
+  const nextNum = current.length + 1;
+  const codigoInforme = `INF-AUD-2026-${String(nextNum).padStart(2, '0')}`;
+  const nuevoInforme: InformeAuditoriaCorp = {
+    ...data,
+    id: `inf-${Date.now()}`,
+    codigoInforme,
+  };
+
+  saveInformesAuditoria([nuevoInforme, ...current]);
+  registrarAuditoria(
+    'Seguridad',
+    'Emisión de Informe de Auditoría',
+    `Informe emitido: ${codigoInforme} - ${nuevoInforme.titulo} (${nuevoInforme.tipoAuditoria}) - Cumplimiento: ${nuevoInforme.porcentajeCumplimiento}% - Sede: ${nuevoInforme.sedeNombre}`,
+    nuevoInforme.auditorLider || 'Auditor Líder'
+  );
+
+  return nuevoInforme;
+}
+
+// =============================================================
+// NO CONFORMIDADES Y ACCIONES CORRECTIVAS (RNC CRUZADAS)
+// =============================================================
+export const STORAGE_RNCS = 'colorlink_corp_rncs_v1';
+
+export const RNCS_INICIALES: NoConformidadRNC[] = [
+  {
+    id: 'rnc-1',
+    consecutivo: 'RNC-2026-001',
+    titulo: 'Desviación en Espesor Húmedo y Ciclos de Lavabilidad Lote 2026-PT-402',
+    areaEmisoraId: 'area-8',
+    areaEmisoraNombre: 'Auditoría & Control de Calidad',
+    reportadoPor: 'Dra. Valentina Restrepo',
+    reportadoPorCargo: 'Directora de Calidad & Asuntos Normativos',
+    areaDestinoId: 'area-6',
+    areaDestinoNombre: 'Producción & Envasado',
+    responsableDestinoNombre: 'Ing. Diego Fernando Henao',
+    sedeId: 'rionegro',
+    sedeNombre: 'Medellín (Planta Rionegro)',
+    tipoHallazgo: 'Incumplimiento de NTC 1335',
+    criticidad: 'Alta',
+    descripcion: 'Durante la prueba de lavabilidad Gardner del lote #2026-PT-402 (Viniltex Avanzado Blanco Puro), la película presentó desgaste prematuro a los 720 ciclos sobre panel Leneta, no alcanzando la cota mínima reglamentaria de 1.000 ciclos para Tipo 1 según numeral 4.2.3 de la norma NTC 1335.',
+    normaAsociada: 'Norma ICONTEC NTC 1335 Numeral 4.2.3 (Lavabilidad Gardner)',
+    planAccionPropuesto: '1. Bloquear de inmediato el lote #2026-PT-402 en cuarentena física y en Kardex ERP. 2. Realizar contraensayo por triplicado con ajuste de concentración de resina acrílica pura. 3. Reentrenar al operario de molienda en control de viscosidad Krebs-Stormer.',
+    accionesInmediatas: 'Lote de 180 cuñetes retenido en cuarentena. Notificado a jefatura de producción.',
+    fechaReporte: '2026-10-24',
+    fechaLimiteCierre: '2026-11-15',
+    estado: 'En Plan de Acción',
+    evidencias: [
+      {
+        id: 'ev-1',
+        nombre: 'Panel_Leneta_Ensayo_Gardner_Falla.jpg',
+        tipo: 'imagen',
+        fechaSubida: '2026-10-24 11:30',
+      },
+      {
+        id: 'ev-2',
+        nombre: 'Reporte_Viscosidad_Krebs_KU_Desviacion.pdf',
+        tipo: 'documento',
+        fechaSubida: '2026-10-24 11:45',
+      },
+    ],
+  },
+  {
+    id: 'rnc-2',
+    consecutivo: 'RNC-2026-002',
+    titulo: 'Discrepancia de Inventario Físico vs. Kardex en Cuñetes Viniltex Blanco Nieve',
+    areaEmisoraId: 'area-8',
+    areaEmisoraNombre: 'Auditoría & Control de Calidad',
+    reportadoPor: 'Auditor Senior SST / Bodega',
+    reportadoPorCargo: 'Auditor de Procesos CEDI',
+    areaDestinoId: 'area-3',
+    areaDestinoNombre: 'Logística & Bodega',
+    responsableDestinoNombre: 'Carlos Mendoza',
+    sedeId: 'bogota',
+    sedeNombre: 'Bogotá (CEDI Siberia)',
+    tipoHallazgo: 'Error de Inventario / Kardex',
+    criticidad: 'Media',
+    descripcion: 'En el arqueo ciego practicado en el pasillo B-04 del CEDI Siberia se contaron 384 cuñetes físicos de Viniltex Blanco Nieve frente a 412 cuñetes registrados en el sistema ERP, generando un faltante no justificado de 28 cuñetes.',
+    normaAsociada: 'Procedimiento POE-BOD-INV-008 (Control Cíclico de Inventarios)',
+    planAccionPropuesto: 'Realizar cruce de remisiones de traslados inter-sedes recibidas en los últimos 7 días y auditar grabaciones de CCTV en muelle 2 de cargue.',
+    accionesInmediatas: 'Ajuste temporal en cuarentena y solicitud de actas de remisión a CEDI Rionegro.',
+    fechaReporte: '2026-10-28',
+    fechaLimiteCierre: '2026-11-12',
+    estado: 'En Análisis',
+    evidencias: [
+      {
+        id: 'ev-3',
+        nombre: 'Arqueo_Fisico_Ciego_Pasillo_B04.pdf',
+        tipo: 'documento',
+        fechaSubida: '2026-10-28 16:15',
+      },
+    ],
+  },
+  {
+    id: 'rnc-3',
+    consecutivo: 'RNC-2026-003',
+    titulo: 'Despacho con Precinto Roto y Retraso en Entrega a Obra Constructora Bolívar',
+    areaEmisoraId: 'area-4',
+    areaEmisoraNombre: 'Atención al Cliente (SAC)',
+    reportadoPor: 'Mariana Gómez',
+    reportadoPorCargo: 'Coordinadora SAC',
+    areaDestinoId: 'area-3',
+    areaDestinoNombre: 'Logística & Bodega',
+    responsableDestinoNombre: 'Hernando Peláez (CEDI Acopi)',
+    sedeId: 'cali',
+    sedeNombre: 'Cali (CEDI Acopi)',
+    tipoHallazgo: 'Falla Operativa en Despacho',
+    criticidad: 'Alta',
+    descripcion: 'El cliente Constructora Bolívar radicó PQRS formal reportando que el camión de reparto #WFD-391 arribó a la obra 4 horas después de la ventana pactada con 2 precintos de seguridad violentados y un cuñete con fuga en tapa.',
+    normaAsociada: 'Política Corporativa de Nivel de Servicio SLA B2B',
+    planAccionPropuesto: '1. Reposición inmediata del cuñete afectado sin costo para el cliente. 2. Sanción al transportador tercerizado y revisión del protocolo de flejado.',
+    accionesInmediatas: 'Reposición entregada a las 18:00 con carta formal de disculpas.',
+    fechaReporte: '2026-11-03',
+    fechaLimiteCierre: '2026-11-18',
+    estado: 'Abierta',
+    evidencias: [
+      {
+        id: 'ev-4',
+        nombre: 'Foto_Cuñete_Fuga_Obra_Bolivar.jpg',
+        tipo: 'imagen',
+        fechaSubida: '2026-11-03 14:20',
+      },
+      {
+        id: 'ev-5',
+        nombre: 'Acta_Reclamacion_Cliente_Constructora.pdf',
+        tipo: 'documento',
+        fechaSubida: '2026-11-03 14:30',
+      },
+    ],
+  },
+  {
+    id: 'rnc-4',
+    consecutivo: 'RNC-2026-004',
+    titulo: 'Ausencia de Kit Antiderrames Químicos en Bahía de Cargue Químico',
+    areaEmisoraId: 'area-9',
+    areaEmisoraNombre: 'Seguridad & Salud en el Trabajo (SST)',
+    reportadoPor: 'Ing. Jorge H. Cárdenas',
+    reportadoPorCargo: 'Especialista SST-MA',
+    areaDestinoId: 'area-3',
+    areaDestinoNombre: 'Logística & Bodega',
+    responsableDestinoNombre: 'Carlos Mendoza',
+    sedeId: 'bogota',
+    sedeNombre: 'Bogotá (CEDI Siberia)',
+    tipoHallazgo: 'Incompatibilidad de Almacenamiento MSDS',
+    criticidad: 'Crítica',
+    descripcion: 'Se evidenció que el kit de contención para solventes y biocidas en la bahía de tintometría carecía de material absorbente inerte y pala antiestática según Sección 6 de la MSDS.',
+    normaAsociada: 'Ficha de Seguridad MSDS-SGA-2026 Sección 6 (Medidas ante vertidos)',
+    planAccionPropuesto: 'Dotar de tambor de 55 galones con 50 kg de arena inerte, almohadillas oleofílicas y pala antichispas.',
+    accionesInmediatas: 'Dotación entregada e instalada en menos de 24 horas.',
+    fechaReporte: '2026-10-29',
+    fechaLimiteCierre: '2026-11-02',
+    fechaCierreReal: '2026-10-31',
+    estado: 'Cerrada / Verificada',
+    verificadoPor: 'Ing. Jorge H. Cárdenas (SST)',
+    notasCierre: 'Se verificó en sitio la instalación completa del kit de contingencia y se capacitó a 6 auxiliares de bodega.',
+    evidencias: [
+      {
+        id: 'ev-6',
+        nombre: 'Foto_Kit_Antiderrames_Instalado.jpg',
+        tipo: 'imagen',
+        fechaSubida: '2026-10-31 09:10',
+      },
+    ],
+  },
+];
+
+export function getNoConformidadesRNC(): NoConformidadRNC[] {
+  return loadOrInit(STORAGE_RNCS, RNCS_INICIALES);
+}
+
+export function saveNoConformidadesRNC(rncs: NoConformidadRNC[]): void {
+  save(STORAGE_RNCS, rncs);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('colorlink_rncs_updated'));
+  }
+}
+
+export function crearNoConformidadRNC(data: Omit<NoConformidadRNC, 'id' | 'consecutivo' | 'fechaReporte' | 'evidencias'> & { evidencias?: EvidenciaRNC[] }): NoConformidadRNC {
+  const current = getNoConformidadesRNC();
+  const nextNum = current.length + 1;
+  const consecutivo = `RNC-2026-${String(nextNum).padStart(3, '0')}`;
+  const nueva: NoConformidadRNC = {
+    ...data,
+    id: `rnc-${Date.now()}`,
+    consecutivo,
+    fechaReporte: new Date().toISOString().slice(0, 10),
+    evidencias: data.evidencias || [],
+  };
+
+  saveNoConformidadesRNC([nueva, ...current]);
+  registrarAuditoria(
+    'Seguridad',
+    'Registro de No Conformidad (RNC)',
+    `RNC radicado: ${consecutivo} - ${nueva.titulo} (${nueva.tipoHallazgo}) de ${nueva.areaEmisoraNombre} hacia ${nueva.areaDestinoNombre}. Criticidad: ${nueva.criticidad}.`,
+    nueva.reportadoPor || 'Auditor de Calidad'
+  );
+
+  return nueva;
+}
+
+export function actualizarNoConformidadRNC(id: string, updates: Partial<NoConformidadRNC>): NoConformidadRNC | null {
+  const current = getNoConformidadesRNC();
+  const idx = current.findIndex((r) => r.id === id);
+  if (idx === -1) return null;
+
+  const actualizada: NoConformidadRNC = {
+    ...current[idx],
+    ...updates,
+  };
+  current[idx] = actualizada;
+  saveNoConformidadesRNC(current);
+
+  registrarAuditoria(
+    'Seguridad',
+    'Actualización de No Conformidad (RNC)',
+    `RNC ${actualizada.consecutivo} actualizado. Estado: ${actualizada.estado}. Responsable: ${actualizada.responsableDestinoNombre}.`,
+    actualizada.responsableDestinoNombre || 'Personal Autorizado'
+  );
+
+  return actualizada;
+}
+
+export function adjuntarEvidenciaRNC(rncId: string, evidencia: Omit<EvidenciaRNC, 'id' | 'fechaSubida'>): NoConformidadRNC | null {
+  const current = getNoConformidadesRNC();
+  const idx = current.findIndex((r) => r.id === rncId);
+  if (idx === -1) return null;
+
+  const rnc = current[idx];
+  const nuevaEvidencia: EvidenciaRNC = {
+    ...evidencia,
+    id: `ev-${Date.now()}`,
+    fechaSubida: new Date().toISOString().replace('T', ' ').slice(0, 16),
+  };
+
+  const actualizada: NoConformidadRNC = {
+    ...rnc,
+    evidencias: [...rnc.evidencias, nuevaEvidencia],
+  };
+
+  current[idx] = actualizada;
+  saveNoConformidadesRNC(current);
+  return actualizada;
+}
+
+export function cerrarNoConformidadRNC(rncId: string, notasCierre: string, verificadoPor: string): NoConformidadRNC | null {
+  const current = getNoConformidadesRNC();
+  const idx = current.findIndex((r) => r.id === rncId);
+  if (idx === -1) return null;
+
+  const rnc = current[idx];
+  const now = new Date().toISOString().slice(0, 10);
+  const actualizada: NoConformidadRNC = {
+    ...rnc,
+    estado: 'Cerrada / Verificada',
+    fechaCierreReal: now,
+    notasCierre,
+    verificadoPor,
+  };
+
+  current[idx] = actualizada;
+  saveNoConformidadesRNC(current);
+
+  registrarAuditoria(
+    'Seguridad',
+    'Cierre y Verificación de No Conformidad (RNC)',
+    `RNC ${rnc.consecutivo} cerrado y verificado por ${verificadoPor}. Hallazgo: ${rnc.titulo}.`,
+    verificadoPor
+  );
+
+  return actualizada;
+}
+
+// ============================================================================
+// ARCHIVO & DOCUMENTOS LEGALES CORPORATIVOS (ESTRUCTURA DE 6 CATEGORÍAS)
+// ============================================================================
+
+export type CategoriaDocCorp =
+  | 'calidad'
+  | 'sgsst'
+  | 'legal'
+  | 'talento'
+  | 'logistica'
+  | 'comercial';
+
+export type EstadoDocCorp = 'Vigente' | 'En revisión' | 'Histórico';
+
+export interface DocumentoCorporativo {
+  id: string;
+  codigo: string;
+  nombre: string;
+  categoria: CategoriaDocCorp;
+  categoriaNombre: string;
+  version: string;
+  estado: EstadoDocCorp;
+  fechaActualizacion: string;
+  formato: 'PDF' | 'DOCX' | 'XLSX';
+  tamano: string;
+  responsable: string;
+  sedeAplica: string;
+  descripcion: string;
+  tags: string[];
+  contenidoPrevisualizacion: string[];
+}
+
+export const CATEGORIAS_DOCUMENTOS_CORP: {
+  id: CategoriaDocCorp;
+  numero: string;
+  titulo: string;
+  descripcion: string;
+  badgeColor: string;
+}[] = [
+  {
+    id: 'calidad',
+    numero: '1',
+    titulo: 'Gestión de Calidad & Procesos',
+    descripcion: 'Mapa de procesos, Fichas de caracterización, Matriz AMFE, POE/SOP y Fichas TDS/MSDS',
+    badgeColor: 'bg-blue-100 text-blue-800 border-blue-200',
+  },
+  {
+    id: 'sgsst',
+    numero: '2',
+    titulo: 'SG-SST & Gestión Ambiental',
+    descripcion: 'Matriz IPERC, Plan de Emergencias, RIT, Actas COPASST/Comité de Convivencia y Plan PGIR/RESPEL',
+    badgeColor: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+  },
+  {
+    id: 'legal',
+    numero: '3',
+    titulo: 'Gobierno Corporativo & Legal',
+    descripcion: 'Cámara de Comercio, RUT, Políticas Habeas Data Ley 1581, Acuerdos NDA y Código de Ética/LAFT',
+    badgeColor: 'bg-purple-100 text-purple-800 border-purple-200',
+  },
+  {
+    id: 'talento',
+    numero: '4',
+    titulo: 'Gestión Humana & Talento',
+    descripcion: 'Organigrama, Perfiles de Cargo, Plan Anual de Capacitación y Guía de Onboarding',
+    badgeColor: 'bg-amber-100 text-amber-800 border-amber-200',
+  },
+  {
+    id: 'logistica',
+    numero: '5',
+    titulo: 'Logística, Inventarios & Mantenimiento',
+    descripcion: 'Manual PEPS/FIFO, Acuerdos SLA Proveedores y Plan de Mantenimiento de Maquinaria',
+    badgeColor: 'bg-cyan-100 text-cyan-800 border-cyan-200',
+  },
+  {
+    id: 'comercial',
+    numero: '6',
+    titulo: 'Estrategia Comercial & Planes Anuales',
+    descripcion: 'Planes de negocio, estudios de mercado y presupuestos operativos',
+    badgeColor: 'bg-rose-100 text-rose-800 border-rose-200',
+  },
+];
+
+const STORAGE_DOCUMENTOS_CORP = 'colorlink_docs_corporativos_v1';
+
+export const DOCUMENTOS_CORPORATIVOS_INICIALES: DocumentoCorporativo[] = [
+  // ================= 1. GESTIÓN DE CALIDAD & PROCESOS =================
+  {
+    id: 'doc-cal-001',
+    codigo: 'SGC-MAP-001',
+    nombre: 'Mapa de Procesos Institucional y Macroprocesos de Cadena de Valor',
+    categoria: 'calidad',
+    categoriaNombre: 'Gestión de Calidad & Procesos',
+    version: 'v4.2 (2026)',
+    estado: 'Vigente',
+    fechaActualizacion: '2026-01-20',
+    formato: 'PDF',
+    tamano: '3.8 MB',
+    responsable: 'Ing. Sandra Milena Gómez • Dir. Aseguramiento de Calidad',
+    sedeAplica: 'Nacional (Planta Rionegro & Todos los CEDIs)',
+    descripcion: 'Estructuración integral de los macroprocesos estratégicos, misionales (fabricación, tintometría, despacho) y de apoyo bajo la norma ISO 9001:2015 e ICONTEC NTC 1335.',
+    tags: ['mapa de procesos', 'iso 9001', 'cadena de valor', 'calidad'],
+    contenidoPrevisualizacion: [
+      '1. OBJETIVO: Estandarizar la interacción de los 14 subprocesos de la cadena de valor de Pintuco / ColorLink.',
+      '2. MACROPROCESOS ESTRATÉGICOS: Dirección de Operaciones, Planeación de Demanda y Cumplimiento Regulatorio NTC 1335.',
+      '3. MACROPROCESOS MISIONALES: Recepción de graneles, molienda, dispersión acrílica, tintometría computarizada, empaque y distribución capilar.',
+      '4. MACROPROCESOS DE APOYO: Mantenimiento electromecánico, SG-SST, compras técnicas y tecnologías de información.',
+      '5. CONTROL DE CAMBIOS: Aprobado por Comité Directivo Nacional de Calidad, Acta 04-2026.',
+    ],
+  },
+  {
+    id: 'doc-cal-002',
+    codigo: 'SGC-CAR-003',
+    nombre: 'Fichas de Caracterización de Procesos (Fabricación, Control de Calidad y Envasado)',
+    categoria: 'calidad',
+    categoriaNombre: 'Gestión de Calidad & Procesos',
+    version: 'v3.5 (2026)',
+    estado: 'Vigente',
+    fechaActualizacion: '2026-02-05',
+    formato: 'PDF',
+    tamano: '4.2 MB',
+    responsable: 'Ing. Mateo Restrepo • Jefe de Planta Rionegro',
+    sedeAplica: 'Planta Principal Rionegro & Laboratorio Central',
+    descripcion: 'Detalle de entradas, salidas, indicadores KPI, recursos y controles en línea para dispersión de resinas base agua y esmaltes sintéticos.',
+    tags: ['caracterización', 'kpis', 'fabricación', 'envasado'],
+    contenidoPrevisualizacion: [
+      '1. PROCESO MISIONAL: Fabricación y Dispersión de Vinilos Base Agua Tipos 1, 2 y 3.',
+      '2. PARÁMETROS CRÍTICOS: Viscosidad Krebs Stormer (85 - 110 KU), pH (8.5 - 9.3) y dispersión Hegman mínimo 5H.',
+      '3. RIESGOS ASOCIADOS: Sedimentación prematura, espumación excesiva y contaminación microbiológica.',
+      '4. SALIDAS VERIFICADAS: Lotes conformes con certificado de liberación técnica NTC 1335 antes de envasado.',
+    ],
+  },
+  {
+    id: 'doc-cal-003',
+    codigo: 'SGC-AMFE-007',
+    nombre: 'Matriz AMFE (Análisis Modal de Fallos y Efectos en Tintometría y Dispersión)',
+    categoria: 'calidad',
+    categoriaNombre: 'Gestión de Calidad & Procesos',
+    version: 'v2.8',
+    estado: 'Vigente',
+    fechaActualizacion: '2026-02-12',
+    formato: 'XLSX',
+    tamano: '2.9 MB',
+    responsable: 'Ing. Carlos Julio Echeverri • Especialista de Tintometría',
+    sedeAplica: 'Nacional (Todos los Centros de Color y CEDIs)',
+    descripcion: 'Evaluación del Número de Prioridad de Riesgo (NPR) en la dosificación automatizada de colorantes y calibración de émbolos dosificadores.',
+    tags: ['amfe', 'fmea', 'riesgos', 'tintometría', 'calibración'],
+    contenidoPrevisualizacion: [
+      '1. MODO DE FALLA CRÍTICO: Error en dosificación de colorante negro/óxido rojo superior a 0.05 fl. oz.',
+      '2. EFECTO: Variación de Delta E > 0.8 respecto al patrón digital de la carta de color Pintuco.',
+      '3. ACCIÓN PREVENTIVA: Purga obligatoria diaria a las 06:00 AM y verificación gravimétrica quincenal con balanza analítica calibrada.',
+    ],
+  },
+  {
+    id: 'doc-cal-004',
+    codigo: 'SGC-POE-012',
+    nombre: 'POE / SOP - Procedimientos Operativos Estandarizados de Fabricación y Control NTC 1335',
+    categoria: 'calidad',
+    categoriaNombre: 'Gestión de Calidad & Procesos',
+    version: 'Rev. 06 (2026)',
+    estado: 'Vigente',
+    fechaActualizacion: '2026-02-14',
+    formato: 'PDF',
+    tamano: '6.5 MB',
+    responsable: 'Ing. Diana Marcela Pineda • Coordinadora de Metrología',
+    sedeAplica: 'Planta Rionegro & Laboratorio de Ensayo',
+    descripcion: 'Protocolo paso a paso para ensayos de lavabilidad Gardner (ASTM D2486), poder cubriente reflectométrico (ISO 2814) y resistencia a hongos.',
+    tags: ['poe', 'sop', 'ntc 1335', 'ensayos', 'lavabilidad', 'gardner'],
+    contenidoPrevisualizacion: [
+      '1. PROCEDIMIENTO POE-CAL-01: Preparación de películas húmedas sobre cartulina Leneta con aplicador Bird de 100 µm.',
+      '2. PROCEDIMIENTO POE-CAL-02: Ensayo de abrasión en máquina Gardner de vaivén con medio abrasivo normalizado.',
+      '3. CRITERIO DE ACEPTACIÓN: Mínimo 800 ciclos continuos sin remoción de película para Vinilo Tipo 1 según NTC 1335.',
+    ],
+  },
+  {
+    id: 'doc-cal-005',
+    codigo: 'SGC-TDS-MSDS-020',
+    nombre: 'Compendio de Fichas Técnicas TDS y Hojas MSDS bajo Sistema Globalmente Armonizado (SGA)',
+    categoria: 'calidad',
+    categoriaNombre: 'Gestión de Calidad & Procesos',
+    version: 'v5.1 (2026)',
+    estado: 'Vigente',
+    fechaActualizacion: '2026-01-30',
+    formato: 'PDF',
+    tamano: '12.4 MB',
+    responsable: 'Dra. Elena María Cardona • Toxicológica y Seguridad Química',
+    sedeAplica: 'Todas las Sedes y Red de Distribuidores',
+    descripcion: 'Compendio de 16 secciones obligatorias SGA para Viniltex, Koraza, Pintulux, Epóxicos y Esmaltes de alto rendimiento.',
+    tags: ['tds', 'msds', 'sga', 'ghs', 'fichas tecnicas', 'seguridad quimica'],
+    contenidoPrevisualizacion: [
+      '1. IDENTIFICACIÓN DE PELIGROS: Pictogramas SGA07 y SGA08 para bases solventadas; clasificación no peligrosa para Viniltex Acrílico.',
+      '2. COMPOSICIÓN E INGREDIENTES: Resinas estireno-acrílicas, dióxido de titanio R-902, coalescentes de bajo VOC (< 50 g/L).',
+      '3. PRIMEROS AUXILIOS Y MANEJO DE DERRAMES: Procedimientos de contención con arena inerte y neutralización biológica.',
+    ],
+  },
+
+  // ================= 2. SG-SST & GESTIÓN AMBIENTAL =================
+  {
+    id: 'doc-sst-001',
+    codigo: 'SST-IPERC-002',
+    nombre: 'Matriz IPERC de Identificación de Peligros, Evaluación de Riesgos y Controles en Plantas y CEDIs',
+    categoria: 'sgsst',
+    categoriaNombre: 'SG-SST & Gestión Ambiental',
+    version: 'v2026.1',
+    estado: 'Vigente',
+    fechaActualizacion: '2026-01-15',
+    formato: 'XLSX',
+    tamano: '5.1 MB',
+    responsable: 'Esp. Andrés Felipe Jaramillo • Coordinador Nacional SG-SST',
+    sedeAplica: 'Nacional (Planta Rionegro, CEDI Siberia, CEDI Acopi, CEDI Caribe, CEDI Bucaramanga)',
+    descripcion: 'Matriz legal bajo GTC 45 y Decreto 1072 de 2015 con jerarquía de controles: eliminación, sustitución, ingeniería, administrativos y EPP químico.',
+    tags: ['iperc', 'riesgos', 'gtc 45', 'decreto 1072', 'sg-sst'],
+    contenidoPrevisualizacion: [
+      '1. PELIGROS QUÍMICOS IDENTIFICADOS: Inhalación de vapores orgánicos en mezclas solventadas y material particulado de carbonatos.',
+      '2. CONTROLES DE INGENIERÍA: Sistemas de extracción localizada con filtros HEPA y campanas de flujo laminar en zonas de dosificación.',
+      '3. ELEMENTOS DE PROTECCIÓN INDIVIDUAL: Respiradores de media cara con filtros mixtos vapor/partícula 3M 6003 y guantes de nitrilo calibre 15.',
+    ],
+  },
+  {
+    id: 'doc-sst-002',
+    codigo: 'SST-EME-005',
+    nombre: 'Plan Estratégico de Prevención, Preparación y Respuesta ante Emergencias y Evacuación',
+    categoria: 'sgsst',
+    categoriaNombre: 'SG-SST & Gestión Ambiental',
+    version: 'v3.0 (2026)',
+    estado: 'Vigente',
+    fechaActualizacion: '2026-02-01',
+    formato: 'PDF',
+    tamano: '7.8 MB',
+    responsable: 'Ing. Laura Marcela Hoyos • Brigadista Jefe',
+    sedeAplica: 'Todas las Sedes Operativas y Administrativas',
+    descripcion: 'Protocolos de brigada contra derrames químicos, conatos de incendio clase B, rutas de evacuación, puntos de encuentro y triaje.',
+    tags: ['plan emergencias', 'brigada', 'derrames', 'evacuacion', 'incendios'],
+    contenidoPrevisualizacion: [
+      '1. SISTEMA COMANDO DE INCIDENTES (SCI): Cadena de mando del Comandante de Incidente y enlace con Cuerpo Oficial de Bomberos.',
+      '2. BOTIQUINES Y DUCHAS DE EMERGENCIA: Ubicación de 18 duchas lavaojos con prueba de flujo semanal de 60 L/min a 20°C.',
+      '3. SIMULACROS PROGRAMADOS: Simulacro nacional de derrame químico en CEDI Siberia programado para el 22 de marzo de 2026.',
+    ],
+  },
+  {
+    id: 'doc-sst-003',
+    codigo: 'SST-RIT-001',
+    nombre: 'Reglamento Interno de Trabajo (RIT) y Normas de Higiene y Seguridad Industrial',
+    categoria: 'sgsst',
+    categoriaNombre: 'SG-SST & Gestión Ambiental',
+    version: 'Aprobado Mintrabajo 2025-2026',
+    estado: 'Vigente',
+    fechaActualizacion: '2025-11-28',
+    formato: 'PDF',
+    tamano: '3.1 MB',
+    responsable: 'Dra. Claudia Patricia Ortiz • Directora Jurídica & Laboral',
+    sedeAplica: 'Nacional (Todos los Colaboradores Directos)',
+    descripcion: 'Pautas de convivencia laboral, jornadas de trabajo, obligaciones, prohibiciones especiales en áreas químicas y escala de sanciones disciplinarias.',
+    tags: ['rit', 'reglamento de trabajo', 'laboral', 'higiene', 'seguridad industrial'],
+    contenidoPrevisualizacion: [
+      '1. JORNADA Y TURNOS: Distribución de turnos rotativos en Planta Rionegro respetando la reducción legal de jornada semanal.',
+      '2. POLÍTICA DE CERO ALCOHOL Y DROGAS: Pruebas aleatorias de alcoholemia antes de operar montacargas y vehículos de carga.',
+      '3. DEBERES DEL TRABAJADOR: Uso estricto de EPP en zonas operativas; prohibición de fumar en perímetros de almacenamiento químico.',
+    ],
+  },
+  {
+    id: 'doc-sst-004',
+    codigo: 'SST-COP-008',
+    nombre: 'Libro Oficial de Actas COPASST y Comité de Convivencia Laboral',
+    categoria: 'sgsst',
+    categoriaNombre: 'SG-SST & Gestión Ambiental',
+    version: 'Período 2025-2027',
+    estado: 'Vigente',
+    fechaActualizacion: '2026-02-10',
+    formato: 'PDF',
+    tamano: '4.6 MB',
+    responsable: 'Comité Paritario COPASST • Presidente y Secretario',
+    sedeAplica: 'Nacional (Representantes de Empleador y Trabajadores)',
+    descripcion: 'Registro de reuniones mensuales ordinarias, inspecciones locativas de seguridad y seguimiento a medidas de mitigación de estrés laboral.',
+    tags: ['copasst', 'comite de convivencia', 'actas', 'inspecciones', 'salud ocupacional'],
+    contenidoPrevisualizacion: [
+      '1. ACTA ORDINARIA FEBRERO 2026: Verificación de recarga de extintores Solkaflam y PQS en Bodega Central CEDI Siberia.',
+      '2. INSPECCIÓN DE ERGONOMÍA: Análisis de puestos de trabajo en líneas de paletizado de galones y cuñetes de 5 galones.',
+      '3. GESTIÓN DE CASOS DE CONVIVENCIA: Cierre sin quejas formales en el primer bimestre de 2026.',
+    ],
+  },
+  {
+    id: 'doc-sst-005',
+    codigo: 'AMB-RESPEL-004',
+    nombre: 'Plan de Gestión Integral de Residuos Peligrosos (PGIR / RESPEL) y Manejo de Lodos de Pintura',
+    categoria: 'sgsst',
+    categoriaNombre: 'SG-SST & Gestión Ambiental',
+    version: 'v4.0 (2026)',
+    estado: 'Vigente',
+    fechaActualizacion: '2026-01-25',
+    formato: 'PDF',
+    tamano: '5.4 MB',
+    responsable: 'Ing. Ambiental Valeria Castro • Líder Sostenibilidad',
+    sedeAplica: 'Planta Rionegro y Red de Centros de Mezcla',
+    descripcion: 'Procedimientos de disposición final certificada de solventes usados, borras de resina, envases metálicos contaminados y co-procesamiento energético.',
+    tags: ['pgir', 'respel', 'medio ambiente', 'residuos peligrosos', 'sostenibilidad'],
+    contenidoPrevisualizacion: [
+      '1. CLASIFICACIÓN DE RESIDUOS: Código Y12 (residuos de producción y preparación de tintas, colorantes, pinturas y barnices).',
+      '2. CO-PROCESAMIENTO EN CEMENTERAS: Convenio activo con Holcim / Cemex para valorización energética de lodos secos de pintura.',
+      '3. MANIFIESTOS DE CARGA RESPEL: Registro digital de manifiestos ante el IDEAM y Corporaciones Autónomas Regionales (Cornare / CAR).',
+    ],
+  },
+
+  // ================= 3. GOBIERNO CORPORATIVO & LEGAL =================
+  {
+    id: 'doc-leg-001',
+    codigo: 'LEG-CCM-2026',
+    nombre: 'Certificado de Existencia y Representación Legal - Cámara de Comercio de Medellín',
+    categoria: 'legal',
+    categoriaNombre: 'Gobierno Corporativo & Legal',
+    version: 'Exp. 2026-01-10',
+    estado: 'Vigente',
+    fechaActualizacion: '2026-01-10',
+    formato: 'PDF',
+    tamano: '1.2 MB',
+    responsable: 'Secretaría General & Representación Legal',
+    sedeAplica: 'Institucional / Corporativo Nacional',
+    descripcion: 'Certificación oficial de personería jurídica, facultades del Representante Legal, junta directiva y objeto social para licitaciones y contratos.',
+    tags: ['camara de comercio', 'matricula mercantil', 'representacion legal', 'estatutos'],
+    contenidoPrevisualizacion: [
+      '1. MATRÍCULA MERCANTIL: Registro activo No. 00042819-01 de la Cámara de Comercio de Medellín para Antioquia.',
+      '2. OBJETO SOCIAL PRINCIPAL: Fabricación, comercialización, exportación e importación de pinturas, recubrimientos arquitectónicos y aditivos químicos.',
+      '3. FACULTADES DE REPRESENTACIÓN: Atribuciones estatutarias para suscripción de contratos de suministro, franquicias y alianzas comerciales.',
+    ],
+  },
+  {
+    id: 'doc-leg-002',
+    codigo: 'LEG-RUT-2026',
+    nombre: 'Registro Único Tributario (RUT) Pintuco S.A. / ColorLink S.A.S. - DIAN',
+    categoria: 'legal',
+    categoriaNombre: 'Gobierno Corporativo & Legal',
+    version: 'Actualizado 2026',
+    estado: 'Vigente',
+    fechaActualizacion: '2026-01-08',
+    formato: 'PDF',
+    tamano: '0.9 MB',
+    responsable: 'Gerencia Financiera y Tributaria',
+    sedeAplica: 'Nacional (Obligaciones Tributarias DIAN)',
+    descripcion: 'RUT actualizado con actividades económicas CIIU 2022 (Fabricación de pinturas) y CIIU 4663 (Comercio al por mayor de materiales de construcción).',
+    tags: ['rut', 'dian', 'tributario', 'ciiu', 'impuestos', 'nit'],
+    contenidoPrevisualizacion: [
+      '1. IDENTIFICACIÓN TRIBUTARIA: NIT 890.900.120-4 • Calificación de Gran Contribuyente y Autorretenedor de Renta.',
+      '2. RESPONSABILIDADES FISCALES: 05 (Impuesto sobre las ventas - IVA), 07 (Retención en la fuente a título de renta), 42 (Facturador electrónico).',
+      '3. DOMICILIO FISCAL: Carrera 48 # 20-34, Medellín, Antioquia. Sede administrativa central.',
+    ],
+  },
+  {
+    id: 'doc-leg-003',
+    codigo: 'LEG-HAB-1581',
+    nombre: 'Manual de Políticas de Protección y Tratamiento de Datos Personales (Habeas Data Ley 1581)',
+    categoria: 'legal',
+    categoriaNombre: 'Gobierno Corporativo & Legal',
+    version: 'v3.2 (2026)',
+    estado: 'Vigente',
+    fechaActualizacion: '2026-01-18',
+    formato: 'PDF',
+    tamano: '2.5 MB',
+    responsable: 'Oficial de Cumplimiento & Privacidad de Datos',
+    sedeAplica: 'Nacional (Clientes, Proveedores, Funcionarios)',
+    descripcion: 'Protocolo de recolección, autorización previa y revocatoria de datos biométricos, comerciales y crediticios ante la SIC.',
+    tags: ['habeas data', 'ley 1581', 'datos personales', 'privacidad', 'sic'],
+    contenidoPrevisualizacion: [
+      '1. DERECHOS DEL TITULAR: Canales formales para el ejercicio de derechos de conocimiento, actualización, rectificación y supresión de datos.',
+      '2. BASES DE DATOS REGISTRADAS: Registro Nacional de Bases de Datos (RNBD) ante la Superintendencia de Industria y Comercio.',
+      '3. VIGILANCIA Y SEGURIDAD: Protocolos criptográficos AES-256 en servidores para la custodia de historiales de compras y cotizaciones.',
+    ],
+  },
+  {
+    id: 'doc-leg-004',
+    codigo: 'LEG-NDA-003',
+    nombre: 'Acuerdo Marco de Confidencialidad y No Divulgación (NDA) para Aliados y Distribuidores',
+    categoria: 'legal',
+    categoriaNombre: 'Gobierno Corporativo & Legal',
+    version: 'Plantilla Oficial 2026',
+    estado: 'Vigente',
+    fechaActualizacion: '2026-01-22',
+    formato: 'DOCX',
+    tamano: '1.4 MB',
+    responsable: 'Departamento Jurídico Corporativo',
+    sedeAplica: 'Red de Franquicias y Distribuidores Autorizados',
+    descripcion: 'Contrato estándar de reserva de fórmulas tintométricas, costos unitarios, algoritmos de dosificación y secretos industriales.',
+    tags: ['nda', 'confidencialidad', 'secretos industriales', 'formulas', 'contratos'],
+    contenidoPrevisualizacion: [
+      '1. INFORMACIÓN CONFIDENCIAL: Algoritmos de cálculo FMV, bases de datos de clientes, recetas de color y acuerdos arancelarios de materias primas.',
+      '2. CLÁUSULA PENAL: Indemnización tasada y acciones penales bajo el Código Penal colombiano por violación de secretos comerciales.',
+      '3. VIGENCIA DE LA RESERVA: 5 años a partir de la terminación de las relaciones comerciales entre las partes.',
+    ],
+  },
+  {
+    id: 'doc-leg-005',
+    codigo: 'LEG-LAFT-006',
+    nombre: 'Código de Buen Gobierno, Ética Empresarial y Manual SAGRILAFT / PTEE',
+    categoria: 'legal',
+    categoriaNombre: 'Gobierno Corporativo & Legal',
+    version: 'Rev. 04 (2026)',
+    estado: 'Vigente',
+    fechaActualizacion: '2026-02-02',
+    formato: 'PDF',
+    tamano: '3.9 MB',
+    responsable: 'Oficial de Cumplimiento SAGRILAFT',
+    sedeAplica: 'Nacional e Internacional',
+    descripcion: 'Sistema de Autocontrol y Gestión del Riesgo Integral de Lavado de Activos, Financiación del Terrorismo y Financiamiento de la Proliferación de Armas (SAGRILAFT).',
+    tags: ['sagrilaft', 'ptee', 'anticorrupcion', 'codigo de etica', 'cumplimiento'],
+    contenidoPrevisualizacion: [
+      '1. POLÍTICA DE TOLERANCIA CERO: Prohibición absoluta de sobornos, dádivas a inspectores públicos o pagos de facilitación.',
+      '2. DEBIDA DILIGENCIA: Verificación en listas restrictivas internacionales (OFAC / Clinton, ONU, Interpol, Contraloría, Procuraduría) previa a la vinculación de clientes y proveedores.',
+      '3. LÍNEA ÉTICA CONFIDENCIAL: Canal anónimo de denuncias atendido por firma auditora externa con protección al denunciante.',
+    ],
+  },
+
+  // ================= 4. GESTIÓN HUMANA & TALENTO =================
+  {
+    id: 'doc-gh-001',
+    codigo: 'GH-ORG-2026',
+    nombre: 'Organigrama Estructural y Líneas de Mando Corporativas Nacionales',
+    categoria: 'talento',
+    categoriaNombre: 'Gestión Humana & Talento',
+    version: 'v2026.2',
+    estado: 'Vigente',
+    fechaActualizacion: '2026-02-08',
+    formato: 'PDF',
+    tamano: '2.8 MB',
+    responsable: 'Gerencia Nacional de Talento Humano',
+    sedeAplica: 'Nacional (Todas las Direcciones)',
+    descripcion: 'Estructura jerárquica y funcional de Presidencia, Direcciones Operativas, Jefaturas de CEDI y Coordinaciones Regionales.',
+    tags: ['organigrama', 'estructura', 'lineas de mando', 'talento humano'],
+    contenidoPrevisualizacion: [
+      '1. PRESIDENCIA EJECUTIVA: Liderazgo estratégico y reporte a la Junta Directiva.',
+      '2. DIRECCIONES DE PRIMER NIVEL: Operaciones & Cadena de Suministro, Comercial & Franquicias, Financiera & Legal, y Calidad & I+D.',
+      '3. NIVELES OPERATIVOS: Jefes de Planta, Supervisores de Mantenimiento, Químicos de Laboratorio y Operadores de Bodega.',
+    ],
+  },
+  {
+    id: 'doc-gh-002',
+    codigo: 'GH-PRF-015',
+    nombre: 'Manual de Perfiles de Cargo y Diccionario de Competencias Laborales',
+    categoria: 'talento',
+    categoriaNombre: 'Gestión Humana & Talento',
+    version: 'v4.0 (2026)',
+    estado: 'Vigente',
+    fechaActualizacion: '2026-01-28',
+    formato: 'PDF',
+    tamano: '6.2 MB',
+    responsable: 'Coordinación de Desarrollo y Compensación',
+    sedeAplica: 'Nacional',
+    descripcion: 'Requisitos de educación, experiencia mínima, competencias técnicas en pinturas arquitectónicas y responsabilidades para 48 cargos.',
+    tags: ['perfiles de cargo', 'competencias', 'funciones', 'talento humano'],
+    contenidoPrevisualizacion: [
+      '1. PERFIL: Colorista Tintométrico Senior - Mínimo 3 años de experiencia en espectrofotometría y ajuste fino de tintas.',
+      '2. PERFIL: Asesor Técnico Comercial - Ingeniero químico o tecnólogo en acabados con conocimiento de la norma NTC 1335.',
+      '3. PERFIL: Conductor Distribuidor CEDI - Licencia C2/C3 vigente, certificado de manejo de sustancias químicas peligrosas.',
+    ],
+  },
+  {
+    id: 'doc-gh-003',
+    codigo: 'GH-CAP-2026',
+    nombre: 'Plan Anual de Capacitación, Entrenamiento Técnico en Pinturas y Evaluación del Desempeño',
+    categoria: 'talento',
+    categoriaNombre: 'Gestión Humana & Talento',
+    version: 'Programa Anual 2026',
+    estado: 'Vigente',
+    fechaActualizacion: '2026-01-12',
+    formato: 'XLSX',
+    tamano: '3.4 MB',
+    responsable: 'Líder de Capacitación & Escuela Pintuco',
+    sedeAplica: 'Todas las Sedes y Red de Pintores',
+    descripcion: 'Cronograma de 120 horas de capacitación en aplicación airless, preparación de superficies húmedas, neuroventas y liderazgo.',
+    tags: ['capacitacion', 'entrenamiento', 'evaluacion de desempeno', 'escuela pintuco'],
+    contenidoPrevisualizacion: [
+      '1. MÓDULO 1: Fundamentos de polímeros y dispersiones acrílicas según NTC 1335 (40 Horas).',
+      '2. MÓDULO 2: Seguridad química, etiquetado SGA y primeros auxilios en intoxicaciones por solventes (20 Horas).',
+      '3. MÓDULO 3: Calibración y mantenimiento de máquinas dispensadoras de colorantes universales (30 Horas).',
+    ],
+  },
+  {
+    id: 'doc-gh-004',
+    codigo: 'GH-ONB-004',
+    nombre: 'Guía de Inducción y Onboarding de Nuevos Funcionarios y Colaboradores',
+    categoria: 'talento',
+    categoriaNombre: 'Gestión Humana & Talento',
+    version: 'v3.1 (2026)',
+    estado: 'Vigente',
+    fechaActualizacion: '2026-02-03',
+    formato: 'PDF',
+    tamano: '4.5 MB',
+    responsable: 'Especialista de Cultura y Bienestar',
+    sedeAplica: 'Nacional',
+    descripcion: 'Recorrido de inducción institucional en primeros 30 días, entrega de dotación reglamentaria, accesos a sistemas y mentoría asignada.',
+    tags: ['onboarding', 'induccion', 'bienvenida', 'cultura organizacional'],
+    contenidoPrevisualizacion: [
+      '1. SEMANA 1: Bienvenida corporativa, historia de 75 años de Pintuco, entrega de carné institucional y EPP.',
+      '2. SEMANA 2: Inducción en puesto de trabajo, recorrido por planta y laboratorios de calidad.',
+      '3. SEMANA 4: Evaluación de adaptación con el líder inmediato y retroalimentación de metas.',
+    ],
+  },
+
+  // ================= 5. LOGÍSTICA, INVENTARIOS & MANTENIMIENTO =================
+  {
+    id: 'doc-log-001',
+    codigo: 'LOG-PEPS-003',
+    nombre: 'Manual de Operaciones de Almacenamiento y Rotación de Inventarios PEPS / FIFO',
+    categoria: 'logistica',
+    categoriaNombre: 'Logística, Inventarios & Mantenimiento',
+    version: 'v4.1 (2026)',
+    estado: 'Vigente',
+    fechaActualizacion: '2026-01-26',
+    formato: 'PDF',
+    tamano: '3.7 MB',
+    responsable: 'Gerente Nacional de Logística & Supply Chain',
+    sedeAplica: 'Todos los CEDIs Nacionales',
+    descripcion: 'Reglas de estiba de cuñetes de 5 galones (máximo 3 niveles), temperatura controlada (15°C - 30°C) y rotación estricta por fecha de lote.',
+    tags: ['peps', 'fifo', 'inventarios', 'almacenamiento', 'cedi', 'rotacion'],
+    contenidoPrevisualizacion: [
+      '1. PRINCIPIO FIFO: El primer lote producido o recibido en CEDI debe ser el primero en ser despachado a la ruta.',
+      '2. ALMACENAMIENTO DE BASES: No superar 3 estibas en altura; mantener pasillos despejados de mínimo 2.50 metros para montacargas.',
+      '3. TIEMPO MÁXIMO DE ANAQUEL: Los vinilos Tipo 1 tienen una vida útil garantizada de 24 meses; alerta en sistema al cumplir 18 meses.',
+    ],
+  },
+  {
+    id: 'doc-log-002',
+    codigo: 'LOG-SLA-009',
+    nombre: 'Acuerdos de Nivel de Servicio (SLA) para Operadores Logísticos de Transporte y Distribución',
+    categoria: 'logistica',
+    categoriaNombre: 'Logística, Inventarios & Mantenimiento',
+    version: 'Contratos 2026',
+    estado: 'Vigente',
+    fechaActualizacion: '2026-02-04',
+    formato: 'PDF',
+    tamano: '2.9 MB',
+    responsable: 'Jefatura de Distribución y Transporte',
+    sedeAplica: 'Rutas Nacionales y Última Milla',
+    descripcion: 'Tiempos de entrega pactados (Same Day AM/PM en Bogotá/Medellín, 24h ciudades principales, 48h resto del país) y sanciones por averías.',
+    tags: ['sla', 'transporte', 'distribucion', 'logistica', 'entregas'],
+    contenidoPrevisualizacion: [
+      '1. KPI ON-TIME IN-FULL (OTIF): Nivel de cumplimiento exigido mínimo del 97.5% de entregas en tiempo y sin averías.',
+      '2. INDEMNIZACIÓN POR ROTURA: El transportador asume el costo de reposición inmediato de producto derramado en tránsito.',
+      '3. MONITOREO SATELITAL: Trazabilidad GPS activa 24/7 y confirmación fotográfica de entrega mediante firma digital en app móvil.',
+    ],
+  },
+  {
+    id: 'doc-log-003',
+    codigo: 'MNT-MAQ-006',
+    nombre: 'Plan Maestro de Mantenimiento Preventivo y Calibración de Máquinas Dispensadoras Tintométricas',
+    categoria: 'logistica',
+    categoriaNombre: 'Logística, Inventarios & Mantenimiento',
+    version: 'Rev. 05 (2026)',
+    estado: 'Vigente',
+    fechaActualizacion: '2026-02-09',
+    formato: 'PDF',
+    tamano: '5.2 MB',
+    responsable: 'Jefe Nacional de Soporte Técnico Tintometría',
+    sedeAplica: 'Toda la Red de Máquinas Dosificadoras (Fast & Fluid / Corob)',
+    descripcion: 'Pautas de lubricación de émbolos, cambio de boquillas dosificadoras, purga de colorantes secos y verificación quincenal de balanza.',
+    tags: ['mantenimiento', 'tintometria', 'maquinaria', 'dosificadoras', 'calibracion'],
+    contenidoPrevisualizacion: [
+      '1. RUTINA DIARIA: Agitación automática de botes de colorante por 5 minutos antes de iniciar operaciones en tienda.',
+      '2. LIMPIEZA DE BOQUILLAS: Limpieza con esponja humedecida en agua desmineralizada cada 4 horas para evitar obstrucciones.',
+      '3. CALIBRACIÓN SEMESTRAL: Calibración por peso con balanza de precisión de 0.01 g y ajuste de pasos de motor paso a paso.',
+    ],
+  },
+
+  // ================= 6. ESTRATEGIA COMERCIAL & PLANES ANUALES =================
+  {
+    id: 'doc-com-001',
+    codigo: 'COM-PLA-2026',
+    nombre: 'Plan Estratégico de Negocio Anual y Expansión de Red de Franquicias COLORLINK 2026',
+    categoria: 'comercial',
+    categoriaNombre: 'Estrategia Comercial & Planes Anuales',
+    version: 'Confidencial v2.0',
+    estado: 'Vigente',
+    fechaActualizacion: '2026-01-14',
+    formato: 'PDF',
+    tamano: '8.6 MB',
+    responsable: 'Vicepresidencia Comercial & Nuevos Negocios',
+    sedeAplica: 'Nacional e Internacional',
+    descripcion: 'Estrategia de apertura de 25 nuevas tiendas COLORLINK en Bogotá, Cali y Costa Atlántica, y crecimiento del canal digital B2B.',
+    tags: ['plan de negocio', 'estrategia', 'franquicias', 'colorlink', 'expansion'],
+    contenidoPrevisualizacion: [
+      '1. VISIÓN 2026: Consolidar la red de tiendas de experiencia de color y cotización algorítmica con IA en Colombia.',
+      '2. MODELO DE FRANQUICIA: Formato express para ferreterías aliadas y formato flagship para corredores de diseño arquitectónico.',
+      '3. INVERSIÓN DE CAPITAL: Asignación de presupuesto de Capex para 30 nuevas máquinas dosificadoras automáticas de alta velocidad.',
+    ],
+  },
+  {
+    id: 'doc-com-002',
+    codigo: 'COM-EST-002',
+    nombre: 'Estudio de Mercado Nacional de Pinturas Arquitectónicas y Preferencias del Pintor Profesional',
+    categoria: 'comercial',
+    categoriaNombre: 'Estrategia Comercial & Planes Anuales',
+    version: 'Edición 2026',
+    estado: 'Vigente',
+    fechaActualizacion: '2026-01-29',
+    formato: 'PDF',
+    tamano: '9.3 MB',
+    responsable: 'Gerencia de Inteligencia de Mercados',
+    sedeAplica: 'Colombia (Bogotá, Medellín, Cali, Barranquilla, Bucaramanga)',
+    descripcion: 'Análisis de participación de mercado (Share of Voice / Volume), tendencias de acabados mate aterciopelado y fidelización de maestros de obra.',
+    tags: ['estudio de mercado', 'tendencias', 'maestro pintor', 'participacion', 'precios'],
+    contenidoPrevisualizacion: [
+      '1. PARTICIPACIÓN DE MERCADO: Pintuco sostiene el 62% del segmento premium de pinturas de alto tráfico Tipo 1.',
+      '2. PREFERENCIAS DEL CONSUMIDOR: 84% de los contratistas valoran primero el rendimiento por metro cuadrado y el poder cubriente a dos manos.',
+      '3. TENDENCIAS DE COLOR: Crecimiento de demanda en tonalidades neutras cálidas (paleta Arena Caliza y Greige Contemporáneo).',
+    ],
+  },
+  {
+    id: 'doc-com-003',
+    codigo: 'COM-PRE-2026',
+    nombre: 'Presupuesto Operativo Anual y Proyección de Ventas por Categoría y Sede CEDI',
+    categoria: 'comercial',
+    categoriaNombre: 'Estrategia Comercial & Planes Anuales',
+    version: 'Aprobado Junta Directiva',
+    estado: 'Vigente',
+    fechaActualizacion: '2026-01-05',
+    formato: 'XLSX',
+    tamano: '6.7 MB',
+    responsable: 'Gerencia de Planeación Financiera & Control de Gestión',
+    sedeAplica: 'Todas las Unidades de Negocio',
+    descripcion: 'Desglose mensual de ingresos proyectados, costos de materias primas (resinas, TiO2), gastos operacionales y margen EBITDA por sede.',
+    tags: ['presupuesto', 'ventas', 'ebitda', 'financiero', 'metas anuales'],
+    contenidoPrevisualizacion: [
+      '1. META DE INGRESOS 2026: Proyección de crecimiento del 14.2% interanual impulsado por líneas Koraza 10 e impermeabilizantes.',
+      '2. COSTOS DE MATERIA PRIMA: Coberturas cambiarias de importación de resinas acrílicas y biocidas para blindar el margen bruto.',
+      '3. EBITDA OBJETIVO: Sostener margen EBITDA operativo superior al 18.5% en la red consolidada de centros de distribución.',
+    ],
+  },
+];
+
+export function getDocumentosCorporativos(): DocumentoCorporativo[] {
+  return loadOrInit(STORAGE_DOCUMENTOS_CORP, DOCUMENTOS_CORPORATIVOS_INICIALES);
+}
+
+export function saveDocumentosCorporativos(docs: DocumentoCorporativo[]): void {
+  save(STORAGE_DOCUMENTOS_CORP, docs);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('colorlink_docs_corp_updated'));
+  }
+}
+
+export function crearDocumentoCorporativo(
+  nuevo: Omit<DocumentoCorporativo, 'id'>
+): DocumentoCorporativo {
+  const current = getDocumentosCorporativos();
+  const docCreado: DocumentoCorporativo = {
+    ...nuevo,
+    id: `doc-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+  };
+
+  saveDocumentosCorporativos([docCreado, ...current]);
+  registrarAuditoria(
+    'Seguridad',
+    'Carga de Documento Corporativo',
+    `Nuevo documento cargado: [${docCreado.codigo}] ${docCreado.nombre} en la categoría ${docCreado.categoriaNombre}. Versión: ${docCreado.version}.`,
+    docCreado.responsable
+  );
+
+  return docCreado;
+}
+
+export function actualizarDocumentoCorporativo(
+  id: string,
+  updates: Partial<DocumentoCorporativo>
+): DocumentoCorporativo | null {
+  const current = getDocumentosCorporativos();
+  const idx = current.findIndex((d) => d.id === id);
+  if (idx === -1) return null;
+
+  const actualizado: DocumentoCorporativo = {
+    ...current[idx],
+    ...updates,
+    fechaActualizacion: new Date().toISOString().slice(0, 10),
+  };
+
+  current[idx] = actualizado;
+  saveDocumentosCorporativos(current);
+  registrarAuditoria(
+    'Seguridad',
+    'Actualización de Documento Corporativo',
+    `Documento modificado: [${actualizado.codigo}] ${actualizado.nombre}. Estado: ${actualizado.estado}.`,
+    actualizado.responsable
+  );
+
+  return actualizado;
+}
+
+
 
 
