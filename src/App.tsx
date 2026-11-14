@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import confetti from 'canvas-confetti';
 import { 
   FMVFormData, 
@@ -39,7 +39,7 @@ import {
 } from './utils/userDatabase';
 import { CompanyHistoryModal } from './components/CompanyHistoryModal';
 import { CoverageModal } from './components/CoverageModal';
-import { descontarInventarioPorPedido } from './services/corporateService';
+import { descontarInventarioPorPedido, getTicketsSAC, TicketSAC } from './services/corporateService';
 import { CustomerInquiryModal } from './components/CustomerInquiryModal';
 import { BankInstallmentsModal } from './components/BankInstallmentsModal';
 import { ProductDetailModal } from './components/ProductDetailModal';
@@ -59,7 +59,10 @@ import {
   ArrowLeft,
   X,
   RotateCcw,
-  Trash2
+  Trash2,
+  Bell,
+  Package,
+  MessageSquare
 } from 'lucide-react';
 import { 
   fetchSupabaseProducts, 
@@ -726,13 +729,520 @@ export default function App() {
   const [isNotificationsOpen, setIsNotificationsOpen] = useState<boolean>(false);
   const [notificationsInitialTab, setNotificationsInitialTab] = useState<'seguimiento' | 'pqrs' | 'notificaciones'>('notificaciones');
 
+  // Sistema de avisos y notificaciones en tiempo real para el cliente (Pedidos + SAC)
+  const [unreadRealtimeCount, setUnreadRealtimeCount] = useState<number>(0);
+  const [realtimeToast, setRealtimeToast] = useState<{
+    id: number;
+    type: 'order' | 'sac';
+    title: string;
+    message: string;
+    targetTab: 'seguimiento' | 'pqrs';
+  } | null>(null);
+
+  const realtimeToastTimerRef = useRef<number | null>(null);
+  const pendingClientToastRef = useRef<{
+    type: 'order' | 'sac';
+    title: string;
+    message: string;
+    targetTab: 'seguimiento' | 'pqrs';
+  } | null>(null);
+  const notifiedRealtimeKeysRef = useRef<Set<string>>(new Set());
+  const ordersStatusSnapshotRef = useRef<Map<string, string>>(new Map());
+  const ticketsSnapshotRef = useRef<Map<string, { estado: string; agentMsgIds: Set<string> }>>(new Map());
+  const ordersRef = useRef<COLORLINKOrder[]>(orders);
+  ordersRef.current = orders;
+  const userRoleRef = useRef<AppRole>(userRole);
+  userRoleRef.current = userRole;
+  const userSessionRef = useRef<UserSession | null>(userSession);
+  userSessionRef.current = userSession;
+
+  const clearRealtimeNotificationsState = useCallback(() => {
+    setUnreadRealtimeCount(0);
+    setRealtimeToast(null);
+    pendingClientToastRef.current = null;
+    notifiedRealtimeKeysRef.current.clear();
+    ordersStatusSnapshotRef.current.clear();
+    ticketsSnapshotRef.current.clear();
+    if (realtimeToastTimerRef.current) {
+      window.clearTimeout(realtimeToastTimerRef.current);
+      realtimeToastTimerRef.current = null;
+    }
+  }, []);
+
+  const doesOrderBelongToClient = useCallback((orderLike: any, session: UserSession | null): boolean => {
+    if (!session || (!session.isLoggedIn && !session.email)) return false;
+    const userEmail = (session.email || '').trim().toLowerCase();
+    const userDoc = ((session as any).cedula || (session as any).documento || '').replace(/[\.\-\s]/g, '').toLowerCase();
+    const userName = (session.nombre || '').trim().toLowerCase();
+    const userId = (session.id || '').trim().toLowerCase();
+
+    const emailCandidates = [
+      orderLike?.customerEmail,
+      orderLike?.user_email,
+      orderLike?.email,
+      orderLike?.customer_email,
+      orderLike?.form?.correo_electronico,
+      orderLike?.form?.responsable_contacto,
+    ]
+      .filter(Boolean)
+      .map((e) => String(e).trim().toLowerCase());
+    const oDoc = String(orderLike?.customerDocument || orderLike?.customer_document || orderLike?.form?.documento || '')
+      .replace(/[\.\-\s]/g, '')
+      .toLowerCase();
+    const oName = String(orderLike?.customerName || orderLike?.customer_name || orderLike?.form?.nombre_razon_social || '')
+      .trim()
+      .toLowerCase();
+    const oUserId = String(orderLike?.userId || orderLike?.user_id || orderLike?.customerId || orderLike?.clienteId || orderLike?.cliente_id || '')
+      .trim()
+      .toLowerCase();
+
+    return Boolean(
+      (userEmail && emailCandidates.some((e) => e === userEmail || e.includes(userEmail))) ||
+      (userDoc && oDoc && oDoc === userDoc) ||
+      (userId && oUserId && oUserId === userId) ||
+      (userName && oName && (oName === userName || oName.includes(userName)))
+    );
+  }, []);
+
+  const doesTicketBelongToClient = useCallback((ticketLike: any, session: UserSession | null): boolean => {
+    if (!session || (!session.isLoggedIn && !session.email)) return false;
+    const userEmail = (session.email || '').trim().toLowerCase();
+    const userName = (session.nombre || '').trim().toLowerCase();
+    const userId = (session.id || '').trim().toLowerCase();
+    const userPhone = (session.telefono || '').replace(/\s+/g, '');
+
+    const tEmail = String(ticketLike?.clienteEmail || ticketLike?.cliente_email || ticketLike?.email || '').trim().toLowerCase();
+    const tName = String(ticketLike?.clienteNombre || ticketLike?.cliente_nombre || ticketLike?.nombre || '').trim().toLowerCase();
+    const tUserId = String(ticketLike?.clienteId || ticketLike?.userId || ticketLike?.user_id || '').trim().toLowerCase();
+    const tPhone = String(ticketLike?.clienteTelefono || ticketLike?.cliente_telefono || ticketLike?.telefono || '').replace(/\s+/g, '');
+
+    return Boolean(
+      (userEmail && tEmail && (tEmail === userEmail || tEmail.includes(userEmail))) ||
+      (userId && tUserId && tUserId === userId) ||
+      (userName && tName && (tName === userName || tName.includes(userName))) ||
+      (userPhone && tPhone && userPhone.length >= 7 && tPhone.includes(userPhone))
+    );
+  }, []);
+
+  const showFloatingRealtimeToast = useCallback((payload: {
+    type: 'order' | 'sac';
+    title: string;
+    message: string;
+    targetTab: 'seguimiento' | 'pqrs';
+  }) => {
+    const toastId = Date.now();
+    setRealtimeToast({
+      id: toastId,
+      type: payload.type,
+      title: payload.title,
+      message: payload.message,
+      targetTab: payload.targetTab,
+    });
+    if (realtimeToastTimerRef.current) {
+      window.clearTimeout(realtimeToastTimerRef.current);
+    }
+    realtimeToastTimerRef.current = window.setTimeout(() => {
+      setRealtimeToast((cur) => (cur?.id === toastId ? null : cur));
+    }, 8000);
+  }, []);
+
+  const triggerClientRealtimeAlert = useCallback((params: {
+    dedupeKey: string;
+    type: 'order' | 'sac';
+    title: string;
+    message: string;
+    targetTab: 'seguimiento' | 'pqrs';
+  }) => {
+    const activeSession = userSessionRef.current;
+    if (!activeSession || (!activeSession.isLoggedIn && !activeSession.email)) return;
+    if (notifiedRealtimeKeysRef.current.has(params.dedupeKey)) return;
+    notifiedRealtimeKeysRef.current.add(params.dedupeKey);
+
+    setUnreadRealtimeCount((prev) => prev + 1);
+
+    if (userRoleRef.current === 'cliente') {
+      showFloatingRealtimeToast(params);
+    } else {
+      pendingClientToastRef.current = {
+        type: params.type,
+        title: params.title,
+        message: params.message,
+        targetTab: params.targetTab,
+      };
+    }
+  }, [showFloatingRealtimeToast]);
+
   const handleOpenNotifications = (tab: 'seguimiento' | 'pqrs' | 'notificaciones' = 'notificaciones') => {
     if (tab === 'pqrs') {
       setIsChatOpen(false);
     }
+    setUnreadRealtimeCount(0);
+    setRealtimeToast(null);
+    pendingClientToastRef.current = null;
+    if (realtimeToastTimerRef.current) {
+      window.clearTimeout(realtimeToastTimerRef.current);
+      realtimeToastTimerRef.current = null;
+    }
     setNotificationsInitialTab(tab);
     setIsNotificationsOpen(true);
   };
+
+  // Si hay un aviso pendiente al entrar a la vista de cliente autenticado, mostrarlo
+  useEffect(() => {
+    if (userRole === 'cliente' && userSession && (userSession.isLoggedIn || userSession.email) && pendingClientToastRef.current) {
+      const pending = pendingClientToastRef.current;
+      pendingClientToastRef.current = null;
+      showFloatingRealtimeToast(pending);
+    }
+  }, [userRole, userSession, showFloatingRealtimeToast]);
+
+  // Detección en tiempo real (Supabase Realtime + Cambios de Estado + Eventos SAC) para el cliente autenticado
+  useEffect(() => {
+    const isAuth = Boolean(userSession && (userSession.isLoggedIn || userSession.email));
+    if (!isAuth || !userSession) {
+      clearRealtimeNotificationsState();
+      return;
+    }
+
+    // 1. Sembrar snapshots iniciales sin disparar alertas falsas al iniciar sesión
+    const initialOrdersSnap = new Map<string, string>();
+    ordersRef.current.forEach((o) => {
+      if (doesOrderBelongToClient(o, userSession)) {
+        const key = String(o.id || o.numeroOrden || '').trim();
+        if (key && o.estado) initialOrdersSnap.set(key, o.estado);
+      }
+    });
+    ordersStatusSnapshotRef.current = initialOrdersSnap;
+
+    const initialTicketsSnap = new Map<string, { estado: string; agentMsgIds: Set<string> }>();
+    try {
+      getTicketsSAC().forEach((t) => {
+        if (doesTicketBelongToClient(t, userSession)) {
+          initialTicketsSnap.set(t.id, {
+            estado: t.estado,
+            agentMsgIds: new Set(
+              (t.mensajes || [])
+                .filter((m) => m.remitenteTipo === 'agente' && !m.esNotaInterna)
+                .map((m) => m.id)
+            ),
+          });
+        }
+      });
+    } catch {}
+    ticketsSnapshotRef.current = initialTicketsSnap;
+
+    const processSacTicketsList = (ticketsList: TicketSAC[]) => {
+      const activeSession = userSessionRef.current;
+      if (!activeSession || (!activeSession.isLoggedIn && !activeSession.email)) return;
+
+      ticketsList.forEach((t) => {
+        if (!doesTicketBelongToClient(t, activeSession)) return;
+        const publicAgentMsgs = (t.mensajes || []).filter(
+          (m) => m.remitenteTipo === 'agente' && !m.esNotaInterna
+        );
+        const prev = ticketsSnapshotRef.current.get(t.id);
+        const ticketCode = t.radicado || t.id;
+
+        if (prev) {
+          const newAgentMsgs = publicAgentMsgs.filter((m) => !prev.agentMsgIds.has(m.id));
+          const statusUpdatedBySac = t.estado !== prev.estado && t.estado !== 'Nuevo';
+
+          if (newAgentMsgs.length > 0 || statusUpdatedBySac) {
+            const latestMsg = newAgentMsgs[newAgentMsgs.length - 1];
+            const dedupeKey = latestMsg
+              ? `sac:${ticketCode}:msg:${latestMsg.id}`
+              : `sac:${ticketCode}:status:${t.estado}`;
+            triggerClientRealtimeAlert({
+              dedupeKey,
+              type: 'sac',
+              title: 'Actualización de Servicio al Cliente (SAC)',
+              message: `💬 Tienes un nuevo mensaje del asesor de SAC en tu solicitud ${ticketCode}.`,
+              targetTab: 'pqrs',
+            });
+          }
+        } else if (publicAgentMsgs.length > 0) {
+          const latestMsg = publicAgentMsgs[publicAgentMsgs.length - 1];
+          triggerClientRealtimeAlert({
+            dedupeKey: `sac:${ticketCode}:msg:${latestMsg.id}`,
+            type: 'sac',
+            title: 'Actualización de Servicio al Cliente (SAC)',
+            message: `💬 Tienes un nuevo mensaje del asesor de SAC en tu solicitud ${ticketCode}.`,
+            targetTab: 'pqrs',
+          });
+        }
+
+        ticketsSnapshotRef.current.set(t.id, {
+          estado: t.estado,
+          agentMsgIds: new Set(publicAgentMsgs.map((m) => m.id)),
+        });
+      });
+    };
+
+    const handleTicketsEvent = () => {
+      try {
+        processSacTicketsList(getTicketsSAC());
+      } catch {}
+    };
+
+    const handleOrderStatusEvent = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      const activeSession = userSessionRef.current;
+      if (!detail || !activeSession) return;
+      const orderObj = detail.order;
+      if (!orderObj || !doesOrderBelongToClient(orderObj, activeSession)) return;
+
+      const orderCode = detail.numeroOrden || orderObj.numeroOrden || detail.orderId;
+      const newStatus = detail.newStatus;
+      const prevStatus = detail.prevStatus;
+      if (!newStatus || newStatus === prevStatus) return;
+
+      const key = String(orderObj.id || orderCode || '').trim();
+      if (key) ordersStatusSnapshotRef.current.set(key, newStatus);
+
+      triggerClientRealtimeAlert({
+        dedupeKey: `order:${orderCode}:${newStatus}`,
+        type: 'order',
+        title: 'Actualización de Pedido',
+        message: `📦 Tu pedido ${orderCode} tiene cambios: ahora está en estado ${newStatus}.`,
+        targetTab: 'seguimiento',
+      });
+    };
+
+    const handleCrossTabStorage = (e: StorageEvent) => {
+      const activeSession = userSessionRef.current;
+      if (!activeSession) return;
+
+      if (!e.key || e.key === 'colorlink_customer_tickets') {
+        handleTicketsEvent();
+      }
+
+      if ((e.key === 'colorlink_user_orders' || e.key === 'colorlink_orders') && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          if (!Array.isArray(parsed)) return;
+          let changedInStorage = false;
+          const updatesMap = new Map<string, string>();
+
+          parsed.forEach((o: COLORLINKOrder) => {
+            if (!doesOrderBelongToClient(o, activeSession)) return;
+            const key = String(o.id || o.numeroOrden || '').trim();
+            if (!key || !o.estado) return;
+            const prevStatus = ordersStatusSnapshotRef.current.get(key);
+            if (prevStatus && prevStatus !== o.estado) {
+              changedInStorage = true;
+              updatesMap.set(key, o.estado);
+              const orderCode = o.numeroOrden || o.id;
+              ordersStatusSnapshotRef.current.set(key, o.estado);
+              triggerClientRealtimeAlert({
+                dedupeKey: `order:${orderCode}:${o.estado}`,
+                type: 'order',
+                title: 'Actualización de Pedido',
+                message: `📦 Tu pedido ${orderCode} tiene cambios: ahora está en estado ${o.estado}.`,
+                targetTab: 'seguimiento',
+              });
+            }
+          });
+
+          if (changedInStorage && updatesMap.size > 0) {
+            setOrders((prev) =>
+              prev.map((o) => {
+                const k = String(o.id || o.numeroOrden || '').trim();
+                const updatedSt = updatesMap.get(k);
+                return updatedSt ? { ...o, estado: updatedSt as COLORLINKOrder['estado'] } : o;
+              })
+            );
+          }
+        } catch {}
+      }
+    };
+
+    window.addEventListener('colorlink_tickets_updated', handleTicketsEvent);
+    window.addEventListener('colorlink_order_status_changed', handleOrderStatusEvent as EventListener);
+    window.addEventListener('storage', handleCrossTabStorage);
+
+    // 2. Suscripción Supabase Realtime a tablas de órdenes/proyectos y tickets/PQRS
+    let rtChannel: any = null;
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const channelKey = `client-realtime-${(userSession.id || userSession.email || 'user').replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+        rtChannel = supabase
+          .channel(channelKey)
+          .on(
+            'postgres_changes',
+            { event: 'UPDATE', schema: 'public', table: 'orders' },
+            (payload: any) => {
+              const row = payload?.new;
+              const activeSession = userSessionRef.current;
+              if (!row || !activeSession) return;
+
+              const matchedLocal = ordersRef.current.find(
+                (o) =>
+                  (row.order_number && o.numeroOrden === row.order_number) ||
+                  (row.id && o.id === row.id)
+              );
+
+              if (!doesOrderBelongToClient(row, activeSession) && !(matchedLocal && doesOrderBelongToClient(matchedLocal, activeSession))) {
+                return;
+              }
+
+              const newStatus = row.status;
+              if (!newStatus) return;
+
+              const key = String(matchedLocal?.id || row.id || row.order_number || '').trim();
+              const prevStatus = ordersStatusSnapshotRef.current.get(key) || matchedLocal?.estado || payload?.old?.status;
+              if (prevStatus === newStatus) return;
+
+              if (key) ordersStatusSnapshotRef.current.set(key, newStatus);
+              const orderCode = row.order_number || matchedLocal?.numeroOrden || row.id;
+
+              setOrders((prev) =>
+                prev.map((o) =>
+                  (row.order_number && o.numeroOrden === row.order_number) || (row.id && o.id === row.id)
+                    ? { ...o, estado: newStatus }
+                    : o
+                )
+              );
+
+              triggerClientRealtimeAlert({
+                dedupeKey: `order:${orderCode}:${newStatus}`,
+                type: 'order',
+                title: 'Actualización de Pedido',
+                message: `📦 Tu pedido ${orderCode} tiene cambios: ahora está en estado ${newStatus}.`,
+                targetTab: 'seguimiento',
+              });
+            }
+          )
+          .on(
+            'postgres_changes',
+            { event: 'UPDATE', schema: 'public', table: 'proyectos' },
+            (payload: any) => {
+              const row = payload?.new;
+              const activeSession = userSessionRef.current;
+              if (!row || !activeSession) return;
+
+              const matchedLocal = ordersRef.current.find((o) => o.id === row.id);
+              if (!matchedLocal || !doesOrderBelongToClient(matchedLocal, activeSession)) return;
+
+              const rawStatus = row.estado_pedido;
+              if (!rawStatus) return;
+
+              let mappedStatus: string = rawStatus;
+              if (rawStatus === 'Radicado') mappedStatus = 'Pendiente Alistamiento';
+              else if (rawStatus === 'En Alistamiento') mappedStatus = 'En Producción';
+
+              const prevStatus = ordersStatusSnapshotRef.current.get(matchedLocal.id) || matchedLocal.estado || payload?.old?.estado_pedido;
+              if (prevStatus === mappedStatus || prevStatus === rawStatus) return;
+
+              ordersStatusSnapshotRef.current.set(matchedLocal.id, mappedStatus);
+              const orderCode = matchedLocal.numeroOrden || `SB-${String(row.id).slice(0, 8).toUpperCase()}`;
+
+              setOrders((prev) =>
+                prev.map((o) => (o.id === row.id ? { ...o, estado: mappedStatus as COLORLINKOrder['estado'] } : o))
+              );
+
+              triggerClientRealtimeAlert({
+                dedupeKey: `order:${orderCode}:${mappedStatus}`,
+                type: 'order',
+                title: 'Actualización de Pedido',
+                message: `📦 Tu pedido ${orderCode} tiene cambios: ahora está en estado ${rawStatus}.`,
+                targetTab: 'seguimiento',
+              });
+            }
+          )
+          .on(
+            'postgres_changes',
+            { event: 'UPDATE', schema: 'public', table: 'tickets' },
+            (payload: any) => {
+              const row = payload?.new;
+              const activeSession = userSessionRef.current;
+              if (!row || !activeSession || !doesTicketBelongToClient(row, activeSession)) return;
+
+              const ticketCode = row.radicado || row.id;
+              const hasUpdate =
+                row.estado !== payload?.old?.estado ||
+                Boolean(row.respuesta && row.respuesta !== payload?.old?.respuesta) ||
+                Boolean(row.updated_at && row.updated_at !== payload?.old?.updated_at);
+              if (!hasUpdate && row.estado === 'Nuevo') return;
+
+              triggerClientRealtimeAlert({
+                dedupeKey: `sac-sb:${ticketCode}:${row.updated_at || row.estado || 'upd'}`,
+                type: 'sac',
+                title: 'Actualización de Servicio al Cliente (SAC)',
+                message: `💬 Tienes un nuevo mensaje del asesor de SAC en tu solicitud ${ticketCode}.`,
+                targetTab: 'pqrs',
+              });
+            }
+          )
+          .on(
+            'postgres_changes',
+            { event: 'UPDATE', schema: 'public', table: 'pqrs' },
+            (payload: any) => {
+              const row = payload?.new;
+              const activeSession = userSessionRef.current;
+              if (!row || !activeSession || !doesTicketBelongToClient(row, activeSession)) return;
+
+              const ticketCode = row.radicado || row.id;
+              triggerClientRealtimeAlert({
+                dedupeKey: `sac-pqrs:${ticketCode}:${row.updated_at || row.estado || 'upd'}`,
+                type: 'sac',
+                title: 'Actualización de Servicio al Cliente (SAC)',
+                message: `💬 Tienes un nuevo mensaje del asesor de SAC en tu solicitud ${ticketCode}.`,
+                targetTab: 'pqrs',
+              });
+            }
+          )
+          .subscribe();
+      } catch (err) {
+        console.debug('Error suscribiendo canal realtime de cliente:', err);
+      }
+    }
+
+    return () => {
+      window.removeEventListener('colorlink_tickets_updated', handleTicketsEvent);
+      window.removeEventListener('colorlink_order_status_changed', handleOrderStatusEvent as EventListener);
+      window.removeEventListener('storage', handleCrossTabStorage);
+      if (rtChannel && supabase) {
+        try {
+          supabase.removeChannel(rtChannel);
+        } catch {}
+      }
+    };
+  }, [
+    userSession?.id,
+    userSession?.email,
+    userSession?.documento,
+    userSession?.isLoggedIn,
+    clearRealtimeNotificationsState,
+    doesOrderBelongToClient,
+    doesTicketBelongToClient,
+    triggerClientRealtimeAlert,
+  ]);
+
+  // Detectar cambios de estado en el arreglo orders en memoria para el cliente autenticado
+  useEffect(() => {
+    if (!userSession || (!userSession.isLoggedIn && !userSession.email)) return;
+
+    orders.forEach((o) => {
+      if (!doesOrderBelongToClient(o, userSession)) return;
+      const key = String(o.id || o.numeroOrden || '').trim();
+      if (!key || !o.estado) return;
+
+      const prevStatus = ordersStatusSnapshotRef.current.get(key);
+      if (prevStatus && prevStatus !== o.estado) {
+        const orderCode = o.numeroOrden || o.id;
+        ordersStatusSnapshotRef.current.set(key, o.estado);
+        triggerClientRealtimeAlert({
+          dedupeKey: `order:${orderCode}:${o.estado}`,
+          type: 'order',
+          title: 'Actualización de Pedido',
+          message: `📦 Tu pedido ${orderCode} tiene cambios: ahora está en estado ${o.estado}.`,
+          targetTab: 'seguimiento',
+        });
+      } else if (!prevStatus) {
+        ordersStatusSnapshotRef.current.set(key, o.estado);
+      }
+    });
+  }, [orders, userSession, doesOrderBelongToClient, triggerClientRealtimeAlert]);
 
   // Conteo de notificaciones de órdenes estrictamente para el usuario autenticado
   const userNotificationsCount = useMemo(() => {
@@ -1082,6 +1592,7 @@ export default function App() {
     setIsAdminAuthenticated(false);
     localStorage.removeItem('colorlink_admin_auth');
     sessionStorage.removeItem('colorlink_auth_token');
+    clearRealtimeNotificationsState();
     syncActiveSession(null);
     setUserSession(null);
     setUserRole('cliente');
@@ -1108,9 +1619,10 @@ export default function App() {
     localStorage.removeItem('colorlink_cart');
     sessionStorage.removeItem('colorlink_auth_token');
 
-    // 3. Reiniciar el carrito a 0 items y limpiar favoritos activos
+    // 3. Reiniciar el carrito a 0 items, limpiar favoritos y notificaciones pendientes
     setCart([]);
     setFavoriteIds([]);
+    clearRealtimeNotificationsState();
     if (activeClientTab === 'favorites') {
       setActiveClientTab('home');
     }
@@ -1467,6 +1979,19 @@ export default function App() {
         return o;
       })
     );
+    if (targetOrder && targetOrder.estado !== newStatus) {
+      window.dispatchEvent(
+        new CustomEvent('colorlink_order_status_changed', {
+          detail: {
+            orderId: id,
+            numeroOrden: targetOrder.numeroOrden || id,
+            prevStatus: targetOrder.estado,
+            newStatus,
+            order: { ...targetOrder, estado: newStatus, ...(updates || {}) },
+          },
+        })
+      );
+    }
     showToast(`Estado actualizado a: ${newStatus}`);
   };
 
@@ -1554,6 +2079,83 @@ export default function App() {
           >
             <X className="w-3.5 h-3.5" />
           </button>
+        </div>
+      )}
+
+      {/* Aviso Visual Flotante Interactivo en Tiempo Real (Esquina Superior Derecha) */}
+      {realtimeToast && userRole === 'cliente' && userSession && (userSession.isLoggedIn || userSession.email) && (
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => handleOpenNotifications(realtimeToast.targetTab)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              handleOpenNotifications(realtimeToast.targetTab);
+            }
+          }}
+          className={`fixed top-16 sm:top-20 right-4 z-[10060] w-[calc(100vw-2rem)] sm:w-96 p-4 rounded-2xl shadow-2xl border-2 backdrop-blur-md cursor-pointer transition-all hover:scale-[1.01] active:scale-[0.99] animate-in fade-in slide-in-from-top-3 duration-300 ${
+            realtimeToast.type === 'order'
+              ? 'bg-white/95 border-blue-500/70 text-slate-900 shadow-blue-900/15'
+              : 'bg-white/95 border-emerald-500/70 text-slate-900 shadow-emerald-900/15'
+          }`}
+          title="Haz clic para abrir el Panel Unificado de Notificaciones"
+        >
+          <div className="flex items-start gap-3">
+            <div
+              className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border ${
+                realtimeToast.type === 'order'
+                  ? 'bg-blue-50 border-blue-200 text-blue-700'
+                  : 'bg-emerald-50 border-emerald-200 text-emerald-700'
+              }`}
+            >
+              {realtimeToast.type === 'order' ? (
+                <Package className="w-5 h-5" />
+              ) : (
+                <MessageSquare className="w-5 h-5" />
+              )}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between gap-2">
+                <span
+                  className={`text-[10px] font-black uppercase tracking-wider flex items-center gap-1 ${
+                    realtimeToast.type === 'order' ? 'text-blue-700' : 'text-emerald-700'
+                  }`}
+                >
+                  <Bell className="w-3 h-3" />
+                  {realtimeToast.title}
+                </span>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setRealtimeToast(null);
+                    if (realtimeToastTimerRef.current) {
+                      window.clearTimeout(realtimeToastTimerRef.current);
+                      realtimeToastTimerRef.current = null;
+                    }
+                  }}
+                  className="text-slate-400 hover:text-slate-700 p-0.5 rounded-lg transition-colors cursor-pointer shrink-0"
+                  aria-label="Cerrar aviso en tiempo real"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <p className="text-xs sm:text-sm font-bold text-slate-800 leading-snug mt-1">
+                {realtimeToast.message}
+              </p>
+              <span
+                className={`inline-flex items-center gap-1 text-[11px] font-black mt-2 ${
+                  realtimeToast.type === 'order' ? 'text-blue-700' : 'text-emerald-700'
+                }`}
+              >
+                <span>
+                  {realtimeToast.type === 'order' ? 'Ver seguimiento del pedido' : 'Ver respuesta en Mis Solicitudes'}
+                </span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </span>
+            </div>
+          </div>
         </div>
       )}
 
@@ -1647,6 +2249,7 @@ export default function App() {
         favoriteIds={favoriteIds}
         onToggleFavorite={handleToggleFavorite}
         ordersCount={userNotificationsCount}
+        unreadNotificationsCount={unreadRealtimeCount}
         cartCount={cart.reduce((sum, item) => sum + item.cantidad, 0)}
         userSession={userSession}
         onOpenProfile={(tab) => handleOpenUserProfile(tab || 'datos')}

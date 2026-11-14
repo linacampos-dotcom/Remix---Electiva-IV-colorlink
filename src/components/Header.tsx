@@ -62,6 +62,7 @@ interface HeaderProps {
   favoriteIds?: string[];
   onToggleFavorite?: (productId: string) => void;
   ordersCount: number;
+  unreadNotificationsCount?: number;
   cartCount: number;
   userSession: UserSession | null;
   onOpenProfile?: (tab?: 'datos' | 'pedidos' | 'orders' | 'direcciones' | 'seguridad') => void;
@@ -92,6 +93,7 @@ export const Header: React.FC<HeaderProps> = ({
   favoriteIds,
   onToggleFavorite,
   ordersCount,
+  unreadNotificationsCount,
   cartCount,
   userSession,
   onOpenProfile,
@@ -168,6 +170,7 @@ export const Header: React.FC<HeaderProps> = ({
   }, [userSession]);
 
   const pendingCount = Math.max(0, ordersCount || 0);
+  const bellUnreadCount = Math.max(0, unreadNotificationsCount ?? 0);
   const hasPendingOrders = isLoggedIn && pendingCount > 0;
 
   // Close dropdowns on outside click
@@ -506,7 +509,7 @@ export const Header: React.FC<HeaderProps> = ({
               >
                 <div className="relative shrink-0">
                   <Bell className="w-4 h-4 text-sky-200 group-hover:text-amber-300 transition-colors" />
-                  {ordersCount > 0 && (
+                  {bellUnreadCount > 0 && (
                     <span className="absolute -top-1 -right-1 flex h-2 w-2">
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
                       <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
@@ -516,9 +519,9 @@ export const Header: React.FC<HeaderProps> = ({
                 <span className="hidden md:inline text-xs font-bold text-sky-100">
                   Notificaciones
                 </span>
-                {ordersCount > 0 && (
+                {bellUnreadCount > 0 && (
                   <span className="px-1.5 py-0.2 rounded-full text-[10px] font-black bg-amber-400 text-slate-950 shrink-0 shadow-xs">
-                    {ordersCount}
+                    {bellUnreadCount}
                   </span>
                 )}
               </button>
@@ -938,6 +941,11 @@ export const Header: React.FC<HeaderProps> = ({
                     >
                       <Bell className="w-3.5 h-3.5 text-amber-600" />
                       <span>🔔 Notificaciones & Mis Solicitudes PQRS</span>
+                      {bellUnreadCount > 0 && (
+                        <span className="px-1.5 py-0.2 rounded-full text-[10px] font-black bg-amber-400 text-slate-950">
+                          {bellUnreadCount}
+                        </span>
+                      )}
                     </button>
                     <button
                       type="button"
