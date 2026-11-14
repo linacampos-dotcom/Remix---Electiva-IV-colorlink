@@ -198,10 +198,14 @@ export function getLiveCatalog(): CatalogProduct[] {
     invItems.forEach((item) => {
       if (!item || !item.sku) return;
       const baseId = item.productoBaseId || item.id;
-      
+      const isItemActive = item.activo !== false && item.estado !== 'Inactivo' && item.estado !== 'Borrador';
+
       let prod = baseProdsMap.get(baseId);
       // Si es un producto nuevo creado desde la Intranet
       if (!prod) {
+        // Si el nuevo producto no está activo o está en borrador/inactivo, no se publica en la tienda de clientes
+        if (!isItemActive) return;
+
         const catKey = (item.categoria || '').toLowerCase().includes('exterior') || (item.categoria || '').toLowerCase().includes('fachada') ? 'exteriores'
           : (item.categoria || '').toLowerCase().includes('esmalte') || (item.categoria || '').toLowerCase().includes('madera') ? 'metales_madera'
           : (item.categoria || '').toLowerCase().includes('herramienta') ? 'herramientas'
@@ -252,7 +256,7 @@ export function getLiveCatalog(): CatalogProduct[] {
         presentacion: item.presentacion,
         stock: item.stockGalones || 0,
         stockMinimo: item.stockMinimoGalones || 0,
-        disponible: item.activo && ((item.stockGalones || 0) > 0 || (item.stockUnidades !== undefined && item.stockUnidades > 0)),
+        disponible: isItemActive && ((item.stockGalones || 0) > 0 || (item.stockUnidades !== undefined && item.stockUnidades > 0)),
       };
 
       if (varIndex >= 0) {
@@ -261,23 +265,35 @@ export function getLiveCatalog(): CatalogProduct[] {
         prod.variantes.push(varItem);
       }
 
-      // Actualizar precios de referencia del producto base
-      const presNorm = (item.presentacion || item.medida || '').toLowerCase();
-      if (presNorm.includes('galón') || presNorm === '1gl') {
-        prod.precioGalon = item.precioVentaGL;
-      } else if (presNorm.includes('cuñete') || presNorm.includes('5 gal')) {
-        prod.precioCunete = item.precioVentaGL;
-      } else if (presNorm.includes('cuarto') || presNorm.includes('1/4')) {
-        prod.precioCuarto = item.precioVentaGL;
-      }
+      if (isItemActive) {
+        // Actualizar precios de referencia del producto base
+        const presNorm = (item.presentacion || item.medida || '').toLowerCase();
+        if (presNorm.includes('galón') || presNorm === '1gl') {
+          prod.precioGalon = item.precioVentaGL;
+        } else if (presNorm.includes('cuñete') || presNorm.includes('5 gal')) {
+          prod.precioCunete = item.precioVentaGL;
+        } else if (presNorm.includes('cuarto') || presNorm.includes('1/4')) {
+          prod.precioCuarto = item.precioVentaGL;
+        }
 
-      // Agregar color a coloresCertificados si no existe
-      if (item.color && !prod.coloresCertificados.includes(item.color)) {
-        prod.coloresCertificados.push(item.color);
+        // Agregar color a coloresCertificados si no existe
+        if (item.color && !prod.coloresCertificados.includes(item.color)) {
+          prod.coloresCertificados.push(item.color);
+        }
       }
     });
 
-    return Array.from(baseProdsMap.values()).map(normalizeCatalogProduct);
+    return Array.from(baseProdsMap.values())
+      .filter((prod) => {
+        // Si el producto base proviene de items de bodega y todos están inactivos, ocultar
+        const relatedItems = invItems.filter((i) => i.productoBaseId === prod.id || i.id === prod.id);
+        if (relatedItems.length > 0) {
+          const hasAnyActive = relatedItems.some((i) => i.activo !== false && i.estado !== 'Inactivo' && i.estado !== 'Borrador');
+          if (!hasAnyActive) return false;
+        }
+        return true;
+      })
+      .map(normalizeCatalogProduct);
   } catch (e) {
     return PRODUCTS_CATALOG_DATA.map(normalizeCatalogProduct);
   }

@@ -106,9 +106,11 @@ export const Catalog: React.FC<CatalogProps> = ({
       setCatalogProducts(getLiveCatalog());
     };
     window.addEventListener('colorlink_inventory_updated', handleSync);
+    window.addEventListener('colorlink_catalog_sync_needed', handleSync);
     window.addEventListener('storage', handleSync);
     return () => {
       window.removeEventListener('colorlink_inventory_updated', handleSync);
+      window.removeEventListener('colorlink_catalog_sync_needed', handleSync);
       window.removeEventListener('storage', handleSync);
     };
   }, []);

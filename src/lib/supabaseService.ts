@@ -1,6 +1,6 @@
 import { supabase, isSupabaseConfigured, reconfigureSupabaseClient, SupabaseCliente, SupabaseProducto, SupabaseProyecto } from './supabaseClient';
 import { FMVFormData, CalculationResult, COLORLINKOrder, CatalogProduct } from '../types';
-import { PINTUCO_CATALOG } from '../data/pintucoData';
+import { PINTUCO_CATALOG, getLiveCatalog } from '../data/pintucoData';
 
 export interface SupabaseProjectWithRelations {
   id: string;
@@ -274,8 +274,9 @@ export async function fetchSupabaseProducts(): Promise<{
   await checkAndInitServerSupabase();
 
   if (!isSupabaseConfigured) {
-    // Map local catalog to SupabaseProducto shape
-    const localMapped: SupabaseProducto[] = PINTUCO_CATALOG.map((p) => ({
+    // Map local live catalog to SupabaseProducto shape
+    const liveProds = getLiveCatalog();
+    const localMapped: SupabaseProducto[] = liveProds.map((p) => ({
       id: p.id,
       nombre: p.nombre,
       ambiente: p.presetAmbiente || p.ambienteIdeal[0] || 'Interior / Exterior',
@@ -293,8 +294,9 @@ export async function fetchSupabaseProducts(): Promise<{
 
     if (error) {
       console.warn('Error fetching productos from Supabase:', error.message);
+      const liveFallback = getLiveCatalog();
       return {
-        data: PINTUCO_CATALOG.map((p) => ({
+        data: liveFallback.map((p) => ({
           id: p.id,
           nombre: p.nombre,
           ambiente: p.presetAmbiente || p.ambienteIdeal[0] || 'Interior / Exterior',
@@ -307,8 +309,9 @@ export async function fetchSupabaseProducts(): Promise<{
     }
 
     if (!data || data.length === 0) {
+      const liveFallback = getLiveCatalog();
       return {
-        data: PINTUCO_CATALOG.map((p) => ({
+        data: liveFallback.map((p) => ({
           id: p.id,
           nombre: p.nombre,
           ambiente: p.presetAmbiente || p.ambienteIdeal[0] || 'Interior / Exterior',
@@ -322,8 +325,9 @@ export async function fetchSupabaseProducts(): Promise<{
     return { data: data as SupabaseProducto[], fromSupabase: true };
   } catch (err: any) {
     console.error('Supabase products query failed:', err);
+    const liveFallback = getLiveCatalog();
     return {
-      data: PINTUCO_CATALOG.map((p) => ({
+      data: liveFallback.map((p) => ({
         id: p.id,
         nombre: p.nombre,
         ambiente: p.presetAmbiente || p.ambienteIdeal[0] || 'Interior / Exterior',
@@ -828,6 +832,81 @@ export async function updateSupabaseProjectStatus(
     }
     return { success: true };
   } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Sincroniza un producto (creación, edición o cambio de estado) con Supabase en tiempo real
+ * y emite eventos globales para invalidar caché y actualizar reactivamente el Catálogo de Clientes y Cotizador
+ * sin requerir recargar la página.
+ */
+export async function syncProductToSupabase(product: {
+  sku: string;
+  nombre: string;
+  ambiente?: string;
+  rendimiento_m2?: number;
+  activo?: boolean;
+  estado?: 'Activo' | 'Inactivo' | 'Borrador' | string;
+  precio?: number;
+  categoria?: string;
+}): Promise<{ success: boolean; error?: string }> {
+  // 1. Despachar inmediatamente eventos para reactividad total en la interfaz del cliente
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('colorlink_inventory_updated', { detail: product }));
+    window.dispatchEvent(new CustomEvent('colorlink_catalog_sync_needed', { detail: product }));
+  }
+
+  await checkAndInitServerSupabase();
+
+  if (!isSupabaseConfigured || !supabase) {
+    return { success: true };
+  }
+
+  try {
+    const sku = (product.sku || '').trim().toUpperCase();
+    if (!sku) return { success: false, error: 'SKU requerido' };
+
+    const isActivo = product.activo !== false && product.estado !== 'Inactivo' && product.estado !== 'Borrador';
+
+    // Si el producto está inactivo o borrador, no debe ser visible en el catálogo público de Supabase
+    if (!isActivo) {
+      try {
+        await supabase.from('productos').delete().eq('sku', sku);
+      } catch (delErr) {
+        console.debug('Aviso al despublicar SKU de Supabase:', delErr);
+      }
+      return { success: true };
+    }
+
+    // Si está activo, realizar Upsert en tabla 'productos'
+    const { data: existing, error: searchErr } = await supabase
+      .from('productos')
+      .select('id, sku')
+      .eq('sku', sku)
+      .limit(1);
+
+    const payload: any = {
+      nombre: product.nombre.trim(),
+      ambiente: product.ambiente || (product.categoria?.toLowerCase().includes('exterior') ? 'Exterior Fachada' : 'Interior'),
+      rendimiento_m2: Number(product.rendimiento_m2) || 30,
+      sku: sku,
+    };
+
+    if (!searchErr && existing && existing.length > 0) {
+      await supabase
+        .from('productos')
+        .update(payload)
+        .eq('id', existing[0].id);
+    } else {
+      await supabase
+        .from('productos')
+        .insert(payload);
+    }
+
+    return { success: true };
+  } catch (err: any) {
+    console.warn('Excepción sincronizando producto en Supabase:', err);
     return { success: false, error: err.message };
   }
 }

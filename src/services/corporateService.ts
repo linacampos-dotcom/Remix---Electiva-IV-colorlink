@@ -249,17 +249,21 @@ export interface OrdenCompraCorp {
   numeroOC: string;
   numeroFacturaProveedor: string;
   proveedor: string;
+  proveedorNit?: string;
   fechaEmision: string;
   fechaEstimadaLlegada: string;
   fechaEnvio?: string;
   fechaRecepcion?: string;
   sedeDestinoId: string;
   sedeDestinoNombre: string;
-  estado: 'Pendiente Recibo' | 'Recibido Conforme' | 'Recibido Parcial' | 'Cancelada';
+  estado: 'Borrador' | 'Enviada a Proveedor' | 'En Tránsito' | 'Pendiente Recibo' | 'Recibido Conforme' | 'Recibido Parcial' | 'Cancelada';
   items: ItemOrdenCompra[];
   totalEstimadoCOP: number;
   totalUnidades?: number;
   compradorResponsable: string;
+  requisicionOrigenId?: string;
+  requisicionOrigenConsecutivo?: string;
+  condicionPago?: string;
   recibidoPor?: string;
   recibidoPorDocumento?: string;
   recibidoPorCargo?: string;
@@ -325,6 +329,7 @@ export interface ItemInventarioCorp {
   costoUnitarioGL: number;
   precioVentaGL: number;
   activo: boolean;
+  estado?: 'Activo' | 'Inactivo' | 'Borrador';
   movimientos: MovimientoInventario[];
 }
 
@@ -2252,6 +2257,8 @@ export function crearMatrizVariantesInventario(
     marca: 'Pintuco' | 'Color In';
     skuBase: string;
     ubicacionBodega?: string;
+    activo?: boolean;
+    estado?: 'Activo' | 'Inactivo' | 'Borrador';
   },
   variantes: Array<{
     sku: string;
@@ -2269,6 +2276,9 @@ export function crearMatrizVariantesInventario(
   const now = new Date().toISOString().replace('T', ' ').slice(0, 16);
   const baseSku = (productoBase?.skuBase || 'PIN-PROD').toLowerCase().replace(/[^a-z0-9]/g, '-');
   const baseId = `prod-${baseSku}-${Date.now().toString().slice(-4)}`;
+
+  const isActivo = productoBase.activo !== false && productoBase.estado !== 'Inactivo' && productoBase.estado !== 'Borrador';
+  const estadoItem: 'Activo' | 'Inactivo' | 'Borrador' = productoBase.estado || (isActivo ? 'Activo' : 'Inactivo');
 
   const safeVariantes = Array.isArray(variantes) ? variantes : [];
   const nuevosItems: ItemInventarioCorp[] = safeVariantes.map((v, idx) => {
@@ -2310,7 +2320,8 @@ export function crearMatrizVariantesInventario(
       ubicacionBodega: productoBase.ubicacionBodega || 'CEDI Rionegro - Pasillo A-01',
       costoUnitarioGL: v.costoUnitarioGL || Math.round(v.precioVentaGL * 0.62),
       precioVentaGL: Number(v.precioVentaGL) || 79900,
-      activo: true,
+      activo: isActivo,
+      estado: estadoItem,
       movimientos: [
         {
           id: `mov-${Date.now()}-${idx}`,
@@ -2365,9 +2376,18 @@ export function actualizarProductoInventario(
         });
       }
 
+      const nuevoActivo = datos.activo !== undefined
+        ? datos.activo
+        : datos.estado !== undefined
+          ? (datos.estado === 'Activo')
+          : item.activo;
+      const nuevoEstadoItem: 'Activo' | 'Inactivo' | 'Borrador' = datos.estado || (nuevoActivo ? 'Activo' : 'Inactivo');
+
       updated = {
         ...item,
         ...datos,
+        activo: nuevoActivo,
+        estado: nuevoEstadoItem,
         stockGalones: nuevoStock,
         stockCunetes,
         movimientos,
@@ -2382,7 +2402,7 @@ export function actualizarProductoInventario(
     registrarAuditoria(
       'Inventario',
       'Edición de Producto',
-      `Producto SKU ${(updated as ItemInventarioCorp).sku} ("${(updated as ItemInventarioCorp).nombre}") modificado por ${usuarioNombre}`
+      `Producto SKU ${(updated as ItemInventarioCorp).sku} ("${(updated as ItemInventarioCorp).nombre}") modificado [Estado: ${(updated as ItemInventarioCorp).estado || 'Activo'}] por ${usuarioNombre}`
     );
   }
   return updated;
@@ -2407,7 +2427,7 @@ export function eliminarODesactivarProductoInventario(
     );
   } else {
     const nuevoEstado = accion === 'activar';
-    next = current.map((item) => (item.id === id ? { ...item, activo: nuevoEstado } : item));
+    next = current.map((item) => (item.id === id ? { ...item, activo: nuevoEstado, estado: nuevoEstado ? 'Activo' : 'Inactivo' } : item));
     registrarAuditoria(
       'Inventario',
       nuevoEstado ? 'Activación de Producto' : 'Desactivación de Producto',
@@ -4940,6 +4960,425 @@ export function actualizarDocumentoCorporativo(
   return actualizado;
 }
 
+// -------------------------------------------------------------
+// COMPRAS & ABASTECIMIENTO: REQUISICIONES Y PROVEEDORES
+// -------------------------------------------------------------
 
+export interface ItemRequisicion {
+  id: string;
+  sku: string;
+  productoNombre: string;
+  color?: string;
+  colorHex?: string;
+  presentacion: string;
+  cantidadSolicitada: number;
+  stockActual: number;
+  stockReservado: number;
+  stockEnTransito: number;
+  puntoReorden: number;
+  precioUnitarioEstimado?: number;
+}
 
+export interface RequisicionCompra {
+  id: string;
+  consecutivo: string; // ej: REQ-2026-001
+  fechaSolicitud: string;
+  sedeSolicitanteId: string;
+  sedeSolicitanteNombre: string;
+  solicitanteNombre: string;
+  solicitanteCargo: string;
+  prioridad: 'Normal' | 'Alta' | 'Crítica / Quiebre Stock';
+  motivo: string;
+  estado: 'Pendiente' | 'Aprobada' | 'Convertida en OC' | 'Rechazada';
+  items: ItemRequisicion[];
+  ordenCompraGeneradaId?: string;
+  ordenCompraNumero?: string;
+  fechaAprobacion?: string;
+  aprobadoPor?: string;
+  observacionesCompras?: string;
+}
 
+export interface ProveedorCorp {
+  id: string;
+  nit: string;
+  razonSocial: string;
+  nombreComercial: string;
+  categoria: 'Resinas & Solventes' | 'Pigmentos & Colorantes' | 'Envases & Empaques' | 'Pinturas Base & Esmaltes' | 'Herramientas & Brochas' | 'Químicos Especiales';
+  contactoNombre: string;
+  email: string;
+  telefono: string;
+  ciudad: string;
+  direccion: string;
+  condicionPago: 'Contado' | 'Crédito 15 días' | 'Crédito 30 días' | 'Crédito 45 días' | 'Crédito 60 días';
+  tiempoEntregaDiasSLA: number;
+  calificacionSLA: number; // Porcentaje de cumplimiento ej: 98.5
+  certificaciones: string[];
+  activo: boolean;
+  observaciones?: string;
+}
+
+export const STORAGE_REQUISICIONES_COMPRA = 'colorlink_requisiciones_compra_corp_v1';
+export const STORAGE_PROVEEDORES_CORP = 'colorlink_proveedores_corp_v1';
+
+export const PROVEEDORES_INICIALES: ProveedorCorp[] = [
+  {
+    id: 'prov-01',
+    nit: '890.900.123-4',
+    razonSocial: 'Pintuco S.A. Planta Rionegro',
+    nombreComercial: 'Pintuco Industrial',
+    categoria: 'Pinturas Base & Esmaltes',
+    contactoNombre: 'Ing. Mauricio Valencia Osorio',
+    email: 'abastecimiento.planta@pintuco.com',
+    telefono: '+57 (4) 569 8000 Ext. 1420',
+    ciudad: 'Rionegro, Antioquia',
+    direccion: 'Autopista Medellín - Bogotá Km 34',
+    condicionPago: 'Crédito 45 días',
+    tiempoEntregaDiasSLA: 3,
+    calificacionSLA: 99.4,
+    certificaciones: ['ISO 9001:2015', 'NTC 1335', 'ISO 14001', 'SGA'],
+    activo: true,
+    observaciones: 'Planta de producción principal. Proveedor exclusivo de bases Viniltex y Koraza.',
+  },
+  {
+    id: 'prov-02',
+    nit: '900.456.789-1',
+    razonSocial: 'Químicos & Resinas Andina S.A.S.',
+    nombreComercial: 'Resinas Andina',
+    categoria: 'Resinas & Solventes',
+    contactoNombre: 'Dra. Claudia Patricia Restrepo',
+    email: 'ventas.corporativas@resinasandina.com.co',
+    telefono: '+57 (1) 745 9200',
+    ciudad: 'Bogotá D.C.',
+    direccion: 'Carrera 68D # 17-50, Zona Industrial',
+    condicionPago: 'Crédito 30 días',
+    tiempoEntregaDiasSLA: 4,
+    calificacionSLA: 97.8,
+    certificaciones: ['ISO 9001:2015', 'Responsible Care'],
+    activo: true,
+    observaciones: 'Suministro de resinas acrílicas puras emulsionadas bajo especificación NTC.',
+  },
+  {
+    id: 'prov-03',
+    nit: '860.012.345-8',
+    razonSocial: 'Envases & Empaques de Colombia S.A.',
+    nombreComercial: 'Envaco Industrial',
+    categoria: 'Envases & Empaques',
+    contactoNombre: 'Lic. Andrés Felipe Gómez',
+    email: 'contacto.empresarial@envacocolombia.com',
+    telefono: '+57 (2) 690 1100',
+    ciudad: 'Cali / Yumbo, Valle',
+    direccion: 'Calle 15 # 32-80, Acopi Yumbo',
+    condicionPago: 'Crédito 60 días',
+    tiempoEntregaDiasSLA: 5,
+    calificacionSLA: 98.2,
+    certificaciones: ['ISO 9001:2015', 'HACCP Recipientes'],
+    activo: true,
+    observaciones: 'Cuñetes plásticos de 5 galones virgen y galones metálicos triple cierre.',
+  },
+  {
+    id: 'prov-04',
+    nit: '800.222.111-9',
+    razonSocial: 'Distribuidora Corona de Herramientas & Brochas S.A.S.',
+    nombreComercial: 'Brochas & Rodillos Corona',
+    categoria: 'Herramientas & Brochas',
+    contactoNombre: 'Sr. Fernando Jaramillo',
+    email: 'institucional@brochascorona.com',
+    telefono: '+57 (4) 310 9988',
+    ciudad: 'Medellín, Antioquia',
+    direccion: 'Carrera 48 # 20-114, El Poblado',
+    condicionPago: 'Crédito 30 días',
+    tiempoEntregaDiasSLA: 2,
+    calificacionSLA: 99.1,
+    certificaciones: ['ISO 9001:2015', 'Sello Calidad Icontec'],
+    activo: true,
+    observaciones: 'Rodillos profesionales antigota, bandejas y brochas monofilamento nylon.',
+  },
+  {
+    id: 'prov-05',
+    nit: '901.123.888-2',
+    razonSocial: 'Pigmentos & Tintas del Caribe S.A.',
+    nombreComercial: 'Caribe Pigments',
+    categoria: 'Pigmentos & Colorantes',
+    contactoNombre: 'Ing. Soraya Mercado',
+    email: 'despachos@caribepigments.com',
+    telefono: '+57 (5) 385 4040',
+    ciudad: 'Barranquilla, Atlántico',
+    direccion: 'Vía 40 # 85-210, Corredor Portuario',
+    condicionPago: 'Crédito 30 días',
+    tiempoEntregaDiasSLA: 6,
+    calificacionSLA: 96.5,
+    certificaciones: ['ISO 9001:2015', 'Color Index Standard'],
+    activo: true,
+    observaciones: 'Pigmentos inorgánicos óxidos de hierro y dióxido de titanio R-902.',
+  },
+];
+
+export const REQUISICIONES_INICIALES: RequisicionCompra[] = [
+  {
+    id: 'req-2026-001',
+    consecutivo: 'REQ-2026-001',
+    fechaSolicitud: '2026-11-09',
+    sedeSolicitanteId: 'bogota',
+    sedeSolicitanteNombre: 'Bogotá - CEDI Principal',
+    solicitanteNombre: 'Julián Camilo Morales',
+    solicitanteCargo: 'Coordinador de Bodega Montevideo',
+    prioridad: 'Alta',
+    motivo: 'Incremento de demanda por licitación de obras de vivienda VIS en Suba y Fontibón. Stock de Viniltex y Koraza por debajo del punto de reorden.',
+    estado: 'Pendiente',
+    items: [
+      {
+        id: 'it-req-1',
+        sku: 'PIN-VTX-01-BLA-5GL',
+        productoNombre: 'Viniltex Avanzado Máxima Lavabilidad',
+        color: 'Blanco Puro Mate 1001',
+        colorHex: '#F9FAFB',
+        presentacion: 'Cuñete (5 Gal)',
+        cantidadSolicitada: 35,
+        stockActual: 8,
+        stockReservado: 6,
+        stockEnTransito: 0,
+        puntoReorden: 15,
+        precioUnitarioEstimado: 349000,
+      },
+      {
+        id: 'it-req-2',
+        sku: 'PIN-KOR-02-GRI-5GL',
+        productoNombre: 'Koraza Doble Vida Protección Clima Extremo',
+        color: 'Gris Niebla 1002',
+        colorHex: '#CBD5E1',
+        presentacion: 'Cuñete (5 Gal)',
+        cantidadSolicitada: 25,
+        stockActual: 4,
+        stockReservado: 3,
+        stockEnTransito: 0,
+        puntoReorden: 12,
+        precioUnitarioEstimado: 389000,
+      },
+    ],
+    observacionesCompras: 'Prioridad alta debido a que el stock disponible en CEDI Bogotá cubre menos de 4 días de venta.',
+  },
+  {
+    id: 'req-2026-002',
+    consecutivo: 'REQ-2026-002',
+    fechaSolicitud: '2026-11-10',
+    sedeSolicitanteId: 'rionegro',
+    sedeSolicitanteNombre: 'CEDI Rionegro - Planta Principal',
+    solicitanteNombre: 'Carlos E. Montoya',
+    solicitanteCargo: 'Superintendente de Almacén',
+    prioridad: 'Crítica / Quiebre Stock',
+    motivo: 'Quiebre inminente en envases vacíos de 5 galones para la línea de envasado rápido de esmaltes industriales.',
+    estado: 'Pendiente',
+    items: [
+      {
+        id: 'it-req-3',
+        sku: 'ENV-CUN-5GL-POL',
+        productoNombre: 'Cuñete Plástico 5 Galón Polietileno Virgen',
+        color: 'Blanco Industrial',
+        colorHex: '#FFFFFF',
+        presentacion: 'Unidad',
+        cantidadSolicitada: 200,
+        stockActual: 15,
+        stockReservado: 10,
+        stockEnTransito: 0,
+        puntoReorden: 50,
+        precioUnitarioEstimado: 18500,
+      },
+    ],
+    observacionesCompras: 'Urgente para evitar paro de línea en envasado Planta Rionegro.',
+  },
+  {
+    id: 'req-2026-003',
+    consecutivo: 'REQ-2026-003',
+    fechaSolicitud: '2026-10-28',
+    sedeSolicitanteId: 'medellin',
+    sedeSolicitanteNombre: 'Medellín - CEDI Regional',
+    solicitanteNombre: 'Jorge Restrepo',
+    solicitanteCargo: 'Líder Bodega Guayabal',
+    prioridad: 'Normal',
+    motivo: 'Reposición programada de inventario quincenal de accesorios de aplicación.',
+    estado: 'Convertida en OC',
+    ordenCompraGeneradaId: 'oc-2026-002',
+    ordenCompraNumero: 'OC-2026-002',
+    fechaAprobacion: '2026-10-29',
+    aprobadoPor: 'Dra. Carolina Martínez (Directora de Compras)',
+    items: [
+      {
+        id: 'it-req-4',
+        sku: 'HER-ROD-PRO-09',
+        productoNombre: 'Rodillo Profesional Felpa Microfibra 9 Pulgadas',
+        color: 'Azul Corona',
+        colorHex: '#1D4ED8',
+        presentacion: 'Unidad',
+        cantidadSolicitada: 80,
+        stockActual: 40,
+        stockReservado: 15,
+        stockEnTransito: 80,
+        puntoReorden: 25,
+        precioUnitarioEstimado: 24500,
+      },
+    ],
+  },
+];
+
+export function getRequisicionesCompra(): RequisicionCompra[] {
+  const loaded = loadOrInit(STORAGE_REQUISICIONES_COMPRA, REQUISICIONES_INICIALES);
+  return Array.isArray(loaded) ? loaded : REQUISICIONES_INICIALES;
+}
+
+export function saveRequisicionesCompra(reqs: RequisicionCompra[]): void {
+  save(STORAGE_REQUISICIONES_COMPRA, reqs);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('colorlink_requisiciones_updated', { detail: reqs }));
+  }
+}
+
+export function crearRequisicionCompra(
+  datos: Omit<RequisicionCompra, 'id' | 'consecutivo' | 'fechaSolicitud' | 'estado'>
+): RequisicionCompra {
+  const actual = getRequisicionesCompra();
+  const nextNum = actual.length + 1;
+  const consecutivo = `REQ-2026-${String(nextNum).padStart(3, '0')}`;
+  
+  const nueva: RequisicionCompra = {
+    ...datos,
+    id: `req-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+    consecutivo,
+    fechaSolicitud: new Date().toISOString().slice(0, 10),
+    estado: 'Pendiente',
+  };
+
+  const listaActualizada = [nueva, ...actual];
+  saveRequisicionesCompra(listaActualizada);
+
+  registrarAuditoria(
+    'Inventario',
+    'Creación de Requisición de Bodega',
+    `Requisición ${consecutivo} emitida por ${nueva.solicitanteNombre} para sede ${nueva.sedeSolicitanteNombre}. ${nueva.items.length} SKUs solicitados. Prioridad: ${nueva.prioridad}.`,
+    nueva.solicitanteNombre
+  );
+
+  return nueva;
+}
+
+export function getProveedoresCorp(): ProveedorCorp[] {
+  const loaded = loadOrInit(STORAGE_PROVEEDORES_CORP, PROVEEDORES_INICIALES);
+  return Array.isArray(loaded) ? loaded : PROVEEDORES_INICIALES;
+}
+
+export function saveProveedoresCorp(provs: ProveedorCorp[]): void {
+  save(STORAGE_PROVEEDORES_CORP, provs);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('colorlink_proveedores_updated', { detail: provs }));
+  }
+}
+
+export function crearProveedorCorp(
+  datos: Omit<ProveedorCorp, 'id'>
+): ProveedorCorp {
+  const actual = getProveedoresCorp();
+  const nuevo: ProveedorCorp = {
+    ...datos,
+    id: `prov-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+  };
+  const lista = [nuevo, ...actual];
+  saveProveedoresCorp(lista);
+
+  registrarAuditoria(
+    'Seguridad',
+    'Registro de Proveedor Homologado',
+    `Nuevo proveedor registrado: [${nuevo.nit}] ${nuevo.razonSocial}. Categoría: ${nuevo.categoria}. SLA: ${nuevo.tiempoEntregaDiasSLA} días.`,
+    'Compras & Abastecimiento'
+  );
+
+  return nuevo;
+}
+
+// -------------------------------------------------------------
+// HELPER PARA CÁLCULO DINÁMICO DE DESGLOSE DE STOCK POR SKU
+// -------------------------------------------------------------
+export function calcularMetricasStockSKU(
+  sku: string,
+  sedeId: string,
+  inventario: ItemInventarioCorp[],
+  ordenesCompra: OrdenCompraCorp[],
+  pedidosCliente: any[] = []
+): {
+  stockFisico: number;
+  stockReservado: number;
+  stockEnTransito: number;
+  puntoReorden: number;
+  nivelAlerta: 'critico' | 'reorden' | 'optimo';
+  sugeridoReorden: number;
+} {
+  const item = inventario.find((i) => i.sku === sku);
+  if (!item) {
+    return {
+      stockFisico: 0,
+      stockReservado: 0,
+      stockEnTransito: 0,
+      puntoReorden: 10,
+      nivelAlerta: 'critico',
+      sugeridoReorden: 20,
+    };
+  }
+
+  // Stock físico en sede
+  const stockFisico = getStockEnSede(item, sedeId);
+
+  // Punto de reorden configurado
+  const puntoReorden = sedeId === 'todas'
+    ? (item.stockMinimoUnidades || item.stockMinimoGalones || 15)
+    : Math.max(3, Math.round((item.stockMinimoUnidades || item.stockMinimoGalones || 15) * 0.3));
+
+  // Stock Reservado para clientes en pedidos no despachados
+  let stockReservado = 0;
+  if (Array.isArray(pedidosCliente)) {
+    pedidosCliente.forEach((ped) => {
+      if (ped && ped.estado !== 'Entregado' && ped.estado !== 'Cancelado') {
+        const matchingItems = Array.isArray(ped.items) ? ped.items : [];
+        matchingItems.forEach((it: any) => {
+          if (it && (it.sku === sku || (it.nombre && it.nombre.toLowerCase().includes(item.nombre.toLowerCase())))) {
+            stockReservado += Number(it.cantidad || it.galones || 1);
+          }
+        });
+      }
+    });
+  }
+
+  // Stock en Tránsito de Órdenes de Compra abiertas hacia esta sede
+  let stockEnTransito = 0;
+  if (Array.isArray(ordenesCompra)) {
+    ordenesCompra.forEach((oc) => {
+      const ocEnCamino = oc.estado === 'Enviada a Proveedor' || oc.estado === 'En Tránsito' || oc.estado === 'Pendiente Recibo';
+      const sedeCoincide = sedeId === 'todas' || oc.sedeDestinoId === sedeId;
+      if (ocEnCamino && sedeCoincide && Array.isArray(oc.items)) {
+        oc.items.forEach((it) => {
+          if (it.sku === sku) {
+            stockEnTransito += Number(it.cantidadEsperada) || 0;
+          }
+        });
+      }
+    });
+  }
+
+  // Nivel de Alerta
+  let nivelAlerta: 'critico' | 'reorden' | 'optimo' = 'optimo';
+  if (stockFisico <= Math.max(1, Math.round(puntoReorden * 0.35))) {
+    nivelAlerta = 'critico';
+  } else if (stockFisico <= puntoReorden) {
+    nivelAlerta = 'reorden';
+  }
+
+  // Sugerido de compra: para alcanzar 1.8 veces el punto de reorden considerando reservado y en tránsito
+  const deficit = (puntoReorden * 1.8) - (stockFisico - stockReservado + stockEnTransito);
+  const sugeridoReorden = Math.max(5, Math.ceil(deficit));
+
+  return {
+    stockFisico,
+    stockReservado,
+    stockEnTransito,
+    puntoReorden,
+    nivelAlerta,
+    sugeridoReorden,
+  };
+}

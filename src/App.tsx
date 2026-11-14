@@ -56,6 +56,7 @@ import {
   Database, 
   Sparkles,
   ArrowRight,
+  ArrowLeft,
   X,
   RotateCcw,
   Trash2
@@ -308,10 +309,42 @@ export default function App() {
     }
   }, []);
 
-  // Initial load on mount
+  // Initial load on mount and realtime synchronization
   useEffect(() => {
     loadCatalogFromSupabase();
     loadProjectsFromSupabase();
+
+    // Eventos reactivos globales para sincronización inmediata del catálogo
+    const handleSync = () => {
+      loadCatalogFromSupabase();
+    };
+    window.addEventListener('colorlink_catalog_sync_needed', handleSync);
+    window.addEventListener('colorlink_inventory_updated', handleSync);
+
+    // Suscripción Realtime a Supabase en tabla 'productos'
+    let channel: any = null;
+    if (isSupabaseConfigured && supabase) {
+      try {
+        channel = supabase
+          .channel('public:productos:realtime')
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'productos' }, () => {
+            loadCatalogFromSupabase();
+          })
+          .subscribe();
+      } catch (err) {
+        console.debug('Error subscribing to Supabase productos realtime:', err);
+      }
+    }
+
+    return () => {
+      window.removeEventListener('colorlink_catalog_sync_needed', handleSync);
+      window.removeEventListener('colorlink_inventory_updated', handleSync);
+      if (channel && supabase) {
+        try {
+          supabase.removeChannel(channel);
+        } catch {}
+      }
+    };
   }, [loadCatalogFromSupabase, loadProjectsFromSupabase]);
 
   // Modals and tabs state
@@ -963,8 +996,77 @@ export default function App() {
     } else {
       setUserRole('cliente');
       localStorage.setItem('colorlink_user_role', 'cliente');
-      showToast('Cambiado a Vista Cliente');
+      setActiveClientTab('home');
+      if (typeof window !== 'undefined') {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('role');
+        url.searchParams.delete('tab');
+        url.searchParams.delete('modulo');
+        url.searchParams.delete('corpTab');
+        url.searchParams.delete('intranet');
+        window.history.pushState({}, '', url.pathname);
+      }
+      showToast('Cambiado a Vista Tienda de Clientes');
     }
+  };
+
+  const handleSwitchToClientView = () => {
+    setUserRole('cliente');
+    localStorage.setItem('colorlink_user_role', 'cliente');
+    setActiveClientTab('home');
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('role');
+      url.searchParams.delete('tab');
+      url.searchParams.delete('modulo');
+      url.searchParams.delete('corpTab');
+      url.searchParams.delete('intranet');
+      window.history.pushState({}, '', url.pathname);
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    showToast('Modo Tienda de Clientes Activado');
+  };
+
+  // Validación estricta de autorización para acceso corporativo y visualización del banner de retorno
+  const isAuthorizedCorporateUser = useMemo(() => {
+    if (isAdminAuthenticated) return true;
+    if (!userSession) return false;
+
+    // 1. Dominio corporativo oficial (@pintuco.com, @colorlink.com, @colcan.com, @akzonobel.com)
+    const email = (userSession.email || '').trim().toLowerCase();
+    const isCorporateDomain = 
+      email.endsWith('@pintuco.com') || 
+      email.endsWith('@colorlink.com') || 
+      email.endsWith('@colcan.com') || 
+      email.endsWith('@akzonobel.com');
+
+    // 2. Rol en sesión / Supabase metadata
+    const userType = (userSession.userType || '').toLowerCase();
+    const corporateRole = (userSession.corporateRole || '').toLowerCase();
+    const isStaffRole = 
+      userType === 'funcionario' || 
+      userType === 'administrador' || 
+      userType === 'admin' ||
+      userSession.isCorporate === true ||
+      userSession.isSuperAdmin === true ||
+      (corporateRole.length > 0 && corporateRole !== 'cliente');
+
+    return isCorporateDomain || isStaffRole;
+  }, [isAdminAuthenticated, userSession]);
+
+  // Retorno directo y seguro al Portal de Funcionarios exclusivo para funcionarios autorizados
+  const handleReturnToCorporatePortal = () => {
+    setUserRole('admin');
+    setAdminTab('intranet');
+    localStorage.setItem('colorlink_user_role', 'admin');
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.set('role', 'admin');
+      url.searchParams.set('tab', 'intranet');
+      window.history.pushState({}, '', url.pathname + url.search);
+    }
+    showToast('Regresando al Portal de Funcionarios');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleAdminLoginSuccess = () => {
@@ -1455,6 +1557,49 @@ export default function App() {
         </div>
       )}
 
+      {/* Barra de Retorno Exclusiva para Funcionarios Autorizados en Modo Tienda de Clientes */}
+      {userRole === 'cliente' && isAuthorizedCorporateUser && (
+        <aside 
+          aria-label="Barra de Retorno al Portal de Funcionarios"
+          className="sticky top-0 z-[1100] w-full bg-gradient-to-r from-slate-950 via-[#001D3D] to-slate-900 text-white border-b-2 border-amber-400 shadow-xl px-3 sm:px-6 py-2 transition-all duration-300 backdrop-blur-md"
+        >
+          <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2 sm:gap-4">
+            {/* Indicador de Estado y Perfil de Funcionario */}
+            <div className="flex items-center gap-2.5 min-w-0">
+              <span className="relative flex h-2.5 w-2.5 shrink-0">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
+              </span>
+              <div className="flex items-center gap-2 truncate">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-400/15 border border-amber-400/40 text-[10px] sm:text-xs font-black tracking-wider uppercase text-amber-300">
+                  <ShieldCheck className="w-3 h-3 text-amber-400" />
+                  Modo Tienda
+                </span>
+                <span className="text-xs sm:text-sm font-semibold text-slate-100 truncate">
+                  Previsualizando vista de clientes
+                </span>
+                <span className="hidden md:inline text-xs text-slate-300 font-mono">
+                  • Funcionario: <strong className="text-amber-300 font-bold">{userSession?.nombre || 'Funcionario Activo'}</strong> {userSession?.cargo ? `(${userSession.cargo})` : ''}
+                </span>
+              </div>
+            </div>
+
+            {/* Botón de Retorno Inmediato al Portal */}
+            <div className="flex items-center gap-2 ml-auto">
+              <button
+                type="button"
+                onClick={handleReturnToCorporatePortal}
+                className="inline-flex items-center gap-2 px-4 py-1.5 rounded-lg bg-gradient-to-r from-amber-400 via-amber-500 to-yellow-500 hover:from-amber-300 hover:to-yellow-400 text-slate-950 font-black text-xs sm:text-sm tracking-wide shadow-md hover:shadow-amber-500/25 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer group"
+                title="Regresar a la Intranet y Panel Administrativo de Funcionarios"
+              >
+                <ArrowLeft className="w-4 h-4 transition-transform group-hover:-translate-x-1" />
+                <span>Volver al Portal de Funcionarios</span>
+              </button>
+            </div>
+          </div>
+        </aside>
+      )}
+
       {/* Main Navigation with Role Switcher (E-commerce Header) */}
       <Header
         currentRole={userRole}
@@ -1608,6 +1753,7 @@ export default function App() {
                 orders={orders}
                 onUpdateOrderStatus={(id, st, updates) => handleUpdateOrderStatus(id, st, updates)}
                 onOpenOrderTracking={handleOpenOmniForOrder}
+                onSwitchToClientView={handleSwitchToClientView}
               />
             ) : adminTab === 'rbac' ? (
               <CorporateRBACDashboard
@@ -1950,6 +2096,23 @@ export default function App() {
           isCorporateView={isIntranetActive}
           currentTab={activeClientTab}
         />
+      )}
+
+      {/* Botón Flotante Adicional de Retorno Rápido (Bottom-Left) para Funcionarios en Modo Tienda */}
+      {userRole === 'cliente' && isAuthorizedCorporateUser && (
+        <div className="fixed bottom-6 left-6 z-[950] animate-in fade-in slide-in-from-bottom-4 duration-300">
+          <button
+            type="button"
+            onClick={handleReturnToCorporatePortal}
+            className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-full bg-[#001D3D] hover:bg-slate-900 text-white font-bold text-xs shadow-2xl border-2 border-amber-400/80 hover:border-amber-400 hover:scale-105 active:scale-95 transition-all cursor-pointer group"
+            title="Volver al Portal de Funcionarios"
+          >
+            <div className="w-6 h-6 rounded-full bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950 flex items-center justify-center font-black">
+              <ArrowLeft className="w-3.5 h-3.5 group-hover:-translate-x-0.5 transition-transform" />
+            </div>
+            <span className="pr-1 text-amber-300 group-hover:text-amber-200">Portal Funcionarios</span>
+          </button>
+        </div>
       )}
 
     </div>

@@ -303,6 +303,61 @@ Descargado por: ${logUser} el ${new Date().toLocaleString('es-CO')}
     }
   };
 
+  // Helper de badge distintivo y colorido por categoría
+  const getCategoriaBadge = (catId: CategoriaDocCorp, nombre: string) => {
+    switch (catId) {
+      case 'calidad':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold bg-blue-50 text-blue-700 border border-blue-200/80 shadow-2xs">
+            <ShieldCheck className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+            <span className="truncate max-w-[140px]">{nombre}</span>
+          </span>
+        );
+      case 'sgsst':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/80 shadow-2xs">
+            <AlertTriangle className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+            <span className="truncate max-w-[140px]">{nombre}</span>
+          </span>
+        );
+      case 'legal':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold bg-purple-50 text-purple-700 border border-purple-200/80 shadow-2xs">
+            <Briefcase className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+            <span className="truncate max-w-[140px]">{nombre}</span>
+          </span>
+        );
+      case 'talento':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold bg-amber-50 text-amber-800 border border-amber-200/80 shadow-2xs">
+            <Users className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+            <span className="truncate max-w-[140px]">{nombre}</span>
+          </span>
+        );
+      case 'logistica':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold bg-cyan-50 text-cyan-800 border border-cyan-200/80 shadow-2xs">
+            <Truck className="w-3.5 h-3.5 text-cyan-600 shrink-0" />
+            <span className="truncate max-w-[140px]">{nombre}</span>
+          </span>
+        );
+      case 'comercial':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold bg-rose-50 text-rose-700 border border-rose-200/80 shadow-2xs">
+            <TrendingUp className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+            <span className="truncate max-w-[140px]">{nombre}</span>
+          </span>
+        );
+      default:
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold bg-slate-100 text-slate-700 border border-slate-200 shadow-2xs">
+            <FileText className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+            <span className="truncate max-w-[140px]">{nombre}</span>
+          </span>
+        );
+    }
+  };
+
   return (
     <div className="space-y-6 animate-fadeIn">
       {/* =========================================================================
@@ -540,14 +595,14 @@ Descargado por: ${logUser} el ${new Date().toLocaleString('es-CO')}
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="border-b border-slate-200 text-[10px] font-black uppercase tracking-wider text-slate-400 bg-slate-50/40">
-                  <th className="py-3 px-4">Código & Documento</th>
-                  <th className="py-3 px-4">Categoría</th>
-                  <th className="py-3 px-3 text-center">Versión</th>
-                  <th className="py-3 px-3 text-center">Estado</th>
-                  <th className="py-3 px-4">Última Actualización</th>
-                  <th className="py-3 px-4">Responsable & Sede</th>
-                  <th className="py-3 px-4 text-right">Acciones</th>
+                <tr className="border-b border-slate-200 text-[10px] font-black uppercase tracking-wider text-slate-500 bg-slate-50/70">
+                  <th className="py-2.5 px-3.5">Código & Documento</th>
+                  <th className="py-2.5 px-3">Categoría</th>
+                  <th className="py-2.5 px-2.5 text-center">Versión</th>
+                  <th className="py-2.5 px-2.5 text-center">Estado</th>
+                  <th className="py-2.5 px-3">Última Actualización</th>
+                  <th className="py-2.5 px-3">Responsable & Sede</th>
+                  <th className="py-2.5 px-3.5 text-right">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
@@ -555,106 +610,105 @@ Descargado por: ${logUser} el ${new Date().toLocaleString('es-CO')}
                   return (
                     <tr
                       key={doc.id}
-                      className="hover:bg-slate-50/80 transition-colors group"
+                      className="hover:bg-blue-50/40 transition-colors group"
                     >
                       {/* Código y Nombre */}
-                      <td className="py-3.5 px-4">
-                        <div className="flex items-start gap-2.5">
-                          <div className="p-1.5 rounded-lg bg-slate-100 text-slate-600 shrink-0 mt-0.5 group-hover:bg-blue-50 group-hover:text-blue-600 transition-colors">
+                      <td className="py-2.5 px-3.5">
+                        <div className="flex items-center gap-2.5">
+                          <div className="p-1.5 rounded-lg bg-slate-100 text-slate-600 shrink-0 group-hover:bg-blue-100 group-hover:text-blue-700 transition-colors">
                             {doc.formato === 'XLSX' ? (
                               <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
                             ) : (
-                              <FileText className="w-4 h-4" />
+                              <FileText className="w-4 h-4 text-blue-600" />
                             )}
                           </div>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span className="font-mono text-[11px] font-bold text-slate-900 px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-mono text-[11px] font-black text-slate-900 px-2 py-0.5 rounded bg-slate-100 border border-slate-200 shadow-2xs tracking-tight shrink-0">
                                 {doc.codigo}
                               </span>
-                              <span className="text-[10px] font-mono text-slate-400">
+                              <span className="text-[10px] font-mono font-medium text-slate-400">
                                 {doc.formato} • {doc.tamano}
                               </span>
                             </div>
-                            <p className="font-bold text-slate-900 mt-1 leading-snug">
+                            <button
+                              type="button"
+                              onClick={() => setPreviewDoc(doc)}
+                              className="font-bold text-slate-900 hover:text-blue-600 transition-colors text-left text-xs leading-snug mt-0.5 block truncate max-w-sm sm:max-w-md cursor-pointer"
+                              title={`Previsualizar ${doc.nombre}`}
+                            >
                               {doc.nombre}
-                            </p>
-                            <p className="text-[11px] text-slate-500 line-clamp-1 mt-0.5">
-                              {doc.descripcion}
-                            </p>
+                            </button>
                           </div>
                         </div>
                       </td>
 
-                      {/* Categoría */}
-                      <td className="py-3.5 px-4 whitespace-nowrap">
-                        <div className="flex items-center gap-1.5">
-                          {getCategoriaIcon(doc.categoria)}
-                          <span className="font-medium text-slate-700">
-                            {doc.categoriaNombre}
-                          </span>
-                        </div>
+                      {/* Categoría con Badge Colorido */}
+                      <td className="py-2.5 px-3 whitespace-nowrap">
+                        {getCategoriaBadge(doc.categoria, doc.categoriaNombre)}
                       </td>
 
-                      {/* Versión */}
-                      <td className="py-3.5 px-3 text-center whitespace-nowrap">
-                        <span className="inline-block px-2 py-0.5 rounded text-[10.5px] font-mono font-bold bg-slate-100 text-slate-800 border border-slate-200">
+                      {/* Versión centrada */}
+                      <td className="py-2.5 px-2.5 text-center whitespace-nowrap">
+                        <span className="inline-block px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-slate-100 text-slate-700 border border-slate-200 shadow-2xs">
                           {doc.version}
                         </span>
                       </td>
 
-                      {/* Estado */}
-                      <td className="py-3.5 px-3 text-center whitespace-nowrap">
+                      {/* Estado centrado */}
+                      <td className="py-2.5 px-2.5 text-center whitespace-nowrap">
                         {doc.estado === 'Vigente' && (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-50 text-emerald-800 border border-emerald-200">
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-50 text-emerald-800 border border-emerald-200 shadow-2xs">
                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                             Vigente
                           </span>
                         )}
                         {doc.estado === 'En revisión' && (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-50 text-amber-800 border border-amber-200">
-                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-50 text-amber-800 border border-amber-200 shadow-2xs">
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
                             En revisión
                           </span>
                         )}
                         {doc.estado === 'Histórico' && (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-slate-100 text-slate-600 border border-slate-200">
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-slate-100 text-slate-600 border border-slate-200 shadow-2xs">
                             Histórico
                           </span>
                         )}
                       </td>
 
-                      {/* Fecha */}
-                      <td className="py-3.5 px-4 whitespace-nowrap">
-                        <div className="flex items-center gap-1.5 text-slate-600">
-                          <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                          <span className="font-mono text-[11px]">{doc.fechaActualizacion}</span>
+                      {/* Fecha de actualización */}
+                      <td className="py-2.5 px-3 whitespace-nowrap text-slate-600">
+                        <div className="flex items-center gap-1.5 text-[11px] font-mono">
+                          <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                          <span>{doc.fechaActualizacion}</span>
                         </div>
                       </td>
 
                       {/* Responsable & Sede */}
-                      <td className="py-3.5 px-4">
-                        <p className="font-medium text-slate-800 truncate max-w-[200px]" title={doc.responsable}>
-                          {doc.responsable}
-                        </p>
-                        <p className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5">
-                          <Building2 className="w-3 h-3 text-slate-400" />
-                          <span className="truncate max-w-[190px]">{doc.sedeAplica}</span>
-                        </p>
+                      <td className="py-2.5 px-3">
+                        <div className="max-w-[190px]">
+                          <p className="font-semibold text-slate-800 text-xs truncate leading-snug" title={doc.responsable}>
+                            {doc.responsable}
+                          </p>
+                          <p className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5 truncate leading-none" title={doc.sedeAplica}>
+                            <Building2 className="w-3 h-3 text-slate-400 shrink-0" />
+                            <span className="truncate">{doc.sedeAplica}</span>
+                          </p>
+                        </div>
                       </td>
 
-                      {/* Botones de acción */}
-                      <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                      {/* Botones de acción alineados a la derecha */}
+                      <td className="py-2.5 px-3.5 text-right whitespace-nowrap">
                         <div className="flex items-center justify-end gap-1.5">
                           {/* Previsualizar */}
                           <button
                             type="button"
                             onClick={() => setPreviewDoc(doc)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-slate-100 text-slate-700 hover:bg-blue-50 hover:text-blue-700 transition-colors cursor-pointer"
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-slate-100 text-slate-700 hover:bg-blue-50 hover:text-blue-700 transition-colors cursor-pointer border border-transparent hover:border-blue-200"
                             title="Previsualizar documento estructurado"
                           >
                             <Eye className="w-3.5 h-3.5" />
-                            <span>Previsualizar</span>
+                            <span className="hidden sm:inline">Previsualizar</span>
                           </button>
 
                           {/* Descargar */}
@@ -665,7 +719,7 @@ Descargado por: ${logUser} el ${new Date().toLocaleString('es-CO')}
                             title="Descargar archivo en PDF / Excel"
                           >
                             <Download className="w-3.5 h-3.5" />
-                            <span>Descargar</span>
+                            <span className="hidden sm:inline">Descargar</span>
                           </button>
                         </div>
                       </td>

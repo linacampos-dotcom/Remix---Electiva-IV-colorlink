@@ -13,7 +13,8 @@ import {
   COLOR_PALETTE, 
   ColorPaletteItem,
   PRESET_PROJECTS, 
-  PINTUCO_CATALOG 
+  PINTUCO_CATALOG,
+  getLiveCatalog 
 } from '../data/pintucoData';
 import { 
   DEPARTAMENTOS_COLOMBIA, 
@@ -1793,8 +1794,8 @@ export function buildComprehensiveCatalogPaints(
   const seenIds = new Set<string>(baseList.map(item => item.id.toLowerCase()));
   const seenNames = new Set<string>(baseList.map(item => item.nombre.toLowerCase().trim()));
 
-  // 1. Inyección complementaria desde PINTUCO_CATALOG para garantizar que ninguna referencia oficial quede excluida
-  PINTUCO_CATALOG.forEach((p) => {
+  // 1. Inyección dinámica desde el Catálogo en vivo (incluye productos activos de bodega sincronizados)
+  getLiveCatalog().forEach((p) => {
     if (!p || p.categoriaCatalogo === 'herramientas') return;
     const cat = p.categoriaCatalogo;
     const nameLower = (p.nombre || '').toLowerCase();
@@ -2203,17 +2204,33 @@ export const FMVForm: React.FC<FMVFormProps> = ({
     });
   }, [userSession, currentStep]);
 
+  // Sincronización reactiva con catálogo e inventario corporativo en tiempo real
+  const [liveCatalogTick, setLiveCatalogTick] = useState(0);
+  useEffect(() => {
+    const handleUpdate = () => {
+      setLiveCatalogTick((prev) => prev + 1);
+    };
+    window.addEventListener('colorlink_inventory_updated', handleUpdate);
+    window.addEventListener('colorlink_catalog_sync_needed', handleUpdate);
+    window.addEventListener('storage', handleUpdate);
+    return () => {
+      window.removeEventListener('colorlink_inventory_updated', handleUpdate);
+      window.removeEventListener('colorlink_catalog_sync_needed', handleUpdate);
+      window.removeEventListener('storage', handleUpdate);
+    };
+  }, []);
+
   // Lista unificada y completa de todas las opciones de pintura sin restricciones ni .slice()
   const allPaintOptions = useMemo(() => [
     ...buildComprehensiveCatalogPaints('interiores', supabaseProducts),
     ...buildComprehensiveCatalogPaints('exteriores', supabaseProducts),
     ...buildComprehensiveCatalogPaints('especiales', supabaseProducts),
-  ], [supabaseProducts]);
+  ], [supabaseProducts, liveCatalogTick]);
 
   // Lista de pinturas disponibles para la categoría activa
   const currentCategoryPaints = useMemo(() => {
     return buildComprehensiveCatalogPaints(paintFilterTab, supabaseProducts);
-  }, [paintFilterTab, supabaseProducts]);
+  }, [paintFilterTab, supabaseProducts, liveCatalogTick]);
 
   const findPaintOption = (nameOrId: string): PaintLineOptionItem => {
     return allPaintOptions.find(p => 

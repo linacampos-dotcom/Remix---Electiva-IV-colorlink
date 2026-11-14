@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { AppRole, CatalogProduct, UserSession, ClientNavigationTab } from '../types';
-import { PINTUCO_CATALOG } from '../data/pintucoData';
+import { PINTUCO_CATALOG, getLiveCatalog } from '../data/pintucoData';
 import { openWhatsAppDirect, DEFAULT_WHATSAPP_PHONE, DEFAULT_WHATSAPP_MESSAGE } from '../utils/whatsappConfig';
 import { UserProfileDropdown, SectorPaintAvatar } from './UserProfileDropdown';
 import { 
@@ -191,7 +191,23 @@ export const Header: React.FC<HeaderProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const searchResults = PINTUCO_CATALOG.filter((p) => {
+  // Reactividad en tiempo real con inventario y catálogo
+  const [, setLiveCatalogTick] = useState(0);
+  useEffect(() => {
+    const handleCatalogUpdate = () => {
+      setLiveCatalogTick((prev) => prev + 1);
+    };
+    window.addEventListener('colorlink_inventory_updated', handleCatalogUpdate);
+    window.addEventListener('colorlink_catalog_sync_needed', handleCatalogUpdate);
+    window.addEventListener('storage', handleCatalogUpdate);
+    return () => {
+      window.removeEventListener('colorlink_inventory_updated', handleCatalogUpdate);
+      window.removeEventListener('colorlink_catalog_sync_needed', handleCatalogUpdate);
+      window.removeEventListener('storage', handleCatalogUpdate);
+    };
+  }, []);
+
+  const searchResults = getLiveCatalog().filter((p) => {
     if (!searchQuery.trim()) return false;
     const q = searchQuery.toLowerCase();
     return (
@@ -217,7 +233,7 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   const actualFavorites = favoriteIds !== undefined ? favoriteIds : favoritesList;
-  const favoriteProducts = PINTUCO_CATALOG.filter((p) => actualFavorites.includes(p.id));
+  const favoriteProducts = getLiveCatalog().filter((p) => actualFavorites.includes(p.id));
 
   const toggleFavorite = (productId: string) => {
     if (onToggleFavorite) {
