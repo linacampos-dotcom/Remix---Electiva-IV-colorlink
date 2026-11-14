@@ -55,26 +55,14 @@ import {
   SedeCEDI,
   getStockEnSede,
   descontarInventarioPorPedido,
-  RequisicionCompra,
-  getRequisicionesCompra,
-  crearRequisicionCompra,
-  calcularMetricasStockSKU,
+  syncTicketsFromSupabase,
 } from '../services/corporateService';
-import { syncProductToSupabase } from '../lib/supabaseService';
+import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 import { ActaRecepcionOCModal } from './ActaRecepcionOCModal';
-import { DocumentViewerNTC1335, ManualId } from './DocumentViewerNTC1335';
-import { AuditoriaActasManager } from './AuditoriaActasManager';
-import { ArchivoDocumentosManager } from './ArchivoDocumentosManager';
-import { PortalSSTManager, SubTabSST } from './PortalSSTManager';
-import { ComprasAbastecimientoManager, SubTabCompras } from './ComprasAbastecimientoManager';
 import {
   Building2,
   TrendingUp,
-  FolderOpen,
-  BookOpen,
   Truck,
-  ShoppingBag,
-  ShoppingCart,
   HeadphonesIcon,
   Sparkles,
   ShieldCheck,
@@ -108,7 +96,6 @@ import {
   Plus,
   ArrowUpRight,
   ShieldAlert,
-  HardHat,
   ChevronDown,
   UserPlus,
   Edit3,
@@ -132,18 +119,7 @@ import {
   MapPin,
   ClipboardCheck,
   ArrowLeftRight,
-  Key,
-  Mail,
-  Phone,
-  Shield,
-  User,
-  Copy,
-  EyeOff,
-  Globe,
-  ExternalLink,
-  Store,
 } from 'lucide-react';
-import { supabase } from '../lib/supabaseClient';
 
 interface CorporateIntranetViewProps {
   userSession?: UserSession | null;
@@ -151,7 +127,6 @@ interface CorporateIntranetViewProps {
   orders: COLORLINKOrder[];
   onUpdateOrderStatus: (id: string, newStatus: COLORLINKOrder['estado'], updates?: Partial<COLORLINKOrder>) => void;
   onOpenOrderTracking?: (order: COLORLINKOrder) => void;
-  onSwitchToClientView?: () => void;
 }
 
 export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
@@ -160,7 +135,6 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
   orders,
   onUpdateOrderStatus,
   onOpenOrderTracking,
-  onSwitchToClientView,
 }) => {
   // -------------------------------------------------------------
   // SIMULACIÓN Y CONTEXTO DE ROL (RBAC)
@@ -211,12 +185,31 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
     window.addEventListener('colorlink_inventory_updated', handleStorageUpdate);
     window.addEventListener('colorlink_ordenes_compra_updated', handleStorageUpdate);
     window.addEventListener('colorlink_traslados_updated', handleStorageUpdate);
+
+    // Sincronización inicial de tickets SAC desde Supabase (multidispositivo)
+    syncTicketsFromSupabase().then(setTicketsSAC).catch(() => {});
+
+    let sacChannel: any = null;
+    if (isSupabaseConfigured && supabase) {
+      sacChannel = supabase
+        .channel('intranet-tickets-realtime')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'tickets' }, () => {
+          syncTicketsFromSupabase().then(setTicketsSAC).catch(() => {});
+        })
+        .subscribe();
+    }
+
     return () => {
       window.removeEventListener('colorlink_corporate_updated', handleStorageUpdate);
       window.removeEventListener('colorlink_tickets_updated', handleStorageUpdate);
       window.removeEventListener('colorlink_inventory_updated', handleStorageUpdate);
       window.removeEventListener('colorlink_ordenes_compra_updated', handleStorageUpdate);
       window.removeEventListener('colorlink_traslados_updated', handleStorageUpdate);
+      if (sacChannel && supabase) {
+        try {
+          supabase.removeChannel(sacChannel);
+        } catch {}
+      }
     };
   }, []);
 
@@ -226,25 +219,22 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<
-    'dashboard' | 'areas' | 'funcionarios' | 'crear_funcionario' | 'tareas' | 'comunidad' | 'logistica' | 'compras' | 'sac' | 'sst' | 'documentos' | 'auditoria'
+    'dashboard' | 'areas' | 'funcionarios' | 'tareas' | 'comunidad' | 'logistica' | 'sac' | 'documentos' | 'auditoria'
   >(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const tabParam = params.get('corpTab') || params.get('tab') || params.get('modulo');
-      if (tabParam === 'compras' || tabParam === 'abastecimiento' || tabParam === 'requisiciones') return 'compras';
       if (tabParam === 'logistica' || tabParam === 'bodega' || tabParam === 'inventario') return 'logistica';
       if (tabParam === 'dashboard') return 'dashboard';
       if (tabParam === 'sac') return 'sac';
-      if (tabParam === 'sst' || tabParam === 'seguridad' || tabParam === 'salud') return 'sst';
       if (tabParam === 'tareas') return 'tareas';
       if (tabParam === 'areas') return 'areas';
-      if (tabParam === 'crear_funcionario' || tabParam === 'nuevo_funcionario') return 'crear_funcionario';
       if (tabParam === 'funcionarios') return 'funcionarios';
       if (tabParam === 'comunidad') return 'comunidad';
       if (tabParam === 'documentos') return 'documentos';
-      if (tabParam === 'auditoria' || tabParam === 'actas' || tabParam === 'informes') return 'auditoria';
+      if (tabParam === 'auditoria') return 'auditoria';
       const saved = localStorage.getItem('colorlink_corp_active_tab');
-      if (saved && ['dashboard', 'areas', 'funcionarios', 'crear_funcionario', 'tareas', 'comunidad', 'logistica', 'compras', 'sac', 'sst', 'documentos', 'auditoria'].includes(saved)) {
+      if (saved && ['dashboard', 'areas', 'funcionarios', 'tareas', 'comunidad', 'logistica', 'sac', 'documentos', 'auditoria'].includes(saved)) {
         return saved as any;
       }
     }
@@ -255,17 +245,6 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
   const [notificationsOpen, setNotificationsOpen] = useState(false);
-
-  // Redirección y alternancia inmediata a la Vista Tienda de Clientes
-  const handleGoToClientStore = () => {
-    if (onSwitchToClientView) {
-      onSwitchToClientView();
-    } else if (typeof window !== 'undefined') {
-      const origin = window.location.origin;
-      const pathname = window.location.pathname;
-      window.location.href = `${origin}${pathname}?role=cliente`;
-    }
-  };
 
   // -------------------------------------------------------------
   // MODALES Y SUB-ESTADOS
@@ -309,346 +288,6 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
   const [funcFilterArea, setFuncFilterArea] = useState('todos');
   const [funcFilterStatus, setFuncFilterStatus] = useState('todos');
 
-  // Formulario Completo: Crear Nuevo Funcionario
-  const [newFuncNombres, setNewFuncNombres] = useState('');
-  const [newFuncApellidos, setNewFuncApellidos] = useState('');
-  const [newFuncTipoDoc, setNewFuncTipoDoc] = useState<'CC' | 'NIT' | 'CE' | 'Pasaporte'>('CC');
-  const [newFuncDocumento, setNewFuncDocumento] = useState('');
-  const [newFuncTelefono, setNewFuncTelefono] = useState('');
-  const [newFuncCargo, setNewFuncCargo] = useState('');
-
-  // Correo Corporativo & Accesos
-  const [newFuncCorporateDomain, setNewFuncCorporateDomain] = useState<'@pintuco.com' | '@colorlink.com'>('@pintuco.com');
-  const [newFuncCorporateEmail, setNewFuncCorporateEmail] = useState('');
-  const [isEmailManuallyEdited, setIsEmailManuallyEdited] = useState(false);
-  const [newFuncPersonalEmail, setNewFuncPersonalEmail] = useState('');
-  const [newFuncTempPassword, setNewFuncTempPassword] = useState('Pintuco.2026*');
-  const [showPasswordText, setShowPasswordText] = useState(false);
-  const [sendWelcomeEmail, setSendWelcomeEmail] = useState(true);
-
-  // Asignación Organizacional
-  const [newFuncAreaId, setNewFuncAreaId] = useState<string>('area-logistica');
-  const [newFuncSedeId, setNewFuncSedeId] = useState<string>('bogota');
-  const [newFuncFechaIngreso, setNewFuncFechaIngreso] = useState<string>(() => new Date().toISOString().split('T')[0]);
-  const [newFuncEstado, setNewFuncEstado] = useState<'Activo' | 'En Inducción'>('Activo');
-
-  // Matriz de Roles y Permisos Modulares
-  const [newFuncRolId, setNewFuncRolId] = useState<RolId>('funcionario');
-  const [newFuncPermisos, setNewFuncPermisos] = useState<{
-    logistica_ver: boolean;
-    logistica_movimientos: boolean;
-    logistica_ocs: boolean;
-    logistica_traslados: boolean;
-    sac_responder: boolean;
-    sac_cerrar: boolean;
-    sac_notas_internas: boolean;
-    tareas_crear: boolean;
-    tareas_aprobar: boolean;
-    tareas_kanban_all: boolean;
-    personal_administrar: boolean;
-    personal_organigrama: boolean;
-    auditoria_ver: boolean;
-    auditoria_exportar: boolean;
-  }>({
-    logistica_ver: true,
-    logistica_movimientos: false,
-    logistica_ocs: false,
-    logistica_traslados: false,
-    sac_responder: false,
-    sac_cerrar: false,
-    sac_notas_internas: false,
-    tareas_crear: true,
-    tareas_aprobar: false,
-    tareas_kanban_all: false,
-    personal_administrar: false,
-    personal_organigrama: false,
-    auditoria_ver: false,
-    auditoria_exportar: false,
-  });
-
-  const [isSubmittingNewFunc, setIsSubmittingNewFunc] = useState(false);
-  const [newFuncSubmitError, setNewFuncSubmitError] = useState<string | null>(null);
-  const [newFuncSubmitSuccess, setNewFuncSubmitSuccess] = useState<string | null>(null);
-
-  // Generación automática del correo corporativo al escribir nombres y apellidos
-  useEffect(() => {
-    if (!isEmailManuallyEdited) {
-      const cleanFirst = newFuncNombres
-        .trim()
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/[^a-z0-9]/g, '');
-      const cleanLast = newFuncApellidos
-        .trim()
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/[^a-z0-9]/g, '');
-
-      if (cleanFirst && cleanLast) {
-        setNewFuncCorporateEmail(`${cleanFirst}.${cleanLast}${newFuncCorporateDomain}`);
-      } else if (cleanFirst) {
-        setNewFuncCorporateEmail(`${cleanFirst}${newFuncCorporateDomain}`);
-      } else {
-        setNewFuncCorporateEmail('');
-      }
-    }
-  }, [newFuncNombres, newFuncApellidos, newFuncCorporateDomain, isEmailManuallyEdited]);
-
-  // Generar contraseña temporal segura
-  const handleGenerateSecurePassword = () => {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%&*';
-    const randomSuffix = Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-    const gen = `Pintuco.${randomSuffix}*`;
-    setNewFuncTempPassword(gen);
-  };
-
-  // Configuración de permisos preestablecidos según el rol seleccionado
-  const handleRoleSelectionChange = (roleId: RolId) => {
-    setNewFuncRolId(roleId);
-    if (roleId === 'superadmin') {
-      setNewFuncPermisos({
-        logistica_ver: true,
-        logistica_movimientos: true,
-        logistica_ocs: true,
-        logistica_traslados: true,
-        sac_responder: true,
-        sac_cerrar: true,
-        sac_notas_internas: true,
-        tareas_crear: true,
-        tareas_aprobar: true,
-        tareas_kanban_all: true,
-        personal_administrar: true,
-        personal_organigrama: true,
-        auditoria_ver: true,
-        auditoria_exportar: true,
-      });
-    } else if (roleId === 'jefe_area' || roleId === 'director_gerente') {
-      setNewFuncPermisos({
-        logistica_ver: true,
-        logistica_movimientos: true,
-        logistica_ocs: true,
-        logistica_traslados: true,
-        sac_responder: true,
-        sac_cerrar: true,
-        sac_notas_internas: true,
-        tareas_crear: true,
-        tareas_aprobar: true,
-        tareas_kanban_all: true,
-        personal_administrar: false,
-        personal_organigrama: true,
-        auditoria_ver: true,
-        auditoria_exportar: true,
-      });
-    } else if (roleId === 'logistica_inventarios') {
-      setNewFuncPermisos({
-        logistica_ver: true,
-        logistica_movimientos: true,
-        logistica_ocs: true,
-        logistica_traslados: true,
-        sac_responder: false,
-        sac_cerrar: false,
-        sac_notas_internas: false,
-        tareas_crear: true,
-        tareas_aprobar: false,
-        tareas_kanban_all: false,
-        personal_administrar: false,
-        personal_organigrama: false,
-        auditoria_ver: false,
-        auditoria_exportar: false,
-      });
-    } else if (roleId === 'agente_sac') {
-      setNewFuncPermisos({
-        logistica_ver: false,
-        logistica_movimientos: false,
-        logistica_ocs: false,
-        logistica_traslados: false,
-        sac_responder: true,
-        sac_cerrar: true,
-        sac_notas_internas: true,
-        tareas_crear: true,
-        tareas_aprobar: false,
-        tareas_kanban_all: false,
-        personal_administrar: false,
-        personal_organigrama: false,
-        auditoria_ver: false,
-        auditoria_exportar: false,
-      });
-    } else {
-      // funcionario estándar / auditor visual
-      setNewFuncPermisos({
-        logistica_ver: true,
-        logistica_movimientos: false,
-        logistica_ocs: false,
-        logistica_traslados: false,
-        sac_responder: false,
-        sac_cerrar: false,
-        sac_notas_internas: false,
-        tareas_crear: true,
-        tareas_aprobar: false,
-        tareas_kanban_all: false,
-        personal_administrar: false,
-        personal_organigrama: false,
-        auditoria_ver: false,
-        auditoria_exportar: false,
-      });
-    }
-  };
-
-  // Guardar y Registrar Funcionario en el sistema, Supabase Auth y notificar
-  const handleSaveNewFuncionario = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setNewFuncSubmitError(null);
-    setNewFuncSubmitSuccess(null);
-
-    const nombres = newFuncNombres.trim();
-    const apellidos = newFuncApellidos.trim();
-    const documento = newFuncDocumento.trim();
-    const cargo = newFuncCargo.trim();
-    const email = newFuncCorporateEmail.trim().toLowerCase();
-    const password = newFuncTempPassword.trim();
-
-    if (!nombres || !apellidos) {
-      setNewFuncSubmitError('Por favor ingresa los Nombres y Apellidos completos del funcionario.');
-      return;
-    }
-    if (!documento) {
-      setNewFuncSubmitError('Por favor ingresa el Número de Documento (Cédula o NIT).');
-      return;
-    }
-    if (!cargo) {
-      setNewFuncSubmitError('Por favor ingresa el Cargo Oficial asignado al colaborador.');
-      return;
-    }
-    if (!email || !email.includes('@') || !email.includes('.')) {
-      setNewFuncSubmitError('El correo corporativo generado o editado no tiene un formato válido.');
-      return;
-    }
-    if (password.length < 6) {
-      setNewFuncSubmitError('La contraseña temporal de acceso debe contener al menos 6 caracteres.');
-      return;
-    }
-
-    setIsSubmittingNewFunc(true);
-
-    try {
-      const fullNombre = `${nombres} ${apellidos}`;
-      const areaObj = areas.find((a) => a.id === newFuncAreaId) || areas[0];
-      const sedeObj = SEDES_CEDI_CONFIG.find((s) => s.id === newFuncSedeId) || SEDES_CEDI_CONFIG[0];
-      const roleObj = ROLES_CORPORATIVOS.find((r) => r.id === newFuncRolId) || ROLES_CORPORATIVOS[4];
-
-      // 1. Guardar en el directorio corporativo
-      const avatarPhotos = [
-        'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&h=120&fit=crop&crop=faces',
-        'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=120&h=120&fit=crop&crop=faces',
-        'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=120&h=120&fit=crop&crop=faces',
-        'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=120&h=120&fit=crop&crop=faces',
-        'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=120&h=120&fit=crop&crop=faces',
-      ];
-      const chosenAvatar = avatarPhotos[Math.floor(Math.random() * avatarPhotos.length)];
-
-      createFuncionario({
-        nombre: fullNombre,
-        avatar: chosenAvatar,
-        email: email,
-        cargo: cargo,
-        areaId: areaObj.id,
-        areaNombre: areaObj.nombre,
-        rolId: newFuncRolId,
-        rolNombre: roleObj.nombre,
-        fechaIngreso: newFuncFechaIngreso || new Date().toISOString().split('T')[0],
-        estado: 'Activo',
-        telefono: newFuncTelefono.trim(),
-      });
-
-      // Actualizar estado reactivo
-      setFuncionarios(getFuncionarios());
-      setAreas(getAreas());
-
-      // 2. Registro en Supabase Auth si está configurado
-      if (supabase && supabase.auth && supabase.auth.signUp) {
-        try {
-          await supabase.auth.signUp({
-            email: email,
-            password: password,
-            options: {
-              data: {
-                nombre: fullNombre,
-                cargo: cargo,
-                documento: `${newFuncTipoDoc} ${documento}`,
-                telefono: newFuncTelefono.trim(),
-                areaId: areaObj.id,
-                areaNombre: areaObj.nombre,
-                sedeId: sedeObj.id,
-                sedeNombre: sedeObj.nombre,
-                rolId: newFuncRolId,
-                rolNombre: roleObj.nombre,
-                permisos: newFuncPermisos,
-              },
-            },
-          });
-        } catch (supaErr) {
-          console.warn('Registro en Supabase Auth completado con advertencia de red:', supaErr);
-        }
-      }
-
-      // 3. Envío de Credenciales de Bienvenida vía API oficial
-      if (sendWelcomeEmail) {
-        try {
-          await fetch('/api/corporate/send-welcome-credentials', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              funcionarioNombre: fullNombre,
-              corporateEmail: email,
-              personalEmail: newFuncPersonalEmail.trim().toLowerCase(),
-              tempPassword: password,
-              cargo: cargo,
-              areaNombre: areaObj.nombre,
-              sedeNombre: sedeObj.nombre,
-              rolNombre: roleObj.nombre,
-              documentoIdentidad: `${newFuncTipoDoc} ${documento}`,
-            }),
-          });
-        } catch (mailErr) {
-          console.warn('Aviso de envío de credenciales:', mailErr);
-        }
-      }
-
-      // 4. Registrar trazabilidad inmutable en Auditoría NTC 1335
-      registrarAuditoria(
-        'Usuarios',
-        'Alta de Funcionario',
-        `Funcionario registrado: ${fullNombre} (${email}) - Cargo: ${cargo} - Área: ${areaObj.nombre} - Sede: ${sedeObj.nombre} - Rol: ${roleObj.nombre}`
-      );
-      setAuditoria(getAuditoria());
-
-      setNewFuncSubmitSuccess(`¡Funcionario ${fullNombre} registrado con éxito en el sistema corporativo y Supabase!`);
-
-      // Limpiar formulario
-      setNewFuncNombres('');
-      setNewFuncApellidos('');
-      setNewFuncDocumento('');
-      setNewFuncTelefono('');
-      setNewFuncCargo('');
-      setNewFuncCorporateEmail('');
-      setIsEmailManuallyEdited(false);
-      setNewFuncPersonalEmail('');
-
-      // Redirigir al Directorio de Personal
-      setTimeout(() => {
-        setIsSubmittingNewFunc(false);
-        setActiveTab('funcionarios');
-      }, 1000);
-
-    } catch (err: any) {
-      console.error('Error registrando funcionario:', err);
-      setIsSubmittingNewFunc(false);
-      setNewFuncSubmitError(err?.message || 'Error registrando funcionario en el sistema.');
-    }
-  };
-
   // Muro / Comunidad
   const [newPostContent, setNewPostContent] = useState('');
   const [newPostTitle, setNewPostTitle] = useState('');
@@ -663,7 +302,7 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
   const [isInternalNote, setIsInternalNote] = useState(false);
 
   // Logística, Inventario & Gestión de Productos
-  const [logisticsSubTab, setLogisticsSubTab] = useState<'inventario' | 'recepcion_compras' | 'traslados' | 'despachos' | 'kardex' | 'tareas_asignadas'>('inventario');
+  const [logisticsSubTab, setLogisticsSubTab] = useState<'inventario' | 'recepcion_compras' | 'traslados' | 'despachos' | 'kardex'>('inventario');
   const [selectedSede, setSelectedSede] = useState<string>('todas');
   const [productSearchQuery, setProductSearchQuery] = useState('');
   const [productCategoryFilter, setProductCategoryFilter] = useState('todos');
@@ -671,131 +310,6 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
   const [productColorFilter, setProductColorFilter] = useState('todos');
   const [productSizeFilter, setProductSizeFilter] = useState('todos');
   const [productStatusFilter, setProductStatusFilter] = useState<'todos' | 'activos' | 'inactivos' | 'bajo_stock'>('todos');
-
-  // Navegación en Acordeón para Portal de Funcionarios
-  const [accordionOpen, setAccordionOpen] = useState<{ [key: string]: boolean }>({
-    logistica: true,
-    compras: false,
-    sac: false,
-    funcionarios: false,
-    tareas: false,
-    comunidad: false,
-    sst: false,
-    documentos: false,
-    auditoria: false,
-    dashboard: false,
-  });
-
-  const toggleAccordion = (sectionKey: string, defaultTab?: 'dashboard' | 'areas' | 'funcionarios' | 'crear_funcionario' | 'tareas' | 'comunidad' | 'logistica' | 'compras' | 'sac' | 'sst' | 'documentos' | 'auditoria') => {
-    setAccordionOpen((prev) => ({
-      ...prev,
-      [sectionKey]: !prev[sectionKey],
-    }));
-    if (defaultTab && activeTab !== defaultTab) {
-      setActiveTab(defaultTab);
-    }
-  };
-
-  // Mantener expandido el acordeón del módulo activo
-  useEffect(() => {
-    if (activeTab === 'logistica') {
-      setAccordionOpen((prev) => ({ ...prev, logistica: true }));
-    } else if (activeTab === 'compras') {
-      setAccordionOpen((prev) => ({ ...prev, compras: true }));
-    } else if (activeTab === 'sac') {
-      setAccordionOpen((prev) => ({ ...prev, sac: true }));
-    } else if (activeTab === 'funcionarios' || activeTab === 'areas' || activeTab === 'crear_funcionario') {
-      setAccordionOpen((prev) => ({ ...prev, funcionarios: true }));
-    } else if (activeTab === 'tareas') {
-      setAccordionOpen((prev) => ({ ...prev, tareas: true }));
-    } else if (activeTab === 'comunidad') {
-      setAccordionOpen((prev) => ({ ...prev, comunidad: true }));
-    } else if (activeTab === 'sst') {
-      setAccordionOpen((prev) => ({ ...prev, sst: true }));
-    } else if (activeTab === 'documentos') {
-      setAccordionOpen((prev) => ({ ...prev, documentos: true }));
-    } else if (activeTab === 'auditoria') {
-      setAccordionOpen((prev) => ({ ...prev, auditoria: true }));
-    } else if (activeTab === 'dashboard') {
-      setAccordionOpen((prev) => ({ ...prev, dashboard: true }));
-    }
-  }, [activeTab]);
-
-  // Sub-pestaña para Compras & Abastecimiento: requisiciones | ordenes_compra | proveedores | alertas_stock
-  const [comprasSubTab, setComprasSubTab] = useState<SubTabCompras>(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      const sub = params.get('comprasTab') || params.get('subtab');
-      if (sub === 'requisiciones' || sub === 'ordenes_compra' || sub === 'proveedores' || sub === 'alertas_stock') {
-        return sub as SubTabCompras;
-      }
-    }
-    return 'requisiciones';
-  });
-
-  // Contador sincronizado de requisiciones pendientes
-  const [pendingRequisicionesCount, setPendingRequisicionesCount] = useState<number>(() => {
-    return getRequisicionesCompra().filter((r) => r.estado === 'Pendiente').length;
-  });
-
-  useEffect(() => {
-    const handleSyncReqCount = () => {
-      setPendingRequisicionesCount(getRequisicionesCompra().filter((r) => r.estado === 'Pendiente').length);
-    };
-    window.addEventListener('colorlink_requisiciones_updated', handleSyncReqCount);
-    return () => window.removeEventListener('colorlink_requisiciones_updated', handleSyncReqCount);
-  }, []);
-
-  // Sub-pestaña para Portal SST: iperc | emergencias | copasst | atel | epp_capacitaciones
-  const [sstSubTab, setSstSubTab] = useState<SubTabSST>(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      const sub = params.get('sstTab') || params.get('subtab');
-      if (sub === 'iperc' || sub === 'emergencias' || sub === 'copasst' || sub === 'atel' || sub === 'epp_capacitaciones') {
-        return sub as SubTabSST;
-      }
-    }
-    return 'iperc';
-  });
-
-  // Subfiltros para comunidad y documentos
-  const [comunidadFilter, setComunidadFilter] = useState<'todos' | 'oficiales'>('todos');
-  const [docCategoryFilter, setDocCategoryFilter] = useState<'todos' | 'fichas'>('todos');
-  
-  // Sub-pestaña para Documentos: 'archivo' (Archivo & Documentos Legales) | 'manuales' (Manuales Técnicos & NTC 1335)
-  const [documentosSubTab, setDocumentosSubTab] = useState<'archivo' | 'manuales'>(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      const sub = params.get('subtab') || params.get('corpTab') || params.get('docTab');
-      if (sub === 'manuales' || sub === 'ntc1335' || sub === 'fichas' || sub === 'poe' || sub === 'msds') return 'manuales';
-      if (sub === 'archivo' || sub === 'legal' || sub === 'documentos') return 'archivo';
-    }
-    return 'archivo';
-  });
-
-  const [selectedManualId, setSelectedManualId] = useState<ManualId>(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      const m = params.get('manual') || params.get('doc');
-      if (m === 'msds') return 'msds';
-      if (m === 'poe') return 'poe';
-      if (m === 'superficies') return 'superficies';
-    }
-    return 'ntc1335';
-  });
-
-  // Sub-pestaña para Auditoría & Informes: informes | actas | rnc | trazabilidad
-  const [auditoriaSubTab, setAuditoriaSubTab] = useState<'informes' | 'actas' | 'rnc' | 'trazabilidad'>(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      const sub = params.get('subtab') || params.get('corpTab') || params.get('tab');
-      if (sub === 'rnc' || sub === 'noconformidades') return 'rnc';
-      if (sub === 'actas') return 'actas';
-      if (sub === 'trazabilidad' || sub === 'log') return 'trazabilidad';
-      if (sub === 'informes' || sub === 'reportes') return 'informes';
-    }
-    return 'informes';
-  });
 
   // Estado para Recepción de Órdenes de Compra (Compras vs. Logística)
   const [selectedOCForRecepcion, setSelectedOCForRecepcion] = useState<OrdenCompraCorp | null>(null);
@@ -869,7 +383,6 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
   const [matrixMarca, setMatrixMarca] = useState<'Pintuco' | 'Color In'>('Pintuco');
   const [matrixSkuBase, setMatrixSkuBase] = useState('PIN-VTX');
   const [matrixUbicacion, setMatrixUbicacion] = useState('CEDI Rionegro - Pasillo A-02');
-  const [matrixEstado, setMatrixEstado] = useState<'Activo' | 'Inactivo' | 'Borrador'>('Activo');
   const [selectedColorsList, setSelectedColorsList] = useState<Array<{ name: string; hex: string; code: string }>>([
     { name: 'Blanco Puro Mate 1001', hex: '#F9FAFB', code: 'BLA' },
     { name: 'Blanco Almendra Satinado 1020', hex: '#F5EFEB', code: 'ALM' },
@@ -907,7 +420,6 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
     stockMinimoGalones: 30,
     ubicacionBodega: 'CEDI Rionegro - Pasillo A-01',
     costoUnitarioGL: 52000,
-    estado: 'Activo' as 'Activo' | 'Inactivo' | 'Borrador',
   });
 
   // Modal Eliminar / Desactivar Producto
@@ -956,9 +468,9 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
   // -------------------------------------------------------------
   const canAccessTab = (tab: typeof activeTab): boolean => {
     if (activeSimulatedRole === 'superadmin' || activeSimulatedRole === 'admin_intranet') return true;
-    if (tab === 'dashboard' || tab === 'tareas' || tab === 'documentos' || tab === 'sst' || tab === 'compras') return true;
+    if (tab === 'dashboard' || tab === 'tareas' || tab === 'documentos') return true;
     if (tab === 'areas') return currentRoleConfig.permisos.canManageAreas || activeSimulatedRole === 'director_gerente';
-    if (tab === 'funcionarios' || tab === 'crear_funcionario') return currentRoleConfig.permisos.canManageUsers;
+    if (tab === 'funcionarios') return currentRoleConfig.permisos.canManageUsers;
     if (tab === 'comunidad') return true;
     if (tab === 'logistica') return currentRoleConfig.permisos.canManageInventory || activeSimulatedRole === 'director_gerente';
     if (tab === 'sac') return currentRoleConfig.permisos.canAnswerCustomerTickets || activeSimulatedRole === 'director_gerente';
@@ -1326,75 +838,6 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
     setVariantMatrixItems(list);
   };
 
-  // Estado para Solicitud de Reabastecimiento de Bodega a Compras
-  const [isReabastecimientoModalOpen, setIsReabastecimientoModalOpen] = useState(false);
-  const [selectedItemForReabastecimiento, setSelectedItemForReabastecimiento] = useState<ItemInventarioCorp | null>(null);
-  const [reabastecimientoForm, setReabastecimientoForm] = useState({
-    sku: '',
-    cantidad: 25,
-    sedeId: 'bogota',
-    prioridad: 'Alta' as 'Normal' | 'Alta' | 'Crítica / Quiebre Stock',
-    motivo: '',
-  });
-
-  const handleOpenReabastecimientoModal = (item?: ItemInventarioCorp) => {
-    const target = item || inventario[0];
-    setSelectedItemForReabastecimiento(target || null);
-    const sedeActual = selectedSede === 'todas' ? 'bogota' : selectedSede;
-    const stockDisp = target ? getStockEnSede(target, sedeActual) : 0;
-    const stockMin = target ? (target.stockMinimoUnidades || 15) : 15;
-    const isCrit = target ? stockDisp <= stockMin * 0.35 : false;
-
-    setReabastecimientoForm({
-      sku: target?.sku || (inventario[0]?.sku || ''),
-      cantidad: target ? Math.max(10, Math.ceil((stockMin * 1.8) - stockDisp)) : 25,
-      sedeId: sedeActual,
-      prioridad: isCrit ? 'Crítica / Quiebre Stock' : 'Alta',
-      motivo: target
-        ? `Stock bajo detectado en CEDI (${stockDisp} Unds disponibles vs. mínimo de seguridad ${stockMin} Unds).`
-        : 'Reabastecimiento programado por alta rotación de inventario.',
-    });
-    setIsReabastecimientoModalOpen(true);
-  };
-
-  const handleConfirmReabastecimientoSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const targetItem = inventario.find((i) => i.sku === reabastecimientoForm.sku) || selectedItemForReabastecimiento;
-    if (!targetItem) return;
-
-    const sedeObj = SEDES_CEDI_CONFIG.find((s) => s.id === reabastecimientoForm.sedeId) || SEDES_CEDI_CONFIG[0];
-    const metricas = calcularMetricasStockSKU(targetItem.sku, sedeObj.id, inventario, ordenesCompra, orders);
-
-    const nuevaReq = crearRequisicionCompra({
-      sedeSolicitanteId: sedeObj.id,
-      sedeSolicitanteNombre: sedeObj.nombre,
-      solicitanteNombre: userSession?.nombre || 'Auxiliar de Logística & Bodega CEDI',
-      solicitanteCargo: userSession?.cargo || 'Logística & Despachos',
-      prioridad: reabastecimientoForm.prioridad,
-      motivo: reabastecimientoForm.motivo || 'Solicitud de reabastecimiento generada desde Logística & Bodega.',
-      items: [
-        {
-          id: `it-req-${Date.now()}`,
-          sku: targetItem.sku,
-          productoNombre: targetItem.nombre,
-          color: targetItem.color,
-          colorHex: targetItem.colorHex,
-          presentacion: targetItem.presentacion || 'Cuñete (5 Gal)',
-          cantidadSolicitada: Number(reabastecimientoForm.cantidad) || 20,
-          stockActual: metricas.stockFisico,
-          stockReservado: metricas.stockReservado,
-          stockEnTransito: metricas.stockEnTransito,
-          puntoReorden: metricas.puntoReorden,
-          precioUnitarioEstimado: (targetItem.precioVentaGL * 5 * 0.7) || 340000,
-        },
-      ],
-      observacionesCompras: 'Emitida desde la Matriz de Inventario en Logística & Bodega.',
-    });
-
-    setIsReabastecimientoModalOpen(false);
-    setLogisticsFeedbackMessage(`Solicitud de compra ${nuevaReq.consecutivo} enviada exitosamente a Compras & Abastecimiento.`);
-  };
-
   const handleOpenNewProductModal = () => {
     setEditingProduct(null);
     const initialColors = [PRESET_PINTUCO_COLORS[0], PRESET_PINTUCO_COLORS[1], PRESET_PINTUCO_COLORS[2]];
@@ -1406,7 +849,6 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
     setMatrixMarca('Pintuco');
     setMatrixSkuBase(initialSku);
     setMatrixUbicacion('CEDI Rionegro - Pasillo A-02');
-    setMatrixEstado('Activo');
     setSelectedColorsList(initialColors);
     setSelectedSizesList(initialSizes);
     setCustomColorName('');
@@ -1475,7 +917,6 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
       stockMinimoGalones: item.stockMinimoGalones,
       ubicacionBodega: item.ubicacionBodega,
       costoUnitarioGL: item.costoUnitarioGL || 52000,
-      estado: item.estado || (item.activo === false ? 'Inactivo' : 'Activo'),
     });
     setIsProductModalOpen(true);
   };
@@ -1490,8 +931,6 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
       return;
     }
 
-    const isActivo = matrixEstado === 'Activo';
-
     crearMatrizVariantesInventario(
       {
         nombre: matrixBaseName.trim(),
@@ -1499,8 +938,6 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
         marca: matrixMarca,
         skuBase: matrixSkuBase.trim().toUpperCase(),
         ubicacionBodega: matrixUbicacion.trim() || 'CEDI Rionegro - Pasillo A-02',
-        activo: isActivo,
-        estado: matrixEstado,
       },
       enabledVariants.map((v) => ({
         sku: v.sku.trim().toUpperCase(),
@@ -1515,21 +952,7 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
       activeUserName
     );
 
-    // Sincronizar en tiempo real con Supabase y el Catálogo de Clientes
-    enabledVariants.forEach((v) => {
-      syncProductToSupabase({
-        sku: v.sku.trim().toUpperCase(),
-        nombre: `${matrixBaseName.trim()} - ${v.color} (${v.presentacion})`,
-        ambiente: matrixCategory.toLowerCase().includes('exterior') ? 'Exterior Fachada' : 'Interior',
-        rendimiento_m2: 30,
-        activo: isActivo,
-        estado: matrixEstado,
-        precio: Number(v.precio) || 79900,
-        categoria: matrixCategory,
-      });
-    });
-
-    setLogisticsFeedbackMessage(`¡Matriz de ${enabledVariants.length} variantes creada exitosamente [Estado: ${matrixEstado}] y sincronizada en tiempo real con el Catálogo y Cotizador!`);
+    setLogisticsFeedbackMessage(`¡Matriz de ${enabledVariants.length} variantes creada exitosamente para "${matrixBaseName}" y sincronizada con el Catálogo!`);
     setInventario(getInventarioCorp());
     setAuditoria(getAuditoria());
     setIsProductModalOpen(false);
@@ -1542,7 +965,6 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
     if (!productForm.nombre.trim() || !productForm.sku.trim()) return;
 
     const baseName = productForm.productoBaseNombre.trim() || productForm.nombre.trim();
-    const isActivo = productForm.estado === 'Activo';
 
     actualizarProductoInventario(
       editingProduct.id,
@@ -1560,25 +982,10 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
         stockMinimoGalones: Number(productForm.stockMinimoGalones) || 30,
         ubicacionBodega: productForm.ubicacionBodega.trim() || 'CEDI Rionegro',
         costoUnitarioGL: Number(productForm.costoUnitarioGL) || 52000,
-        activo: isActivo,
-        estado: productForm.estado,
       },
       activeUserName
     );
-
-    // Sincronizar inmediatamente con Supabase y el Catálogo Público
-    syncProductToSupabase({
-      sku: productForm.sku.trim().toUpperCase(),
-      nombre: productForm.nombre.trim(),
-      ambiente: productForm.categoria.toLowerCase().includes('exterior') ? 'Exterior Fachada' : 'Interior',
-      rendimiento_m2: 30,
-      activo: isActivo,
-      estado: productForm.estado,
-      precio: Number(productForm.precioVentaGL) || 84900,
-      categoria: productForm.categoria,
-    });
-
-    setLogisticsFeedbackMessage(`Variante "${productForm.nombre}" (SKU: ${productForm.sku}) actualizada [Estado: ${productForm.estado}] y sincronizada con el Catálogo.`);
+    setLogisticsFeedbackMessage(`Variante "${productForm.nombre}" (SKU: ${productForm.sku}) actualizada correctamente.`);
 
     setInventario(getInventarioCorp());
     setAuditoria(getAuditoria());
@@ -1600,15 +1007,6 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
       activeUserName,
       productActionType
     );
-
-    // Sincronizar cambio de estado en Supabase
-    syncProductToSupabase({
-      sku: productToAction.sku,
-      nombre: productToAction.nombre,
-      activo: productActionType === 'activar',
-      estado: productActionType === 'activar' ? 'Activo' : 'Inactivo',
-    });
-
     setInventario(updated);
     setAuditoria(getAuditoria());
     setLogisticsFeedbackMessage(`Producto SKU ${productToAction.sku} ("${productToAction.nombre}") ha sido ${actionLabel} exitosamente.`);
@@ -2031,22 +1429,6 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
     return { total, enPrep, despachados, transito, entregados };
   }, [safeOrdersList]);
 
-  const filteredTicketsSAC = useMemo(() => {
-    return ticketsSAC.filter((t) => {
-      if (ticketFilterTab === 'nuevos') return t.estado === 'Nuevo';
-      if (ticketFilterTab === 'en_proceso') return t.estado === 'En proceso';
-      if (ticketFilterTab === 'resueltos') return t.estado === 'Resuelto';
-      return true;
-    });
-  }, [ticketsSAC, ticketFilterTab]);
-
-  const logisticsTasks = useMemo(() => {
-    return (tareas || []).filter((t) => {
-      const area = `${t.areaNombre || ''} ${t.areaId || ''}`.toLowerCase();
-      return area.includes('logistica') || area.includes('logística') || area.includes('operaciones') || area.includes('bodega') || area.includes('almacen') || area.includes('almacén');
-    });
-  }, [tareas]);
-
   return (
     <div className="min-h-screen bg-slate-100/90 text-slate-800 flex flex-col font-sans selection:bg-[#003366] selection:text-white">
       {/* =========================================================================
@@ -2179,18 +1561,6 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
               )}
             </div>
 
-            {/* Acceso Rápido a Vista de Clientes (Tienda / Cotizador Público) */}
-            <button
-              type="button"
-              onClick={handleGoToClientStore}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-xs transition-all shadow-xs hover:shadow-md cursor-pointer shrink-0 border border-emerald-300/50"
-              title="Ir a Tienda de Clientes y Cotizador Público"
-            >
-              <Store className="w-3.5 h-3.5 text-slate-950" />
-              <span className="hidden sm:inline">Vista Cliente</span>
-              <ArrowUpRight className="w-3 h-3 text-slate-950 font-black" />
-            </button>
-
             {/* Perfil del Funcionario Activo */}
             <div className="flex items-center gap-2 pl-2 border-l border-white/20">
               <div className="w-8 h-8 rounded-full bg-cyan-400 text-slate-950 font-black text-xs flex items-center justify-center border-2 border-white shadow-xs">
@@ -2231,1073 +1601,204 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
             sidebarCollapsed ? 'w-16' : 'w-64'
           }`}
         >
-          {/* Navegación por módulos tipo Acordeón */}
-          <div className="flex-1 py-3 px-2 space-y-1.5 overflow-y-auto">
+          {/* Navegación por módulos */}
+          <div className="flex-1 py-4 px-2 space-y-4 overflow-y-auto">
             
-            {/* 1. LOGÍSTICA & BODEGA */}
-            {canAccessTab('logistica') && (
-              <div className="rounded-xl overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() => toggleAccordion('logistica', 'logistica')}
-                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                    activeTab === 'logistica'
-                      ? 'bg-[#001D3D] text-white shadow-sm'
-                      : 'text-slate-700 hover:bg-slate-100'
-                  }`}
-                  title="Logística, Bodega y Despachos"
-                >
-                  <div className="flex items-center gap-2.5 truncate">
-                    <Truck className={`w-4 h-4 shrink-0 ${activeTab === 'logistica' ? 'text-cyan-300' : 'text-indigo-600'}`} />
-                    {!sidebarCollapsed && <span className="truncate">Logística & Bodega</span>}
-                  </div>
-                  {!sidebarCollapsed && (
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <span className={`px-1.5 py-0.2 rounded-full text-[9px] font-black ${
-                        activeTab === 'logistica' ? 'bg-cyan-500/30 text-cyan-200' : 'bg-slate-200 text-slate-700'
-                      }`}>
-                        {productStats.totalRef}
-                      </span>
-                      {accordionOpen.logistica ? (
-                        <ChevronDown className={`w-3.5 h-3.5 ${activeTab === 'logistica' ? 'text-cyan-300' : 'text-slate-400'}`} />
-                      ) : (
-                        <ChevronRight className={`w-3.5 h-3.5 ${activeTab === 'logistica' ? 'text-cyan-300' : 'text-slate-400'}`} />
-                      )}
-                    </div>
-                  )}
-                </button>
-
-                {!sidebarCollapsed && accordionOpen.logistica && (
-                  <div className="ml-3 pl-2.5 border-l-2 border-indigo-200 py-1 space-y-0.5 animate-fadeIn">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveTab('logistica');
-                        setLogisticsSubTab('inventario');
-                      }}
-                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                        activeTab === 'logistica' && logisticsSubTab === 'inventario'
-                          ? 'bg-blue-50 text-blue-900 font-black border border-blue-200 shadow-2xs'
-                          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2 truncate">
-                        <Package className="w-3.5 h-3.5 text-cyan-600 shrink-0" />
-                        <span className="truncate">Inventario & Matriz</span>
-                      </div>
-                      <span className="text-[9.5px] font-mono text-slate-500">{productStats.totalRef}</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveTab('logistica');
-                        setLogisticsSubTab('recepcion_compras');
-                      }}
-                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                        activeTab === 'logistica' && logisticsSubTab === 'recepcion_compras'
-                          ? 'bg-amber-50 text-amber-900 font-black border border-amber-200 shadow-2xs'
-                          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2 truncate">
-                        <Boxes className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                        <span className="truncate">Recepción de Compras</span>
-                      </div>
-                      {productStats.ocsPendientes > 0 && (
-                        <span className="px-1.5 py-0.2 rounded-full bg-amber-100 text-amber-800 text-[9px] font-bold">
-                          {productStats.ocsPendientes}
-                        </span>
-                      )}
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveTab('logistica');
-                        setLogisticsSubTab('traslados');
-                      }}
-                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                        activeTab === 'logistica' && logisticsSubTab === 'traslados'
-                          ? 'bg-cyan-50 text-cyan-900 font-black border border-cyan-200 shadow-2xs'
-                          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2 truncate">
-                        <ArrowLeftRight className="w-3.5 h-3.5 text-cyan-600 shrink-0" />
-                        <span className="truncate">Traslados Inter-Sedes</span>
-                      </div>
-                      {trasladosStats.pendientesRecibo > 0 && (
-                        <span className="px-1.5 py-0.2 rounded-full bg-cyan-100 text-cyan-900 text-[9px] font-bold">
-                          {trasladosStats.pendientesRecibo}
-                        </span>
-                      )}
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveTab('logistica');
-                        setLogisticsSubTab('despachos');
-                      }}
-                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                        activeTab === 'logistica' && logisticsSubTab === 'despachos'
-                          ? 'bg-blue-50 text-blue-900 font-black border border-blue-200 shadow-2xs'
-                          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2 truncate">
-                        <Truck className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                        <span className="truncate">Despachos & Pedidos</span>
-                      </div>
-                      <span className="text-[9.5px] font-mono text-slate-500">{orderStats.total}</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveTab('logistica');
-                        setLogisticsSubTab('kardex');
-                      }}
-                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                        activeTab === 'logistica' && logisticsSubTab === 'kardex'
-                          ? 'bg-slate-100 text-slate-900 font-black border border-slate-300 shadow-2xs'
-                          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2 truncate">
-                        <Clock className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                        <span className="truncate">Historial Kardex</span>
-                      </div>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveTab('logistica');
-                        setLogisticsSubTab('tareas_asignadas');
-                      }}
-                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                        activeTab === 'logistica' && logisticsSubTab === 'tareas_asignadas'
-                          ? 'bg-emerald-50 text-emerald-900 font-black border border-emerald-200 shadow-2xs'
-                          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2 truncate">
-                        <ClipboardCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                        <span className="truncate">Tareas Asignadas</span>
-                      </div>
-                      {logisticsTasks.filter((t) => t.estado !== 'Completada').length > 0 && (
-                        <span className="px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-800 text-[9px] font-bold">
-                          {logisticsTasks.filter((t) => t.estado !== 'Completada').length}
-                        </span>
-                      )}
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* 2. COMPRAS & ABASTECIMIENTO */}
-            {canAccessTab('compras') && (
-              <div className="rounded-xl overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() => toggleAccordion('compras', 'compras')}
-                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                    activeTab === 'compras'
-                      ? 'bg-[#001D3D] text-white shadow-sm'
-                      : 'text-slate-700 hover:bg-slate-100'
-                  }`}
-                  title="Compras & Abastecimiento Estratégico"
-                >
-                  <div className="flex items-center gap-2.5 truncate">
-                    <ShoppingBag className={`w-4 h-4 shrink-0 ${activeTab === 'compras' ? 'text-amber-300' : 'text-amber-600'}`} />
-                    {!sidebarCollapsed && <span className="truncate">Compras & Abastecimiento</span>}
-                  </div>
-                  {!sidebarCollapsed && (
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      {pendingRequisicionesCount > 0 ? (
-                        <span className={`px-1.5 py-0.2 rounded-full text-[9px] font-black ${
-                          activeTab === 'compras' ? 'bg-amber-400/30 text-amber-200' : 'bg-rose-100 text-rose-800 animate-pulse'
-                        }`}>
-                          {pendingRequisicionesCount} Req
-                        </span>
-                      ) : (
-                        <span className="px-1.5 py-0.2 rounded-full text-[9px] font-mono bg-slate-200 text-slate-700">
-                          {ordenesCompra.length} OC
-                        </span>
-                      )}
-                      {accordionOpen.compras ? (
-                        <ChevronDown className={`w-3.5 h-3.5 ${activeTab === 'compras' ? 'text-cyan-300' : 'text-slate-400'}`} />
-                      ) : (
-                        <ChevronRight className={`w-3.5 h-3.5 ${activeTab === 'compras' ? 'text-cyan-300' : 'text-slate-400'}`} />
-                      )}
-                    </div>
-                  )}
-                </button>
-
-                {!sidebarCollapsed && accordionOpen.compras && (
-                  <div className="ml-3 pl-2.5 border-l-2 border-amber-300 py-1 space-y-0.5 animate-fadeIn">
-                    {/* 1. Requisiciones de Bodega */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveTab('compras');
-                        setComprasSubTab('requisiciones');
-                      }}
-                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                        activeTab === 'compras' && comprasSubTab === 'requisiciones'
-                          ? 'bg-amber-50 text-amber-900 font-black border border-amber-200 shadow-2xs'
-                          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2 truncate">
-                        <Boxes className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                        <span className="truncate">1. Requisiciones de Bodega</span>
-                      </div>
-                      {pendingRequisicionesCount > 0 && (
-                        <span className="px-1.5 py-0.2 rounded-full bg-rose-500 text-white text-[9px] font-black animate-pulse">
-                          {pendingRequisicionesCount}
-                        </span>
-                      )}
-                    </button>
-
-                    {/* 2. Órdenes de Compra (OC) */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveTab('compras');
-                        setComprasSubTab('ordenes_compra');
-                      }}
-                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                        activeTab === 'compras' && comprasSubTab === 'ordenes_compra'
-                          ? 'bg-amber-50 text-amber-900 font-black border border-amber-200 shadow-2xs'
-                          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2 truncate">
-                        <ShoppingCart className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                        <span className="truncate">2. Órdenes de Compra (OC)</span>
-                      </div>
-                      <span className="text-[9.5px] font-mono text-slate-500">{ordenesCompra.length}</span>
-                    </button>
-
-                    {/* 3. Directorio de Proveedores */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveTab('compras');
-                        setComprasSubTab('proveedores');
-                      }}
-                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                        activeTab === 'compras' && comprasSubTab === 'proveedores'
-                          ? 'bg-amber-50 text-amber-900 font-black border border-amber-200 shadow-2xs'
-                          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2 truncate">
-                        <Building2 className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                        <span className="truncate">3. Directorio de Proveedores</span>
-                      </div>
-                      <span className="text-[9.5px] font-mono text-slate-500">5</span>
-                    </button>
-
-                    {/* 4. Alertas de Stock & Reorden */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveTab('compras');
-                        setComprasSubTab('alertas_stock');
-                      }}
-                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                        activeTab === 'compras' && comprasSubTab === 'alertas_stock'
-                          ? 'bg-amber-50 text-amber-900 font-black border border-amber-200 shadow-2xs'
-                          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2 truncate">
-                        <AlertTriangle className="w-3.5 h-3.5 text-rose-500 shrink-0" />
-                        <span className="truncate">4. Alertas de Stock & Reorden</span>
-                      </div>
-                      {productStats.bajoStock > 0 && (
-                        <span className="px-1.5 py-0.2 rounded-full bg-rose-100 text-rose-800 text-[9px] font-bold">
-                          {productStats.bajoStock}
-                        </span>
-                      )}
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* 3. ATENCIÓN AL CLIENTE (SAC) */}
-            {canAccessTab('sac') && (
-              <div className="rounded-xl overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() => toggleAccordion('sac', 'sac')}
-                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                    activeTab === 'sac'
-                      ? 'bg-[#001D3D] text-white shadow-sm'
-                      : 'text-slate-700 hover:bg-slate-100'
-                  }`}
-                  title="Atención al Cliente (SAC)"
-                >
-                  <div className="flex items-center gap-2.5 truncate">
-                    <HeadphonesIcon className={`w-4 h-4 shrink-0 ${activeTab === 'sac' ? 'text-emerald-300' : 'text-emerald-600'}`} />
-                    {!sidebarCollapsed && <span className="truncate">Atención al Cliente</span>}
-                  </div>
-                  {!sidebarCollapsed && (
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      {ticketsSAC.filter((t) => t.estado === 'Nuevo').length > 0 && (
-                        <span className="px-1.5 py-0.2 rounded-full bg-rose-500 text-white text-[9px] font-black">
-                          {ticketsSAC.filter((t) => t.estado === 'Nuevo').length}
-                        </span>
-                      )}
-                      {accordionOpen.sac ? (
-                        <ChevronDown className={`w-3.5 h-3.5 ${activeTab === 'sac' ? 'text-cyan-300' : 'text-slate-400'}`} />
-                      ) : (
-                        <ChevronRight className={`w-3.5 h-3.5 ${activeTab === 'sac' ? 'text-cyan-300' : 'text-slate-400'}`} />
-                      )}
-                    </div>
-                  )}
-                </button>
-
-                {!sidebarCollapsed && accordionOpen.sac && (
-                  <div className="ml-3 pl-2.5 border-l-2 border-emerald-200 py-1 space-y-0.5 animate-fadeIn">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveTab('sac');
-                        setTicketFilterTab('todos');
-                      }}
-                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                        activeTab === 'sac' && ticketFilterTab === 'todos'
-                          ? 'bg-blue-50 text-blue-900 font-black border border-blue-200 shadow-2xs'
-                          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
-                      }`}
-                    >
-                      <span className="truncate">Todos los Radicados</span>
-                      <span className="text-[9.5px] font-mono text-slate-500">{ticketsSAC.length}</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveTab('sac');
-                        setTicketFilterTab('nuevos');
-                      }}
-                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                        activeTab === 'sac' && ticketFilterTab === 'nuevos'
-                          ? 'bg-rose-50 text-rose-900 font-black border border-rose-200 shadow-2xs'
-                          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
-                      }`}
-                    >
-                      <span className="truncate">Casos Nuevos (Urgentes)</span>
-                      {ticketsSAC.filter((t) => t.estado === 'Nuevo').length > 0 && (
-                        <span className="px-1.5 py-0.2 rounded-full bg-rose-100 text-rose-800 text-[9px] font-bold">
-                          {ticketsSAC.filter((t) => t.estado === 'Nuevo').length}
-                        </span>
-                      )}
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveTab('sac');
-                        setTicketFilterTab('en_proceso');
-                      }}
-                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                        activeTab === 'sac' && ticketFilterTab === 'en_proceso'
-                          ? 'bg-cyan-50 text-cyan-900 font-black border border-cyan-200 shadow-2xs'
-                          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
-                      }`}
-                    >
-                      <span className="truncate">En Gestión / Proceso</span>
-                      <span className="text-[9.5px] font-mono text-slate-500">
-                        {ticketsSAC.filter((t) => t.estado === 'En proceso').length}
-                      </span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveTab('sac');
-                        setTicketFilterTab('resueltos');
-                      }}
-                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                        activeTab === 'sac' && ticketFilterTab === 'resueltos'
-                          ? 'bg-emerald-50 text-emerald-900 font-black border border-emerald-200 shadow-2xs'
-                          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
-                      }`}
-                    >
-                      <span className="truncate">Casos Resueltos</span>
-                      <span className="text-[9.5px] font-mono text-slate-500">
-                        {ticketsSAC.filter((t) => t.estado === 'Resuelto').length}
-                      </span>
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* 3. GESTIÓN FUNCIONARIOS */}
-            {(canAccessTab('funcionarios') || canAccessTab('crear_funcionario') || canAccessTab('areas')) && (
-              <div className="rounded-xl overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() => toggleAccordion('funcionarios', 'funcionarios')}
-                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                    activeTab === 'funcionarios' || activeTab === 'crear_funcionario' || activeTab === 'areas'
-                      ? 'bg-[#001D3D] text-white shadow-sm'
-                      : 'text-slate-700 hover:bg-slate-100'
-                  }`}
-                  title="Gestión de Funcionarios y Áreas"
-                >
-                  <div className="flex items-center gap-2.5 truncate">
-                    <Users className={`w-4 h-4 shrink-0 ${activeTab === 'funcionarios' || activeTab === 'crear_funcionario' || activeTab === 'areas' ? 'text-teal-300' : 'text-teal-600'}`} />
-                    {!sidebarCollapsed && <span className="truncate">Gestión Funcionarios</span>}
-                  </div>
-                  {!sidebarCollapsed && (
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <span className={`px-1.5 py-0.2 rounded-full text-[9px] font-black ${
-                        activeTab === 'funcionarios' || activeTab === 'crear_funcionario' || activeTab === 'areas' ? 'bg-teal-500/30 text-teal-200' : 'bg-slate-200 text-slate-700'
-                      }`}>
-                        {funcionarios.length}
-                      </span>
-                      {accordionOpen.funcionarios ? (
-                        <ChevronDown className={`w-3.5 h-3.5 ${activeTab === 'funcionarios' || activeTab === 'crear_funcionario' || activeTab === 'areas' ? 'text-cyan-300' : 'text-slate-400'}`} />
-                      ) : (
-                        <ChevronRight className={`w-3.5 h-3.5 ${activeTab === 'funcionarios' || activeTab === 'crear_funcionario' || activeTab === 'areas' ? 'text-cyan-300' : 'text-slate-400'}`} />
-                      )}
-                    </div>
-                  )}
-                </button>
-
-                {!sidebarCollapsed && accordionOpen.funcionarios && (
-                  <div className="ml-3 pl-2.5 border-l-2 border-teal-200 py-1 space-y-0.5 animate-fadeIn">
-                    {canAccessTab('funcionarios') && (
-                      <button
-                        type="button"
-                        onClick={() => setActiveTab('funcionarios')}
-                        className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                          activeTab === 'funcionarios'
-                            ? 'bg-blue-50 text-blue-900 font-black border border-blue-200 shadow-2xs'
-                            : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2 truncate">
-                          <Users className="w-3.5 h-3.5 text-teal-600 shrink-0" />
-                          <span className="truncate">Directorio de Personal</span>
-                        </div>
-                        <span className="text-[9.5px] font-mono text-slate-500">{funcionarios.length}</span>
-                      </button>
-                    )}
-
-                    {canAccessTab('crear_funcionario') && (
-                      <button
-                        type="button"
-                        onClick={() => setActiveTab('crear_funcionario')}
-                        className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                          activeTab === 'crear_funcionario'
-                            ? 'bg-teal-50 text-teal-950 font-black border border-teal-300 shadow-2xs'
-                            : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2 truncate">
-                          <UserPlus className="w-3.5 h-3.5 text-cyan-600 shrink-0" />
-                          <span className="truncate">Crear Nuevo Funcionario</span>
-                        </div>
-                        <span className="px-1.5 py-0.2 rounded-full bg-cyan-100 text-cyan-800 text-[8.5px] font-black uppercase">
-                          Nuevo
-                        </span>
-                      </button>
-                    )}
-
-                    {canAccessTab('areas') && (
-                      <button
-                        type="button"
-                        onClick={() => setActiveTab('areas')}
-                        className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                          activeTab === 'areas'
-                            ? 'bg-blue-50 text-blue-900 font-black border border-blue-200 shadow-2xs'
-                            : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2 truncate">
-                          <Building2 className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                          <span className="truncate">Estructura (13 Áreas)</span>
-                        </div>
-                        <span className="text-[9.5px] font-mono text-slate-500">{areas.length}</span>
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* 4. TAREAS POR ÁREA */}
-            <div className="rounded-xl overflow-hidden">
+            {/* GRUPO 1: PRINCIPAL */}
+            <div>
+              {!sidebarCollapsed && (
+                <span className="px-3 text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block mb-1.5">
+                  General
+                </span>
+              )}
               <button
                 type="button"
-                onClick={() => toggleAccordion('tareas', 'tareas')}
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                onClick={() => setActiveTab('dashboard')}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  activeTab === 'dashboard'
+                    ? 'bg-[#001D3D] text-white shadow-sm'
+                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                }`}
+                title="Dashboard General"
+              >
+                <BarChart3 className="w-4 h-4 text-cyan-500 shrink-0" />
+                {!sidebarCollapsed && <span>Dashboard Operativo</span>}
+              </button>
+            </div>
+
+            {/* GRUPO 2: TRABAJO Y ORGANIZACIÓN */}
+            <div>
+              {!sidebarCollapsed && (
+                <span className="px-3 text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block mb-1.5">
+                  Organización & Tareas
+                </span>
+              )}
+
+              {/* Tareas */}
+              <button
+                type="button"
+                onClick={() => setActiveTab('tareas')}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                   activeTab === 'tareas'
                     ? 'bg-[#001D3D] text-white shadow-sm'
-                    : 'text-slate-700 hover:bg-slate-100'
+                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                 }`}
-                title="Gestión de Tareas por Área"
+                title="Gestión de Tareas"
               >
-                <div className="flex items-center gap-2.5 truncate">
-                  <Kanban className={`w-4 h-4 shrink-0 ${activeTab === 'tareas' ? 'text-amber-300' : 'text-amber-500'}`} />
-                  {!sidebarCollapsed && <span className="truncate">Tareas por Área</span>}
-                </div>
+                <Kanban className="w-4 h-4 text-amber-500 shrink-0" />
                 {!sidebarCollapsed && (
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <span className={`px-1.5 py-0.2 rounded-full text-[9px] font-black ${
-                      activeTab === 'tareas' ? 'bg-amber-500/30 text-amber-200' : 'bg-amber-100 text-amber-800'
-                    }`}>
+                  <span className="flex-1 flex items-center justify-between">
+                    <span>Tareas por Área</span>
+                    <span className="px-1.5 py-0.2 rounded-full bg-amber-100 text-amber-800 text-[10px] font-black">
                       {tareas.filter((t) => t.estado !== 'Completada').length}
                     </span>
-                    {accordionOpen.tareas ? (
-                      <ChevronDown className={`w-3.5 h-3.5 ${activeTab === 'tareas' ? 'text-cyan-300' : 'text-slate-400'}`} />
-                    ) : (
-                      <ChevronRight className={`w-3.5 h-3.5 ${activeTab === 'tareas' ? 'text-cyan-300' : 'text-slate-400'}`} />
-                    )}
-                  </div>
+                  </span>
                 )}
               </button>
 
-              {!sidebarCollapsed && accordionOpen.tareas && (
-                <div className="ml-3 pl-2.5 border-l-2 border-amber-200 py-1 space-y-0.5 animate-fadeIn">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveTab('tareas');
-                      setTaskViewMode('kanban');
-                    }}
-                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                      activeTab === 'tareas' && taskViewMode === 'kanban'
-                        ? 'bg-amber-50 text-amber-900 font-black border border-amber-200 shadow-2xs'
-                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
-                    }`}
-                  >
-                    <span className="truncate">Tablero Kanban</span>
-                    <span className="text-[9.5px] font-mono text-slate-500">5 Estados</span>
-                  </button>
+              {/* Estructura Organizacional */}
+              {canAccessTab('areas') && (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('areas')}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer mt-1 ${
+                    activeTab === 'areas'
+                      ? 'bg-[#001D3D] text-white shadow-sm'
+                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                  }`}
+                  title="Estructura de 13 Áreas"
+                >
+                  <Building2 className="w-4 h-4 text-blue-600 shrink-0" />
+                  {!sidebarCollapsed && <span>Estructura (13 Áreas)</span>}
+                </button>
+              )}
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveTab('tareas');
-                      setTaskViewMode('list');
-                    }}
-                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                      activeTab === 'tareas' && taskViewMode === 'list'
-                        ? 'bg-amber-50 text-amber-900 font-black border border-amber-200 shadow-2xs'
-                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
-                    }`}
-                  >
-                    <span className="truncate">Lista Detallada</span>
-                    <span className="text-[9.5px] font-mono text-slate-500">{tareas.length}</span>
-                  </button>
-                </div>
+              {/* Gestión de Funcionarios */}
+              {canAccessTab('funcionarios') && (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('funcionarios')}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer mt-1 ${
+                    activeTab === 'funcionarios'
+                      ? 'bg-[#001D3D] text-white shadow-sm'
+                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                  }`}
+                  title="Directorio de Funcionarios"
+                >
+                  <Users className="w-4 h-4 text-teal-600 shrink-0" />
+                  {!sidebarCollapsed && <span>Gestión Funcionarios</span>}
+                </button>
               )}
             </div>
 
-            {/* 5. COMUNIDAD COLORLINK */}
-            <div className="rounded-xl overflow-hidden">
+            {/* GRUPO 3: OPERACIÓN & ATENCIÓN */}
+            <div>
+              {!sidebarCollapsed && (
+                <span className="px-3 text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block mb-1.5">
+                  Operaciones & Clientes
+                </span>
+              )}
+
+              {/* Logística & Inventario */}
+              {canAccessTab('logistica') && (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('logistica')}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    activeTab === 'logistica'
+                      ? 'bg-[#001D3D] text-white shadow-sm'
+                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                  }`}
+                  title="Logística, Productos e Inventarios"
+                >
+                  <Truck className="w-4 h-4 text-indigo-600 shrink-0" />
+                  {!sidebarCollapsed && <span>Logística & Bodega</span>}
+                </button>
+              )}
+
+              {/* SAC / Atención al Cliente */}
+              {canAccessTab('sac') && (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('sac')}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer mt-1 ${
+                    activeTab === 'sac'
+                      ? 'bg-[#001D3D] text-white shadow-sm'
+                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                  }`}
+                  title="Bandeja de Atención al Cliente (SAC)"
+                >
+                  <HeadphonesIcon className="w-4 h-4 text-emerald-600 shrink-0" />
+                  {!sidebarCollapsed && (
+                    <span className="flex-1 flex items-center justify-between">
+                      <span>Atención al Cliente</span>
+                      {ticketsSAC.filter((t) => t.estado === 'Nuevo').length > 0 && (
+                        <span className="px-1.5 py-0.2 rounded-full bg-rose-500 text-white text-[10px] font-black">
+                          {ticketsSAC.filter((t) => t.estado === 'Nuevo').length}
+                        </span>
+                      )}
+                    </span>
+                  )}
+                </button>
+              )}
+            </div>
+
+            {/* GRUPO 4: CULTURA & CONTROL */}
+            <div>
+              {!sidebarCollapsed && (
+                <span className="px-3 text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block mb-1.5">
+                  Cultura & Auditoría
+                </span>
+              )}
+
+              {/* Muro Comunidad */}
               <button
                 type="button"
-                onClick={() => toggleAccordion('comunidad', 'comunidad')}
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                onClick={() => setActiveTab('comunidad')}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                   activeTab === 'comunidad'
                     ? 'bg-[#001D3D] text-white shadow-sm'
-                    : 'text-slate-700 hover:bg-slate-100'
+                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                 }`}
                 title="Comunidad ColorLink"
               >
-                <div className="flex items-center gap-2.5 truncate">
-                  <MessageSquare className={`w-4 h-4 shrink-0 ${activeTab === 'comunidad' ? 'text-pink-300' : 'text-pink-600'}`} />
-                  {!sidebarCollapsed && <span className="truncate">Comunidad ColorLink</span>}
-                </div>
-                {!sidebarCollapsed && (
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <span className={`px-1.5 py-0.2 rounded-full text-[9px] font-black ${
-                      activeTab === 'comunidad' ? 'bg-pink-500/30 text-pink-200' : 'bg-slate-200 text-slate-700'
-                    }`}>
-                      {publicaciones.length}
-                    </span>
-                    {accordionOpen.comunidad ? (
-                      <ChevronDown className={`w-3.5 h-3.5 ${activeTab === 'comunidad' ? 'text-cyan-300' : 'text-slate-400'}`} />
-                    ) : (
-                      <ChevronRight className={`w-3.5 h-3.5 ${activeTab === 'comunidad' ? 'text-cyan-300' : 'text-slate-400'}`} />
-                    )}
-                  </div>
-                )}
+                <MessageSquare className="w-4 h-4 text-pink-600 shrink-0" />
+                {!sidebarCollapsed && <span>Comunidad ColorLink</span>}
               </button>
 
-              {!sidebarCollapsed && accordionOpen.comunidad && (
-                <div className="ml-3 pl-2.5 border-l-2 border-pink-200 py-1 space-y-0.5 animate-fadeIn">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveTab('comunidad');
-                      setComunidadFilter('todos');
-                    }}
-                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                      activeTab === 'comunidad' && comunidadFilter === 'todos'
-                        ? 'bg-pink-50 text-pink-900 font-black border border-pink-200 shadow-2xs'
-                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
-                    }`}
-                  >
-                    <span className="truncate">Muro de Publicaciones</span>
-                    <span className="text-[9.5px] font-mono text-slate-500">{publicaciones.length}</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveTab('comunidad');
-                      setComunidadFilter('oficiales');
-                    }}
-                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                      activeTab === 'comunidad' && comunidadFilter === 'oficiales'
-                        ? 'bg-pink-50 text-pink-900 font-black border border-pink-200 shadow-2xs'
-                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
-                    }`}
-                  >
-                    <span className="truncate">Comunicados Oficiales</span>
-                    <span className="text-[9.5px] font-mono text-slate-500">
-                      {publicaciones.filter((p) => p.tipo === 'comunicado' || p.fijado).length}
-                    </span>
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* 6. PORTAL SST (SEGURIDAD Y SALUD EN EL TRABAJO - DECRETO 1072) */}
-            <div className="rounded-xl overflow-hidden">
+              {/* Documentos */}
               <button
                 type="button"
-                onClick={() => toggleAccordion('sst', 'sst')}
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                  activeTab === 'sst'
-                    ? 'bg-[#001D3D] text-white shadow-sm'
-                    : 'text-slate-700 hover:bg-slate-100'
-                }`}
-                title="Portal SST • Seguridad y Salud en el Trabajo"
-              >
-                <div className="flex items-center gap-2.5 truncate">
-                  <ShieldAlert className={`w-4 h-4 shrink-0 ${activeTab === 'sst' ? 'text-emerald-300' : 'text-emerald-600'}`} />
-                  {!sidebarCollapsed && <span className="truncate">Portal SST</span>}
-                </div>
-                {!sidebarCollapsed && (
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <span className={`px-1.5 py-0.2 rounded-full text-[9px] font-black ${
-                      activeTab === 'sst' ? 'bg-emerald-500/30 text-emerald-200' : 'bg-emerald-100 text-emerald-800'
-                    }`}>
-                      Dec. 1072
-                    </span>
-                    {accordionOpen.sst ? (
-                      <ChevronDown className={`w-3.5 h-3.5 ${activeTab === 'sst' ? 'text-cyan-300' : 'text-slate-400'}`} />
-                    ) : (
-                      <ChevronRight className={`w-3.5 h-3.5 ${activeTab === 'sst' ? 'text-cyan-300' : 'text-slate-400'}`} />
-                    )}
-                  </div>
-                )}
-              </button>
-
-              {!sidebarCollapsed && accordionOpen.sst && (
-                <div className="ml-3 pl-2.5 border-l-2 border-emerald-300 py-1 space-y-0.5 animate-fadeIn">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveTab('sst');
-                      setSstSubTab('iperc');
-                    }}
-                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                      activeTab === 'sst' && sstSubTab === 'iperc'
-                        ? 'bg-emerald-50 text-emerald-900 font-black border border-emerald-200 shadow-2xs'
-                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
-                    }`}
-                  >
-                    <span className="truncate">1. Matriz IPERC & Riesgos</span>
-                    <span className="text-[9.5px] font-mono text-slate-500">GTC 45</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveTab('sst');
-                      setSstSubTab('emergencias');
-                    }}
-                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                      activeTab === 'sst' && sstSubTab === 'emergencias'
-                        ? 'bg-emerald-50 text-emerald-900 font-black border border-emerald-200 shadow-2xs'
-                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
-                    }`}
-                  >
-                    <span className="truncate">2. Plan de Emergencias & Brigadas</span>
-                    <span className="text-[9.5px] font-mono text-slate-500">Rutas</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveTab('sst');
-                      setSstSubTab('copasst');
-                    }}
-                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                      activeTab === 'sst' && sstSubTab === 'copasst'
-                        ? 'bg-emerald-50 text-emerald-900 font-black border border-emerald-200 shadow-2xs'
-                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
-                    }`}
-                  >
-                    <span className="truncate">3. Comité COPASST & Convivencia</span>
-                    <span className="text-[9.5px] font-mono text-slate-500">Actas</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveTab('sst');
-                      setSstSubTab('atel');
-                    }}
-                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                      activeTab === 'sst' && sstSubTab === 'atel'
-                        ? 'bg-emerald-50 text-emerald-900 font-black border border-emerald-200 shadow-2xs'
-                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
-                    }`}
-                  >
-                    <span className="truncate">4. Accidentes & Incidentes (ATEL)</span>
-                    <span className="text-[9.5px] font-mono text-slate-500">Reportes</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveTab('sst');
-                      setSstSubTab('epp_capacitaciones');
-                    }}
-                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                      activeTab === 'sst' && sstSubTab === 'epp_capacitaciones'
-                        ? 'bg-emerald-50 text-emerald-900 font-black border border-emerald-200 shadow-2xs'
-                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
-                    }`}
-                  >
-                    <span className="truncate">5. Capacitaciones & EPP</span>
-                    <span className="text-[9.5px] font-mono text-slate-500">Dotación</span>
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* 7. ARCHIVO & DOCUMENTOS LEGALES */}
-            <div className="rounded-xl overflow-hidden">
-              <button
-                type="button"
-                onClick={() => toggleAccordion('documentos', 'documentos')}
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                onClick={() => setActiveTab('documentos')}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer mt-1 ${
                   activeTab === 'documentos'
                     ? 'bg-[#001D3D] text-white shadow-sm'
-                    : 'text-slate-700 hover:bg-slate-100'
+                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                 }`}
-                title="Archivo Corporativo y Normativa Legal"
+                title="Normativa y Documentación"
               >
-                <div className="flex items-center gap-2.5 truncate">
-                  <FileText className={`w-4 h-4 shrink-0 ${activeTab === 'documentos' ? 'text-cyan-300' : 'text-slate-500'}`} />
-                  {!sidebarCollapsed && <span className="truncate">Archivo & Documentos</span>}
-                </div>
-                {!sidebarCollapsed && (
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <span className="px-1.5 py-0.2 rounded-full bg-slate-200 text-slate-700 text-[9px] font-black">
-                      6 Áreas
-                    </span>
-                    {accordionOpen.documentos ? (
-                      <ChevronDown className={`w-3.5 h-3.5 ${activeTab === 'documentos' ? 'text-cyan-300' : 'text-slate-400'}`} />
-                    ) : (
-                      <ChevronRight className={`w-3.5 h-3.5 ${activeTab === 'documentos' ? 'text-cyan-300' : 'text-slate-400'}`} />
-                    )}
-                  </div>
-                )}
+                <FileText className="w-4 h-4 text-slate-500 shrink-0" />
+                {!sidebarCollapsed && <span>Manuales & NTC 1335</span>}
               </button>
 
-              {!sidebarCollapsed && accordionOpen.documentos && (
-                <div className="ml-3 pl-2.5 border-l-2 border-slate-300 py-1 space-y-0.5 animate-fadeIn">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveTab('documentos');
-                      setDocumentosSubTab('archivo');
-                    }}
-                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                      activeTab === 'documentos' && documentosSubTab === 'archivo'
-                        ? 'bg-blue-50 text-blue-900 font-black border border-blue-200 shadow-2xs'
-                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
-                    }`}
-                  >
-                    <span className="truncate">Archivo & Documentos Legales</span>
-                    <span className="px-1.5 py-0.2 rounded-full text-[9px] font-black bg-blue-100 text-blue-800">
-                      Corp
-                    </span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveTab('documentos');
-                      setDocumentosSubTab('manuales');
-                      setDocCategoryFilter('todos');
-                      setSelectedManualId('ntc1335');
-                    }}
-                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                      activeTab === 'documentos' && documentosSubTab === 'manuales' && selectedManualId === 'ntc1335'
-                        ? 'bg-blue-50 text-blue-900 font-black border border-blue-200 shadow-2xs'
-                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
-                    }`}
-                  >
-                    <span className="truncate">Repositorio Normativo</span>
-                    <span className="text-[9.5px] font-mono text-slate-500">NTC 1335</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveTab('documentos');
-                      setDocumentosSubTab('manuales');
-                      setDocCategoryFilter('fichas');
-                      setSelectedManualId('msds');
-                    }}
-                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                      activeTab === 'documentos' && documentosSubTab === 'manuales' && selectedManualId === 'msds'
-                        ? 'bg-blue-50 text-blue-900 font-black border border-blue-200 shadow-2xs'
-                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
-                    }`}
-                  >
-                    <span className="truncate">Fichas MSDS</span>
-                    <span className="text-[9.5px] font-mono text-slate-500">SGA 2026</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveTab('documentos');
-                      setDocumentosSubTab('manuales');
-                      setDocCategoryFilter('fichas');
-                      setSelectedManualId('poe');
-                    }}
-                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                      activeTab === 'documentos' && documentosSubTab === 'manuales' && selectedManualId === 'poe'
-                        ? 'bg-blue-50 text-blue-900 font-black border border-blue-200 shadow-2xs'
-                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
-                    }`}
-                  >
-                    <span className="truncate">Procedimientos POE</span>
-                    <span className="text-[9.5px] font-mono text-slate-500">Tintometría</span>
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* 7. AUDITORÍA & INFORMES */}
-            {canAccessTab('auditoria') && (
-              <div className="rounded-xl overflow-hidden">
+              {/* Auditoría */}
+              {canAccessTab('auditoria') && (
                 <button
                   type="button"
-                  onClick={() => toggleAccordion('auditoria', 'auditoria')}
-                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  onClick={() => setActiveTab('auditoria')}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer mt-1 ${
                     activeTab === 'auditoria'
                       ? 'bg-[#001D3D] text-white shadow-sm'
-                      : 'text-slate-700 hover:bg-slate-100'
+                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                   }`}
-                  title="Auditoría y Trazabilidad"
+                  title="Auditoría y Reportes"
                 >
-                  <div className="flex items-center gap-2.5 truncate">
-                    <ShieldCheck className={`w-4 h-4 shrink-0 ${activeTab === 'auditoria' ? 'text-violet-300' : 'text-violet-600'}`} />
-                    {!sidebarCollapsed && <span className="truncate">Auditoría & Informes</span>}
-                  </div>
-                  {!sidebarCollapsed && (
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <span className={`px-1.5 py-0.2 rounded-full text-[9px] font-black ${
-                        activeTab === 'auditoria' ? 'bg-violet-500/30 text-violet-200' : 'bg-slate-200 text-slate-700'
-                      }`}>
-                        {auditoria.length}
-                      </span>
-                      {accordionOpen.auditoria ? (
-                        <ChevronDown className={`w-3.5 h-3.5 ${activeTab === 'auditoria' ? 'text-cyan-300' : 'text-slate-400'}`} />
-                      ) : (
-                        <ChevronRight className={`w-3.5 h-3.5 ${activeTab === 'auditoria' ? 'text-cyan-300' : 'text-slate-400'}`} />
-                      )}
-                    </div>
-                  )}
+                  <ShieldCheck className="w-4 h-4 text-violet-600 shrink-0" />
+                  {!sidebarCollapsed && <span>Auditoría & Informes</span>}
                 </button>
-
-                {!sidebarCollapsed && accordionOpen.auditoria && (
-                  <div className="ml-3 pl-2.5 border-l-2 border-violet-200 py-1 space-y-0.5 animate-fadeIn">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveTab('auditoria');
-                        setAuditoriaSubTab('informes');
-                      }}
-                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                        activeTab === 'auditoria' && auditoriaSubTab === 'informes'
-                          ? 'bg-violet-50 text-violet-900 font-black border border-violet-200 shadow-2xs'
-                          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
-                      }`}
-                    >
-                      <span className="truncate">Informes y Reportes</span>
-                      <span className="text-[9.5px] font-mono text-slate-500">NTC/ISO</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveTab('auditoria');
-                        setAuditoriaSubTab('actas');
-                      }}
-                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                        activeTab === 'auditoria' && auditoriaSubTab === 'actas'
-                          ? 'bg-violet-50 text-violet-900 font-black border border-violet-200 shadow-2xs'
-                          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
-                      }`}
-                    >
-                      <span className="truncate">Gestión de Actas</span>
-                      <span className="px-1.5 py-0.2 rounded-full text-[9px] font-black bg-violet-100 text-violet-800">
-                        Comités
-                      </span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveTab('auditoria');
-                        setAuditoriaSubTab('rnc');
-                      }}
-                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                        activeTab === 'auditoria' && auditoriaSubTab === 'rnc'
-                          ? 'bg-amber-50 text-amber-900 font-black border border-amber-200 shadow-2xs'
-                          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
-                      }`}
-                    >
-                      <span className="truncate">No Conformidades & Acciones Correctivas (RNC)</span>
-                      <span className="px-1.5 py-0.2 rounded-full text-[9px] font-black bg-amber-100 text-amber-800">
-                        RNC
-                      </span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveTab('auditoria');
-                        setAuditoriaSubTab('trazabilidad');
-                      }}
-                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                        activeTab === 'auditoria' && auditoriaSubTab === 'trazabilidad'
-                          ? 'bg-violet-50 text-violet-900 font-black border border-violet-200 shadow-2xs'
-                          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
-                      }`}
-                    >
-                      <span className="truncate">Registro de Trazabilidad</span>
-                      <span className="text-[9.5px] font-mono text-slate-500">{auditoria.length}</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleExportCSV('auditoria')}
-                      className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium transition-all cursor-pointer"
-                    >
-                      <span className="truncate">Exportar Auditoría CSV</span>
-                      <Download className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* 8. DASHBOARD OPERATIVO */}
-            <div className="rounded-xl overflow-hidden">
-              <button
-                type="button"
-                onClick={() => toggleAccordion('dashboard', 'dashboard')}
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                  activeTab === 'dashboard'
-                    ? 'bg-[#001D3D] text-white shadow-sm'
-                    : 'text-slate-700 hover:bg-slate-100'
-                }`}
-                title="Dashboard Operativo General"
-              >
-                <div className="flex items-center gap-2.5 truncate">
-                  <BarChart3 className={`w-4 h-4 shrink-0 ${activeTab === 'dashboard' ? 'text-cyan-300' : 'text-cyan-600'}`} />
-                  {!sidebarCollapsed && <span className="truncate">Dashboard Operativo</span>}
-                </div>
-                {!sidebarCollapsed && (
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    {accordionOpen.dashboard ? (
-                      <ChevronDown className={`w-3.5 h-3.5 ${activeTab === 'dashboard' ? 'text-cyan-300' : 'text-slate-400'}`} />
-                    ) : (
-                      <ChevronRight className={`w-3.5 h-3.5 ${activeTab === 'dashboard' ? 'text-cyan-300' : 'text-slate-400'}`} />
-                    )}
-                  </div>
-                )}
-              </button>
-
-              {!sidebarCollapsed && accordionOpen.dashboard && (
-                <div className="ml-3 pl-2.5 border-l-2 border-cyan-200 py-1 space-y-0.5 animate-fadeIn">
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('dashboard')}
-                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                      activeTab === 'dashboard'
-                        ? 'bg-cyan-50 text-cyan-900 font-black border border-cyan-200 shadow-2xs'
-                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
-                    }`}
-                  >
-                    <span className="truncate">Métricas & KPIs Globales</span>
-                    <span className="text-[9.5px] font-mono text-emerald-600 font-bold">En Vivo</span>
-                  </button>
-                </div>
               )}
             </div>
 
-          </div>
-
-          {/* Botón Fijo Destacado: Ir a Tienda de Clientes */}
-          <div className="p-2 border-t border-slate-200 bg-slate-50/60">
-            <button
-              type="button"
-              onClick={handleGoToClientStore}
-              className={`w-full flex items-center justify-between p-2.5 rounded-xl text-xs font-black transition-all cursor-pointer bg-gradient-to-r from-[#001D3D] via-[#002D5C] to-[#0A192F] text-white hover:from-blue-900 hover:to-indigo-900 shadow-sm border border-cyan-500/30 group ${
-                sidebarCollapsed ? 'justify-center px-1.5' : ''
-              }`}
-              title="Ir a Tienda de Clientes / Cotizador Web"
-            >
-              <div className="flex items-center gap-2.5 truncate">
-                <div className="p-1.5 rounded-lg bg-cyan-400/20 text-cyan-300 group-hover:scale-105 transition-transform shrink-0">
-                  <Store className="w-4 h-4 text-cyan-300" />
-                </div>
-                {!sidebarCollapsed && (
-                  <div className="text-left truncate">
-                    <span className="block text-xs font-black leading-tight text-white group-hover:text-cyan-200 transition-colors">
-                      Tienda de Clientes
-                    </span>
-                    <span className="block text-[10px] text-cyan-300/80 font-medium">
-                      Cotizador & Catálogo Web
-                    </span>
-                  </div>
-                )}
-              </div>
-              {!sidebarCollapsed && (
-                <div className="flex items-center gap-1 shrink-0">
-                  <span className="px-1.5 py-0.2 rounded-full text-[9px] font-black bg-cyan-400/20 text-cyan-200 border border-cyan-400/30">
-                    B2B/B2C
-                  </span>
-                  <ExternalLink className="w-3.5 h-3.5 text-cyan-300 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
-                </div>
-              )}
-            </button>
           </div>
 
           {/* Footer del Sidebar: Estado del Sistema */}
@@ -3324,54 +1825,6 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
           {activeTab === 'dashboard' && (
             <div className="space-y-6 animate-fadeIn">
               
-              {/* Encabezado Dinámico: Submódulo Activo + Badge + Sede/CEDI Activo */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white px-4 py-3 sm:px-5 sm:py-3.5 rounded-2xl border border-slate-200/90 shadow-2xs">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#001D3D] via-[#002D5C] to-[#0A192F] text-cyan-300 flex items-center justify-center shrink-0 shadow-xs ring-1 ring-cyan-500/30">
-                    <BarChart3 className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h2 className="text-sm sm:text-base font-black text-slate-900 tracking-tight leading-none">
-                        Dashboard Operativo • Métricas & KPIs Globales
-                      </h2>
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9.5px] font-black bg-cyan-50 text-cyan-800 border border-cyan-200 font-mono">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                        Monitoreo en Tiempo Real
-                      </span>
-                    </div>
-                    <p className="text-[10.5px] text-slate-500 font-medium mt-0.5 leading-tight">
-                      Supervisión de Desempeño, Indicadores de Planta, CEDI Mamonal y Red de Distribución
-                    </p>
-                  </div>
-                </div>
-
-                {/* Selector de Sede CEDI activo */}
-                <div className="flex items-center gap-2 bg-slate-50 hover:bg-slate-100/90 py-1 px-2.5 rounded-md border border-slate-200/90 transition-all shadow-2xs self-start sm:self-auto shrink-0">
-                  <div className="w-5 h-5 rounded bg-cyan-50 text-cyan-700 flex items-center justify-center border border-cyan-200/80 shrink-0 shadow-2xs">
-                    <MapPin className="w-3 h-3" />
-                  </div>
-                  <div className="text-left">
-                    <label htmlFor="sedeSelectorDashboard" className="text-[8.5px] font-black text-slate-400 uppercase tracking-wider block leading-none">
-                      Sede / CEDI Activo:
-                    </label>
-                    <select
-                      id="sedeSelectorDashboard"
-                      value={selectedSede}
-                      onChange={(e) => setSelectedSede(e.target.value)}
-                      className="bg-transparent text-slate-900 font-black text-[11px] focus:outline-none cursor-pointer mt-0.5 pr-1 leading-tight"
-                    >
-                      <option value="todas">🏢 Todas las Sedes (Consolidado Nacional)</option>
-                      {SEDES_CEDI_CONFIG.map((sede) => (
-                        <option key={sede.id} value={sede.id}>
-                          📍 {sede.nombre}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-              </div>
-
               {/* Bienvenida y Resumen Estratégico */}
               <div className="bg-gradient-to-r from-[#001D3D] to-[#003366] rounded-3xl p-6 sm:p-8 text-white shadow-xl relative overflow-hidden">
                 <div className="absolute right-0 top-0 bottom-0 w-1/3 opacity-10 pointer-events-none flex items-center justify-center">
@@ -3552,65 +2005,31 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
           {activeTab === 'areas' && (
             <div className="space-y-6 animate-fadeIn">
               
-              {/* Encabezado Dinámico: Submódulo Activo + Badge + Sede/CEDI Activo */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white px-4 py-3 sm:px-5 sm:py-3.5 rounded-2xl border border-slate-200/90 shadow-2xs">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#001D3D] via-[#002D5C] to-[#0A192F] text-blue-300 flex items-center justify-center shrink-0 shadow-xs ring-1 ring-blue-500/30">
-                    <Building2 className="w-4 h-4" />
+              {/* Encabezado del Módulo */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-3xl border border-slate-200 shadow-xs">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-blue-100 text-blue-900 uppercase">
+                      Organigrama Ficticio Académico
+                    </span>
+                    <span className="text-xs text-slate-400">13 Áreas Propuestas</span>
                   </div>
-                  <div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h2 className="text-sm sm:text-base font-black text-slate-900 tracking-tight leading-none">
-                        Gestión Funcionarios • Estructura (13 Áreas)
-                      </h2>
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9.5px] font-black bg-blue-50 text-blue-800 border border-blue-200 font-mono">
-                        <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
-                        13 Áreas Corporativas Pintuco
-                      </span>
-                    </div>
-                    <p className="text-[10.5px] text-slate-500 font-medium mt-0.5 leading-tight">
-                      Configuración de Jefaturas, Permisos Modulares, Equipos de Trabajo e Indicadores
-                    </p>
-                  </div>
+                  <h2 className="text-xl font-black text-slate-900 mt-1">Estructura Organizacional Pintuco</h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Configuración de jefaturas, permisos modulares, equipos de trabajo e indicadores operativos.
+                  </p>
                 </div>
 
-                <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
-                  {/* Selector de Sede CEDI activo */}
-                  <div className="flex items-center gap-2 bg-slate-50 hover:bg-slate-100/90 py-1 px-2.5 rounded-md border border-slate-200/90 transition-all shadow-2xs shrink-0">
-                    <div className="w-5 h-5 rounded bg-cyan-50 text-cyan-700 flex items-center justify-center border border-cyan-200/80 shrink-0 shadow-2xs">
-                      <MapPin className="w-3 h-3" />
-                    </div>
-                    <div className="text-left">
-                      <label htmlFor="sedeSelectorAreas" className="text-[8.5px] font-black text-slate-400 uppercase tracking-wider block leading-none">
-                        Sede / CEDI Activo:
-                      </label>
-                      <select
-                        id="sedeSelectorAreas"
-                        value={selectedSede}
-                        onChange={(e) => setSelectedSede(e.target.value)}
-                        className="bg-transparent text-slate-900 font-black text-[11px] focus:outline-none cursor-pointer mt-0.5 pr-1 leading-tight"
-                      >
-                        <option value="todas">🏢 Todas las Sedes (Consolidado Nacional)</option>
-                        {SEDES_CEDI_CONFIG.map((sede) => (
-                          <option key={sede.id} value={sede.id}>
-                            📍 {sede.nombre}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  {currentRoleConfig.permisos.canManageAreas && (
-                    <button
-                      type="button"
-                      onClick={() => setIsNewAreaModalOpen(true)}
-                      className="px-3.5 py-1.5 rounded-xl bg-[#001D3D] hover:bg-blue-900 text-white font-bold text-xs shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
-                    >
-                      <Plus className="w-4 h-4 text-cyan-300" />
-                      <span>Nueva Área</span>
-                    </button>
-                  )}
-                </div>
+                {currentRoleConfig.permisos.canManageAreas && (
+                  <button
+                    type="button"
+                    onClick={() => setIsNewAreaModalOpen(true)}
+                    className="px-4 py-2.5 rounded-xl bg-blue-900 hover:bg-blue-800 text-white font-bold text-xs shadow-xs transition-all flex items-center gap-2 cursor-pointer self-start sm:self-auto"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Crear Nueva Área</span>
+                  </button>
+                )}
               </div>
 
               {/* Grid de las 13 Áreas */}
@@ -3681,70 +2100,32 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
           {activeTab === 'funcionarios' && (
             <div className="space-y-6 animate-fadeIn">
               
-              {/* Encabezado Dinámico: Submódulo Activo + Badge + Sede/CEDI Activo */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white px-4 py-3 sm:px-5 sm:py-3.5 rounded-2xl border border-slate-200/90 shadow-2xs">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#001D3D] via-[#002D5C] to-[#0A192F] text-teal-300 flex items-center justify-center shrink-0 shadow-xs ring-1 ring-teal-500/30">
-                    <Users className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h2 className="text-sm sm:text-base font-black text-slate-900 tracking-tight leading-none">
-                        Gestión Funcionarios • Directorio de Personal
-                      </h2>
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9.5px] font-black bg-teal-50 text-teal-800 border border-teal-200 font-mono">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                        {funcionarios.length} Colaboradores Activos
-                      </span>
-                    </div>
-                    <p className="text-[10.5px] text-slate-500 font-medium mt-0.5 leading-tight">
-                      Administración de Personal, Asignación de Cargos, Jefaturas y Control RBAC
-                    </p>
-                  </div>
+              {/* Encabezado y Filtros */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-3xl border border-slate-200 shadow-xs">
+                <div>
+                  <h2 className="text-xl font-black text-slate-900">Directorio de Funcionarios</h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Administración de personal, asignación de cargos, jefaturas inmediatas y control de acceso RBAC.
+                  </p>
                 </div>
 
-                <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
-                  {/* Selector de Sede CEDI activo */}
-                  <div className="flex items-center gap-2 bg-slate-50 hover:bg-slate-100/90 py-1 px-2.5 rounded-md border border-slate-200/90 transition-all shadow-2xs shrink-0">
-                    <div className="w-5 h-5 rounded bg-cyan-50 text-cyan-700 flex items-center justify-center border border-cyan-200/80 shrink-0 shadow-2xs">
-                      <MapPin className="w-3 h-3" />
-                    </div>
-                    <div className="text-left">
-                      <label htmlFor="sedeSelectorFunc" className="text-[8.5px] font-black text-slate-400 uppercase tracking-wider block leading-none">
-                        Sede / CEDI Activo:
-                      </label>
-                      <select
-                        id="sedeSelectorFunc"
-                        value={selectedSede}
-                        onChange={(e) => setSelectedSede(e.target.value)}
-                        className="bg-transparent text-slate-900 font-black text-[11px] focus:outline-none cursor-pointer mt-0.5 pr-1 leading-tight"
-                      >
-                        <option value="todas">🏢 Todas las Sedes (Consolidado Nacional)</option>
-                        {SEDES_CEDI_CONFIG.map((sede) => (
-                          <option key={sede.id} value={sede.id}>
-                            📍 {sede.nombre}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
+                <div className="flex items-center gap-2">
                   <button
                     type="button"
                     onClick={() => handleExportCSV('funcionarios')}
-                    className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 cursor-pointer"
-                    title="Exportar CSV"
+                    className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition-colors flex items-center gap-1.5 cursor-pointer"
                   >
                     <Download className="w-4 h-4" />
+                    <span>Exportar CSV</span>
                   </button>
 
                   {currentRoleConfig.permisos.canManageUsers && (
                     <button
                       type="button"
-                      onClick={() => setActiveTab('crear_funcionario')}
-                      className="px-3.5 py-1.5 rounded-xl bg-[#001D3D] hover:bg-blue-900 text-white font-bold text-xs shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                      onClick={() => setIsNewFuncModalOpen(true)}
+                      className="px-4 py-2 rounded-xl bg-blue-900 hover:bg-blue-800 text-white font-bold text-xs shadow-xs transition-all flex items-center gap-2 cursor-pointer"
                     >
-                      <UserPlus className="w-4 h-4 text-cyan-300" />
+                      <UserPlus className="w-4 h-4" />
                       <span>Nuevo Funcionario</span>
                     </button>
                   )}
@@ -3943,822 +2324,41 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
           )}
 
           {/* =========================================================================
-              MÓDULO 3.1: PANTALLA COMPLETA DE REGISTRO - CREAR NUEVO FUNCIONARIO
-          ========================================================================= */}
-          {activeTab === 'crear_funcionario' && (
-            <div className="space-y-6 animate-fadeIn">
-              
-              {/* Encabezado Dinámico: Submódulo Activo + Badge + Botón Volver + Sede/CEDI Activo */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white px-4 py-3 sm:px-5 sm:py-3.5 rounded-2xl border border-slate-200/90 shadow-2xs">
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('funcionarios')}
-                    className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer shrink-0"
-                    title="Volver al Directorio de Personal"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </button>
-
-                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#001D3D] via-[#002D5C] to-[#0A192F] text-cyan-300 flex items-center justify-center shrink-0 shadow-xs ring-1 ring-cyan-500/30">
-                    <UserPlus className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h2 className="text-sm sm:text-base font-black text-slate-900 tracking-tight leading-none">
-                        Gestión Funcionarios • Crear Nuevo Funcionario
-                      </h2>
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9.5px] font-black bg-cyan-50 text-cyan-800 border border-cyan-200 font-mono">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                        Alta ERP & Supabase Auth
-                      </span>
-                    </div>
-                    <p className="text-[10.5px] text-slate-500 font-medium mt-0.5 leading-tight">
-                      Registro de Personal, Asignación de Roles RBAC y Credenciales Oficiales de Acceso
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
-                  {/* Selector de Sede CEDI activo */}
-                  <div className="flex items-center gap-2 bg-slate-50 hover:bg-slate-100/90 py-1 px-2.5 rounded-md border border-slate-200/90 transition-all shadow-2xs shrink-0">
-                    <div className="w-5 h-5 rounded bg-cyan-50 text-cyan-700 flex items-center justify-center border border-cyan-200/80 shrink-0 shadow-2xs">
-                      <MapPin className="w-3 h-3" />
-                    </div>
-                    <div className="text-left">
-                      <label htmlFor="sedeSelectorCrearFunc" className="text-[8.5px] font-black text-slate-400 uppercase tracking-wider block leading-none">
-                        Sede / CEDI Activo:
-                      </label>
-                      <select
-                        id="sedeSelectorCrearFunc"
-                        value={selectedSede}
-                        onChange={(e) => setSelectedSede(e.target.value)}
-                        className="bg-transparent text-slate-900 font-black text-[11px] focus:outline-none cursor-pointer mt-0.5 pr-1 leading-tight"
-                      >
-                        <option value="todas">🏢 Todas las Sedes (Consolidado Nacional)</option>
-                        {SEDES_CEDI_CONFIG.map((sede) => (
-                          <option key={sede.id} value={sede.id}>
-                            📍 {sede.nombre}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('funcionarios')}
-                    className="px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
-                  >
-                    <span>Directorio</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Formulario Principal de Registro */}
-              <form onSubmit={handleSaveNewFuncionario} className="space-y-6">
-
-                {/* Banner de Feedback de Errores o Éxito */}
-                {newFuncSubmitError && (
-                  <div className="p-4 rounded-2xl bg-rose-50 border border-rose-300 text-rose-900 flex items-start gap-3 animate-fadeIn shadow-xs">
-                    <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
-                    <div className="flex-1 text-xs">
-                      <strong className="font-bold block">No se pudo registrar el funcionario:</strong>
-                      <p className="mt-0.5">{newFuncSubmitError}</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setNewFuncSubmitError(null)}
-                      className="text-rose-500 hover:text-rose-700 p-1"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                )}
-
-                {newFuncSubmitSuccess && (
-                  <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-300 text-emerald-900 flex items-start gap-3 animate-fadeIn shadow-xs">
-                    <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
-                    <div className="flex-1 text-xs">
-                      <strong className="font-bold block">¡Registro Exitoso!</strong>
-                      <p className="mt-0.5">{newFuncSubmitSuccess}</p>
-                      <span className="text-[10px] text-emerald-700 mt-1 block">Redirigiendo al directorio de personal...</span>
-                    </div>
-                  </div>
-                )}
-
-                {/* =========================================================================
-                    SECCIÓN 1: DATOS PERSONALES & CONTACTO
-                ========================================================================= */}
-                <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-xs space-y-4">
-                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-7 h-7 rounded-lg bg-teal-50 text-teal-700 flex items-center justify-center font-bold">
-                        <User className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <h3 className="font-black text-sm text-slate-900">1. Datos Personales & Contacto</h3>
-                        <p className="text-[11px] text-slate-500">Información básica de identificación oficial y comunicación del funcionario</p>
-                      </div>
-                    </div>
-                    <span className="text-[10px] font-bold text-teal-800 bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200">
-                      Obligatorio
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-xs">
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
-                        Nombres Completos <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        placeholder="Ej: Carlos Andrés"
-                        value={newFuncNombres}
-                        onChange={(e) => setNewFuncNombres(e.target.value)}
-                        className="w-full px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 font-semibold focus:bg-white focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
-                        Apellidos <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        placeholder="Ej: Restrepo Gómez"
-                        value={newFuncApellidos}
-                        onChange={(e) => setNewFuncApellidos(e.target.value)}
-                        className="w-full px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 font-semibold focus:bg-white focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
-                        Cargo Oficial en Pintuco <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        placeholder="Ej: Coordinador de Logística Mamonal"
-                        value={newFuncCargo}
-                        onChange={(e) => setNewFuncCargo(e.target.value)}
-                        className="w-full px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 font-semibold focus:bg-white focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
-                        Tipo de Documento
-                      </label>
-                      <select
-                        value={newFuncTipoDoc}
-                        onChange={(e) => setNewFuncTipoDoc(e.target.value as any)}
-                        className="w-full px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 font-semibold focus:bg-white focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500 cursor-pointer"
-                      >
-                        <option value="CC">Cédula de Ciudadanía (CC)</option>
-                        <option value="NIT">NIT (Empresarial / Contratista)</option>
-                        <option value="CE">Cédula de Extranjería (CE)</option>
-                        <option value="Pasaporte">Pasaporte</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
-                        Número de Documento <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        placeholder="Ej: 1.020.304.506 o 900.845.120-4"
-                        value={newFuncDocumento}
-                        onChange={(e) => setNewFuncDocumento(e.target.value)}
-                        className="w-full px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 font-semibold focus:bg-white focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
-                        Teléfono Móvil / Contacto
-                      </label>
-                      <input
-                        type="tel"
-                        placeholder="Ej: 310 456 7890"
-                        value={newFuncTelefono}
-                        onChange={(e) => setNewFuncTelefono(e.target.value)}
-                        className="w-full px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 font-semibold focus:bg-white focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* =========================================================================
-                    SECCIÓN 2: CORREO CORPORATIVO & ACCESOS
-                ========================================================================= */}
-                <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-xs space-y-4">
-                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-7 h-7 rounded-lg bg-blue-50 text-blue-700 flex items-center justify-center font-bold">
-                        <Mail className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <h3 className="font-black text-sm text-slate-900">2. Correo Corporativo & Credenciales de Acceso</h3>
-                        <p className="text-[11px] text-slate-500">
-                          Buzón institucional generado automáticamente con opción de edición manual y clave temporal
-                        </p>
-                      </div>
-                    </div>
-                    <span className="text-[10px] font-bold text-blue-800 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
-                      Infraestructura Pintuco
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 text-xs">
-                    {/* Generador de Correo Corporativo */}
-                    <div className="space-y-2 p-4 rounded-2xl bg-blue-50/60 border border-blue-200/80">
-                      <div className="flex items-center justify-between">
-                        <label className="block text-[11px] font-bold text-blue-950 uppercase tracking-wider">
-                          Dirección de Correo Corporativo <span className="text-red-500">*</span>
-                        </label>
-                        <div className="flex items-center gap-1 text-[10px]">
-                          <span className="text-slate-500 font-medium">Dominio:</span>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setNewFuncCorporateDomain('@pintuco.com');
-                              setIsEmailManuallyEdited(false);
-                            }}
-                            className={`px-1.5 py-0.5 rounded font-bold cursor-pointer transition-colors ${
-                              newFuncCorporateDomain === '@pintuco.com' ? 'bg-[#001D3D] text-white' : 'bg-white text-slate-700'
-                            }`}
-                          >
-                            @pintuco.com
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setNewFuncCorporateDomain('@colorlink.com');
-                              setIsEmailManuallyEdited(false);
-                            }}
-                            className={`px-1.5 py-0.5 rounded font-bold cursor-pointer transition-colors ${
-                              newFuncCorporateDomain === '@colorlink.com' ? 'bg-[#001D3D] text-white' : 'bg-white text-slate-700'
-                            }`}
-                          >
-                            @colorlink.com
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="relative">
-                        <input
-                          type="email"
-                          required
-                          value={newFuncCorporateEmail}
-                          onChange={(e) => {
-                            setNewFuncCorporateEmail(e.target.value);
-                            setIsEmailManuallyEdited(true);
-                          }}
-                          placeholder="nombre.apellido@pintuco.com"
-                          className="w-full pl-9 pr-24 py-2.5 rounded-xl bg-white border border-blue-300 text-blue-950 font-bold font-mono focus:border-blue-600 focus:outline-none focus:ring-1 focus:ring-blue-600"
-                        />
-                        <Mail className="w-4 h-4 text-blue-600 absolute left-3 top-3" />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setIsEmailManuallyEdited(false);
-                            const cleanFirst = newFuncNombres.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
-                            const cleanLast = newFuncApellidos.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
-                            if (cleanFirst && cleanLast) {
-                              setNewFuncCorporateEmail(`${cleanFirst}.${cleanLast}${newFuncCorporateDomain}`);
-                            } else if (cleanFirst) {
-                              setNewFuncCorporateEmail(`${cleanFirst}${newFuncCorporateDomain}`);
-                            }
-                          }}
-                          className="absolute right-2 top-2 px-2 py-1 rounded-lg bg-blue-100 hover:bg-blue-200 text-blue-900 text-[10px] font-bold cursor-pointer flex items-center gap-1 transition-colors"
-                          title="Volver a generar a partir del nombre y apellido"
-                        >
-                          <RefreshCw className="w-3 h-3" />
-                          <span>Regenerar</span>
-                        </button>
-                      </div>
-
-                      <p className="text-[10.5px] text-blue-800 leading-tight">
-                        💡 Este buzón se activará para ingreso al Portal de Funcionarios y sincronización con Microsoft 365 / Google Workspace.
-                      </p>
-                    </div>
-
-                    {/* Correo Personal para envío de Credenciales */}
-                    <div className="space-y-2 p-4 rounded-2xl bg-slate-50 border border-slate-200">
-                      <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider">
-                        Correo Personal de Respaldo / Notificación
-                      </label>
-                      <div className="relative">
-                        <input
-                          type="email"
-                          value={newFuncPersonalEmail}
-                          onChange={(e) => setNewFuncPersonalEmail(e.target.value)}
-                          placeholder="Ej: funcionario.personal@gmail.com"
-                          className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-white border border-slate-300 text-slate-900 font-semibold focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                        />
-                        <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-                      </div>
-                      <p className="text-[10.5px] text-slate-500 leading-tight">
-                        Opcional: Se remitirá una copia cifrada de las credenciales oficiales de bienvenida a este buzón personal.
-                      </p>
-                    </div>
-
-                    {/* Contraseña Temporal y Accesos Supabase */}
-                    <div className="space-y-2 p-4 rounded-2xl bg-amber-50/70 border border-amber-200 lg:col-span-2">
-                      <div className="flex items-center justify-between">
-                        <label className="block text-[11px] font-bold text-amber-950 uppercase tracking-wider">
-                          Contraseña Temporal de Acceso (Supabase Auth & ERP) <span className="text-red-500">*</span>
-                        </label>
-                        <button
-                          type="button"
-                          onClick={handleGenerateSecurePassword}
-                          className="px-2 py-1 rounded-lg bg-amber-200 hover:bg-amber-300 text-amber-950 text-[10px] font-black cursor-pointer flex items-center gap-1 transition-colors"
-                        >
-                          <Key className="w-3 h-3" />
-                          <span>Generar Clave Segura</span>
-                        </button>
-                      </div>
-
-                      <div className="relative">
-                        <input
-                          type={showPasswordText ? 'text' : 'password'}
-                          required
-                          value={newFuncTempPassword}
-                          onChange={(e) => setNewFuncTempPassword(e.target.value)}
-                          placeholder="Mínimo 6 caracteres"
-                          className="w-full pl-9 pr-24 py-2.5 rounded-xl bg-white border border-amber-300 text-slate-900 font-mono font-bold focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600"
-                        />
-                        <Lock className="w-4 h-4 text-amber-600 absolute left-3 top-3" />
-                        <button
-                          type="button"
-                          onClick={() => setShowPasswordText(!showPasswordText)}
-                          className="absolute right-2 top-2 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-bold cursor-pointer flex items-center gap-1"
-                        >
-                          {showPasswordText ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                          <span>{showPasswordText ? 'Ocultar' : 'Ver'}</span>
-                        </button>
-                      </div>
-
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1 border-t border-amber-200/80">
-                        <span className="text-[10.5px] text-amber-800 font-medium">
-                          🔒 Se activará la solicitud de cambio obligatorio de contraseña en el primer inicio de sesión (Norma NTC 1335).
-                        </span>
-                        <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-800 shrink-0">
-                          <input
-                            type="checkbox"
-                            checked={sendWelcomeEmail}
-                            onChange={(e) => setSendWelcomeEmail(e.target.checked)}
-                            className="w-4 h-4 text-[#001D3D] rounded cursor-pointer"
-                          />
-                          <span>Enviar credenciales de bienvenida por correo</span>
-                        </label>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* =========================================================================
-                    SECCIÓN 3: ASIGNACIÓN ORGANIZACIONAL & SEDE
-                ========================================================================= */}
-                <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-xs space-y-4">
-                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-7 h-7 rounded-lg bg-indigo-50 text-indigo-700 flex items-center justify-center font-bold">
-                        <Building2 className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <h3 className="font-black text-sm text-slate-900">3. Asignación Organizacional & Centro Logístico</h3>
-                        <p className="text-[11px] text-slate-500">Definición de Área Corporativa, Sede CEDI y vinculación de fecha de ingreso</p>
-                      </div>
-                    </div>
-                    <span className="text-[10px] font-bold text-indigo-800 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-200">
-                      Estructura Pintuco
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
-                    {/* Selector de Área */}
-                    <div className="sm:col-span-2">
-                      <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
-                        Área Principal Corporativa (13 Áreas) <span className="text-red-500">*</span>
-                      </label>
-                      <select
-                        value={newFuncAreaId}
-                        onChange={(e) => setNewFuncAreaId(e.target.value)}
-                        className="w-full px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 font-bold focus:bg-white focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
-                      >
-                        {areas.map((area) => (
-                          <option key={area.id} value={area.id}>
-                            🏢 {area.nombre} ({area.codigo}) — Líder: {area.liderNombre}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    {/* Selector de Sede CEDI */}
-                    <div className="sm:col-span-2">
-                      <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
-                        Sede / Centro de Distribución (CEDI) Asignado <span className="text-red-500">*</span>
-                      </label>
-                      <select
-                        value={newFuncSedeId}
-                        onChange={(e) => setNewFuncSedeId(e.target.value)}
-                        className="w-full px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 font-bold focus:bg-white focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
-                      >
-                        {SEDES_CEDI_CONFIG.map((sede) => (
-                          <option key={sede.id} value={sede.id}>
-                            📍 {sede.nombre} — {sede.ciudad}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
-                        Fecha Oficial de Ingreso
-                      </label>
-                      <input
-                        type="date"
-                        value={newFuncFechaIngreso}
-                        onChange={(e) => setNewFuncFechaIngreso(e.target.value)}
-                        className="w-full px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 font-semibold focus:bg-white focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
-                        Estado Inicial del Colaborador
-                      </label>
-                      <select
-                        value={newFuncEstado}
-                        onChange={(e) => setNewFuncEstado(e.target.value as any)}
-                        className="w-full px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 font-bold focus:bg-white focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
-                      >
-                        <option value="Activo">🟢 Activo Inmediato</option>
-                        <option value="En Inducción">🟡 En Proceso de Inducción</option>
-                      </select>
-                    </div>
-
-                    {/* Resumen de Área Seleccionada */}
-                    <div className="sm:col-span-2 p-3 rounded-xl bg-indigo-50/70 border border-indigo-200 text-[11px] text-indigo-950 flex items-center justify-between">
-                      <div>
-                        <span className="font-bold block">
-                          Área: {areas.find((a) => a.id === newFuncAreaId)?.nombre || 'Seleccionada'}
-                        </span>
-                        <span className="text-indigo-800 text-[10px]">
-                          Jefe Inmediato: {areas.find((a) => a.id === newFuncAreaId)?.liderNombre || 'Por asignar'} ({areas.find((a) => a.id === newFuncAreaId)?.liderCargo || 'Líder'})
-                        </span>
-                      </div>
-                      <span className="font-mono text-[10px] font-bold bg-white px-2 py-0.5 rounded text-indigo-900 border border-indigo-200">
-                        {areas.find((a) => a.id === newFuncAreaId)?.empleadosCount || 0} Miembros
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* =========================================================================
-                    SECCIÓN 4: MATRIZ DE ROLES Y PERMISOS EN LA PLATAFORMA
-                ========================================================================= */}
-                <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-xs space-y-5">
-                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-7 h-7 rounded-lg bg-violet-50 text-violet-700 flex items-center justify-center font-bold">
-                        <ShieldCheck className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <h3 className="font-black text-sm text-slate-900">4. Matriz de Roles & Permisos en la Plataforma</h3>
-                        <p className="text-[11px] text-slate-500">Selección del nivel jerárquico y concesión granular de privilegios modulares</p>
-                      </div>
-                    </div>
-                    <span className="text-[10px] font-bold text-violet-800 bg-violet-50 px-2 py-0.5 rounded-full border border-violet-200">
-                      RBAC NTC 1335
-                    </span>
-                  </div>
-
-                  {/* Selector de Rol Principal */}
-                  <div className="space-y-2">
-                    <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider">
-                      Rol Funcional Asignado <span className="text-red-500">*</span>
-                    </label>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-                      {ROLES_CORPORATIVOS.map((r) => {
-                        const isSelected = newFuncRolId === r.id;
-                        return (
-                          <div
-                            key={r.id}
-                            onClick={() => handleRoleSelectionChange(r.id)}
-                            className={`p-3 rounded-2xl border-2 transition-all cursor-pointer flex flex-col justify-between ${
-                              isSelected
-                                ? 'border-[#001D3D] bg-blue-50/80 shadow-xs'
-                                : 'border-slate-200 hover:border-slate-300 bg-white'
-                            }`}
-                          >
-                            <div className="flex items-center justify-between">
-                              <span className="font-black text-xs text-slate-900">{r.nombre}</span>
-                              <span className={`text-[9px] font-mono px-1.5 py-0.2 rounded font-bold ${
-                                r.nivel === 1 ? 'bg-red-100 text-red-800' :
-                                r.nivel <= 3 ? 'bg-amber-100 text-amber-800' :
-                                'bg-slate-100 text-slate-700'
-                              }`}>
-                                Nivel {r.nivel}
-                              </span>
-                            </div>
-                            <p className="text-[10.5px] text-slate-500 mt-1 line-clamp-2 leading-relaxed">
-                              {r.descripcion}
-                            </p>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Matriz Modular de Casillas de Verificación (Checkboxes) */}
-                  <div className="space-y-3 pt-2">
-                    <div className="flex items-center justify-between">
-                      <label className="block text-[11px] font-bold text-slate-800 uppercase tracking-wider">
-                        Privilegios Específicos por Módulo (Casillas de Verificación):
-                      </label>
-                      <span className="text-[10px] text-slate-500">
-                        Marca o desmarca permisos para personalizar el acceso de este funcionario
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
-                      
-                      {/* Módulo Logística */}
-                      <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
-                        <div className="flex items-center gap-2 pb-1 border-b border-slate-200">
-                          <Truck className="w-3.5 h-3.5 text-indigo-600" />
-                          <span className="font-black text-slate-900">Módulo Logística & Bodega</span>
-                        </div>
-                        <div className="space-y-1.5 pt-1">
-                          <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700">
-                            <input
-                              type="checkbox"
-                              checked={newFuncPermisos.logistica_ver}
-                              onChange={(e) => setNewFuncPermisos((prev) => ({ ...prev, logistica_ver: e.target.checked }))}
-                              className="w-3.5 h-3.5 text-[#001D3D] rounded cursor-pointer"
-                            />
-                            <span>Visualizar inventario y stock</span>
-                          </label>
-                          <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700">
-                            <input
-                              type="checkbox"
-                              checked={newFuncPermisos.logistica_movimientos}
-                              onChange={(e) => setNewFuncPermisos((prev) => ({ ...prev, logistica_movimientos: e.target.checked }))}
-                              className="w-3.5 h-3.5 text-[#001D3D] rounded cursor-pointer"
-                            />
-                            <span>Registrar entradas, salidas y ajustes</span>
-                          </label>
-                          <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700">
-                            <input
-                              type="checkbox"
-                              checked={newFuncPermisos.logistica_ocs}
-                              onChange={(e) => setNewFuncPermisos((prev) => ({ ...prev, logistica_ocs: e.target.checked }))}
-                              className="w-3.5 h-3.5 text-[#001D3D] rounded cursor-pointer"
-                            />
-                            <span>Recepción de órdenes de compra (OC)</span>
-                          </label>
-                          <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700">
-                            <input
-                              type="checkbox"
-                              checked={newFuncPermisos.logistica_traslados}
-                              onChange={(e) => setNewFuncPermisos((prev) => ({ ...prev, logistica_traslados: e.target.checked }))}
-                              className="w-3.5 h-3.5 text-[#001D3D] rounded cursor-pointer"
-                            />
-                            <span>Crear y recibir traslados inter-sedes</span>
-                          </label>
-                        </div>
-                      </div>
-
-                      {/* Módulo SAC */}
-                      <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
-                        <div className="flex items-center gap-2 pb-1 border-b border-slate-200">
-                          <HeadphonesIcon className="w-3.5 h-3.5 text-emerald-600" />
-                          <span className="font-black text-slate-900">Módulo Atención al Cliente (SAC)</span>
-                        </div>
-                        <div className="space-y-1.5 pt-1">
-                          <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700">
-                            <input
-                              type="checkbox"
-                              checked={newFuncPermisos.sac_responder}
-                              onChange={(e) => setNewFuncPermisos((prev) => ({ ...prev, sac_responder: e.target.checked }))}
-                              className="w-3.5 h-3.5 text-[#001D3D] rounded cursor-pointer"
-                            />
-                            <span>Responder radicados y chats web</span>
-                          </label>
-                          <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700">
-                            <input
-                              type="checkbox"
-                              checked={newFuncPermisos.sac_cerrar}
-                              onChange={(e) => setNewFuncPermisos((prev) => ({ ...prev, sac_cerrar: e.target.checked }))}
-                              className="w-3.5 h-3.5 text-[#001D3D] rounded cursor-pointer"
-                            />
-                            <span>Resolver y cerrar tickets PQRS</span>
-                          </label>
-                          <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700">
-                            <input
-                              type="checkbox"
-                              checked={newFuncPermisos.sac_notas_internas}
-                              onChange={(e) => setNewFuncPermisos((prev) => ({ ...prev, sac_notas_internas: e.target.checked }))}
-                              className="w-3.5 h-3.5 text-[#001D3D] rounded cursor-pointer"
-                            />
-                            <span>Redactar notas internas privadas</span>
-                          </label>
-                        </div>
-                      </div>
-
-                      {/* Módulo Tareas */}
-                      <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
-                        <div className="flex items-center gap-2 pb-1 border-b border-slate-200">
-                          <Kanban className="w-3.5 h-3.5 text-amber-500" />
-                          <span className="font-black text-slate-900">Módulo Tareas & Compromisos</span>
-                        </div>
-                        <div className="space-y-1.5 pt-1">
-                          <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700">
-                            <input
-                              type="checkbox"
-                              checked={newFuncPermisos.tareas_crear}
-                              onChange={(e) => setNewFuncPermisos((prev) => ({ ...prev, tareas_crear: e.target.checked }))}
-                              className="w-3.5 h-3.5 text-[#001D3D] rounded cursor-pointer"
-                            />
-                            <span>Crear y autoasignar tareas</span>
-                          </label>
-                          <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700">
-                            <input
-                              type="checkbox"
-                              checked={newFuncPermisos.tareas_aprobar}
-                              onChange={(e) => setNewFuncPermisos((prev) => ({ ...prev, tareas_aprobar: e.target.checked }))}
-                              className="w-3.5 h-3.5 text-[#001D3D] rounded cursor-pointer"
-                            />
-                            <span>Aprobar o rechazar entregables</span>
-                          </label>
-                          <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700">
-                            <input
-                              type="checkbox"
-                              checked={newFuncPermisos.tareas_kanban_all}
-                              onChange={(e) => setNewFuncPermisos((prev) => ({ ...prev, tareas_kanban_all: e.target.checked }))}
-                              className="w-3.5 h-3.5 text-[#001D3D] rounded cursor-pointer"
-                            />
-                            <span>Modificar tableros de todas las áreas</span>
-                          </label>
-                        </div>
-                      </div>
-
-                      {/* Módulo Personal */}
-                      <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
-                        <div className="flex items-center gap-2 pb-1 border-b border-slate-200">
-                          <Users className="w-3.5 h-3.5 text-teal-600" />
-                          <span className="font-black text-slate-900">Módulo Personal & Estructura</span>
-                        </div>
-                        <div className="space-y-1.5 pt-1">
-                          <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700">
-                            <input
-                              type="checkbox"
-                              checked={newFuncPermisos.personal_administrar}
-                              onChange={(e) => setNewFuncPermisos((prev) => ({ ...prev, personal_administrar: e.target.checked }))}
-                              className="w-3.5 h-3.5 text-[#001D3D] rounded cursor-pointer"
-                            />
-                            <span>Crear y desactivar funcionarios</span>
-                          </label>
-                          <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700">
-                            <input
-                              type="checkbox"
-                              checked={newFuncPermisos.personal_organigrama}
-                              onChange={(e) => setNewFuncPermisos((prev) => ({ ...prev, personal_organigrama: e.target.checked }))}
-                              className="w-3.5 h-3.5 text-[#001D3D] rounded cursor-pointer"
-                            />
-                            <span>Modificar áreas y jefaturas</span>
-                          </label>
-                        </div>
-                      </div>
-
-                      {/* Módulo Auditoría */}
-                      <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
-                        <div className="flex items-center gap-2 pb-1 border-b border-slate-200">
-                          <ShieldCheck className="w-3.5 h-3.5 text-violet-600" />
-                          <span className="font-black text-slate-900">Módulo Auditoría & Informes</span>
-                        </div>
-                        <div className="space-y-1.5 pt-1">
-                          <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700">
-                            <input
-                              type="checkbox"
-                              checked={newFuncPermisos.auditoria_ver}
-                              onChange={(e) => setNewFuncPermisos((prev) => ({ ...prev, auditoria_ver: e.target.checked }))}
-                              className="w-3.5 h-3.5 text-[#001D3D] rounded cursor-pointer"
-                            />
-                            <span>Ver registro inmutable de trazabilidad</span>
-                          </label>
-                          <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700">
-                            <input
-                              type="checkbox"
-                              checked={newFuncPermisos.auditoria_exportar}
-                              onChange={(e) => setNewFuncPermisos((prev) => ({ ...prev, auditoria_exportar: e.target.checked }))}
-                              className="w-3.5 h-3.5 text-[#001D3D] rounded cursor-pointer"
-                            />
-                            <span>Exportar informes gerenciales CSV/Excel</span>
-                          </label>
-                        </div>
-                      </div>
-
-                    </div>
-                  </div>
-                </div>
-
-                {/* =========================================================================
-                    BOTONES DE ACCIÓN PRINCIPALES
-                ========================================================================= */}
-                <div className="flex flex-col-reverse sm:flex-row items-center justify-between gap-3 pt-4 border-t border-slate-200">
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('funcionarios')}
-                    disabled={isSubmittingNewFunc}
-                    className="w-full sm:w-auto px-6 py-3 rounded-2xl border border-slate-300 hover:bg-slate-100 text-slate-700 font-bold text-xs transition-colors cursor-pointer text-center"
-                  >
-                    Cancelar y Volver al Directorio
-                  </button>
-
-                  <button
-                    type="submit"
-                    disabled={isSubmittingNewFunc}
-                    className="w-full sm:w-auto px-8 py-3.5 rounded-2xl bg-[#001D3D] hover:bg-[#002D5C] active:bg-[#001124] text-white font-extrabold text-xs sm:text-sm shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
-                  >
-                    {isSubmittingNewFunc ? (
-                      <>
-                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                        <span>Guardando y Registrando Funcionario en Supabase...</span>
-                      </>
-                    ) : (
-                      <>
-                        <UserPlus className="w-4 h-4 text-cyan-300" />
-                        <span>Guardar y Registrar Funcionario</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-
-              </form>
-            </div>
-          )}
-
-          {/* =========================================================================
               MÓDULO 4: TAREAS POR ÁREA & MIS TAREAS
           ========================================================================= */}
           {activeTab === 'tareas' && (
             <div className="space-y-6 animate-fadeIn">
               
-              {/* Encabezado Dinámico: Submódulo Activo + Badge + Sede/CEDI Activo */}
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-white px-4 py-3 sm:px-5 sm:py-3.5 rounded-2xl border border-slate-200/90 shadow-2xs">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#001D3D] via-[#002D5C] to-[#0A192F] text-amber-300 flex items-center justify-center shrink-0 shadow-xs ring-1 ring-amber-500/30">
-                    <Kanban className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h2 className="text-sm sm:text-base font-black text-slate-900 tracking-tight leading-none">
-                        Tareas por Área • {taskViewMode === 'kanban' ? 'Tablero Kanban' : 'Lista Detallada'}
-                      </h2>
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9.5px] font-black bg-amber-50 text-amber-800 border border-amber-200 font-mono">
-                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-                        {tareas.filter((t) => t.estado !== 'Completada').length} Pendientes
-                      </span>
-                    </div>
-                    <p className="text-[10.5px] text-slate-500 font-medium mt-0.5 leading-tight">
-                      Flujo de Revisión, Compromisos Interdepartamentales y Cumplimiento
-                    </p>
-                  </div>
+              {/* Encabezado y Acciones */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-3xl border border-slate-200 shadow-xs">
+                <div>
+                  <h2 className="text-xl font-black text-slate-900">Gestión de Tareas y Compromisos</h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Planificación por áreas, flujo de revisión y aprobación, tableros Kanban y cálculo de cumplimiento real.
+                  </p>
                 </div>
 
-                <div className="flex items-center gap-2 self-start md:self-auto flex-wrap">
-                  {/* Selector de Sede CEDI activo */}
-                  <div className="flex items-center gap-2 bg-slate-50 hover:bg-slate-100/90 py-1 px-2.5 rounded-md border border-slate-200/90 transition-all shadow-2xs shrink-0">
-                    <div className="w-5 h-5 rounded bg-cyan-50 text-cyan-700 flex items-center justify-center border border-cyan-200/80 shrink-0 shadow-2xs">
-                      <MapPin className="w-3 h-3" />
-                    </div>
-                    <div className="text-left">
-                      <label htmlFor="sedeSelectorTareas" className="text-[8.5px] font-black text-slate-400 uppercase tracking-wider block leading-none">
-                        Sede / CEDI Activo:
-                      </label>
-                      <select
-                        id="sedeSelectorTareas"
-                        value={selectedSede}
-                        onChange={(e) => setSelectedSede(e.target.value)}
-                        className="bg-transparent text-slate-900 font-black text-[11px] focus:outline-none cursor-pointer mt-0.5 pr-1 leading-tight"
-                      >
-                        <option value="todas">🏢 Todas las Sedes (Consolidado Nacional)</option>
-                        {SEDES_CEDI_CONFIG.map((sede) => (
-                          <option key={sede.id} value={sede.id}>
-                            📍 {sede.nombre}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                <div className="flex items-center gap-2">
+                  {/* Selector de Vistas */}
+                  <div className="bg-slate-100 p-1 rounded-xl flex items-center gap-1 border border-slate-200">
+                    <button
+                      type="button"
+                      onClick={() => setTaskViewMode('kanban')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        taskViewMode === 'kanban' ? 'bg-white text-blue-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      Kanban
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTaskViewMode('list')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        taskViewMode === 'list' ? 'bg-white text-blue-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      Lista
+                    </button>
                   </div>
 
                   <button
@@ -4773,9 +2373,9 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
                   <button
                     type="button"
                     onClick={() => setIsNewTaskModalOpen(true)}
-                    className="px-3.5 py-1.5 rounded-xl bg-[#001D3D] hover:bg-blue-900 text-white font-bold text-xs shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                    className="px-4 py-2 rounded-xl bg-blue-900 hover:bg-blue-800 text-white font-bold text-xs shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
                   >
-                    <Plus className="w-4 h-4 text-cyan-300" />
+                    <Plus className="w-4 h-4" />
                     <span>Nueva Tarea</span>
                   </button>
                 </div>
@@ -5136,51 +2736,13 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
           {activeTab === 'comunidad' && (
             <div className="space-y-6 animate-fadeIn">
               
-              {/* Encabezado Dinámico: Submódulo Activo + Badge + Sede/CEDI Activo */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white px-4 py-3 sm:px-5 sm:py-3.5 rounded-2xl border border-slate-200/90 shadow-2xs">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#001D3D] via-[#002D5C] to-[#0A192F] text-pink-300 flex items-center justify-center shrink-0 shadow-xs ring-1 ring-pink-500/30">
-                    <MessageSquare className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h2 className="text-sm sm:text-base font-black text-slate-900 tracking-tight leading-none">
-                        Comunidad ColorLink • {comunidadFilter === 'oficiales' ? 'Comunicados Oficiales' : 'Muro de Publicaciones'}
-                      </h2>
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9.5px] font-black bg-pink-50 text-pink-800 border border-pink-200 font-mono">
-                        <span className="w-1.5 h-1.5 rounded-full bg-pink-500 animate-pulse" />
-                        {publicaciones.filter((p) => (comunidadFilter === 'oficiales' ? (p.tipo === 'comunicado' || p.fijado) : true)).length} Publicaciones
-                      </span>
-                    </div>
-                    <p className="text-[10.5px] text-slate-500 font-medium mt-0.5 leading-tight">
-                      Noticias Oficiales, Logros de Equipo, Reconocimientos y Cultura Organizacional
-                    </p>
-                  </div>
-                </div>
-
-                {/* Selector de Sede CEDI activo */}
-                <div className="flex items-center gap-2 bg-slate-50 hover:bg-slate-100/90 py-1 px-2.5 rounded-md border border-slate-200/90 transition-all shadow-2xs self-start sm:self-auto shrink-0">
-                  <div className="w-5 h-5 rounded bg-cyan-50 text-cyan-700 flex items-center justify-center border border-cyan-200/80 shrink-0 shadow-2xs">
-                    <MapPin className="w-3 h-3" />
-                  </div>
-                  <div className="text-left">
-                    <label htmlFor="sedeSelectorComunidad" className="text-[8.5px] font-black text-slate-400 uppercase tracking-wider block leading-none">
-                      Sede / CEDI Activo:
-                    </label>
-                    <select
-                      id="sedeSelectorComunidad"
-                      value={selectedSede}
-                      onChange={(e) => setSelectedSede(e.target.value)}
-                      className="bg-transparent text-slate-900 font-black text-[11px] focus:outline-none cursor-pointer mt-0.5 pr-1 leading-tight"
-                    >
-                      <option value="todas">🏢 Todas las Sedes (Consolidado Nacional)</option>
-                      {SEDES_CEDI_CONFIG.map((sede) => (
-                        <option key={sede.id} value={sede.id}>
-                          📍 {sede.nombre}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+              {/* Encabezado */}
+              <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-xl font-black text-slate-900">Comunidad ColorLink</h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Noticias oficiales, logros de equipo, reconocimientos a funcionarios y cultura organizacional.
+                  </p>
                 </div>
               </div>
 
@@ -5238,11 +2800,9 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
                 </form>
               </div>
 
-              {/* Feed de Publicaciones Filtrado */}
+              {/* Feed de Publicaciones */}
               <div className="space-y-5">
-                {publicaciones
-                  .filter((p) => (comunidadFilter === 'oficiales' ? (p.tipo === 'comunicado' || p.fijado) : true))
-                  .map((post) => (
+                {publicaciones.map((post) => (
                   <div key={post.id} className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4">
                     
                     {/* Header del Post */}
@@ -5367,38 +2927,20 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
                 </div>
               )}
 
-              {/* CABECERA DINÁMICA: TÍTULO DEL SUBMÓDULO ACTIVO + BADGE DESCRIPTIVO + SELECTOR DE SEDE CEDI */}
-              <div className="bg-white rounded-lg border border-slate-200/90 shadow-2xs px-3 py-2 sm:px-4 sm:py-2.5 flex flex-col md:flex-row md:items-center justify-between gap-2.5">
+              {/* TIER 1: CABECERA EMPRESARIAL COMPACTA - COMANDO Y SELECTOR DE SEDE CEDI ACTIVO */}
+              <div className="bg-white rounded-lg border border-slate-200/90 shadow-2xs px-3 py-1.5 sm:px-3.5 sm:py-2 flex flex-col md:flex-row md:items-center justify-between gap-2">
                 <div className="flex items-center gap-2.5">
                   <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#001D3D] via-[#002D5C] to-[#0A192F] text-cyan-300 flex items-center justify-center shrink-0 shadow-xs ring-1 ring-cyan-500/30">
-                    {logisticsSubTab === 'inventario' && <Package className="w-4 h-4" />}
-                    {logisticsSubTab === 'recepcion_compras' && <Boxes className="w-4 h-4 text-amber-300" />}
-                    {logisticsSubTab === 'traslados' && <ArrowLeftRight className="w-4 h-4 text-cyan-300" />}
-                    {logisticsSubTab === 'despachos' && <Truck className="w-4 h-4 text-indigo-300" />}
-                    {logisticsSubTab === 'kardex' && <Clock className="w-4 h-4 text-slate-300" />}
-                    {logisticsSubTab === 'tareas_asignadas' && <ClipboardCheck className="w-4 h-4 text-emerald-300" />}
+                    <Building2 className="w-4 h-4" />
                   </div>
                   <div>
                     <div className="flex items-center gap-2 flex-wrap">
                       <h2 className="text-sm sm:text-base font-black text-slate-900 tracking-tight leading-none">
-                        Logística & Bodega • {
-                          logisticsSubTab === 'inventario' ? 'Inventario & Matriz' :
-                          logisticsSubTab === 'recepcion_compras' ? 'Recepción de Compras' :
-                          logisticsSubTab === 'traslados' ? 'Traslados Inter-Sedes' :
-                          logisticsSubTab === 'despachos' ? 'Despachos & Pedidos' :
-                          logisticsSubTab === 'kardex' ? 'Historial Kardex' : 'Tareas Asignadas'
-                        }
+                        Logística, Bodega y Despachos
                       </h2>
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9.5px] font-black bg-cyan-50 text-cyan-800 border border-cyan-200 font-mono">
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-black bg-slate-100 text-slate-700 border border-slate-200 font-mono">
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                        {
-                          logisticsSubTab === 'inventario' ? `${productStats.totalRef} Variantes SKU • Stock: ${productStats.totalUnidades}` :
-                          logisticsSubTab === 'recepcion_compras' ? `${productStats.ocsPendientes} OCs por Recibir` :
-                          logisticsSubTab === 'traslados' ? `${trasladosStats.pendientesRecibo} En Tránsito de Entrada` :
-                          logisticsSubTab === 'despachos' ? `${orderStats.total} Pedidos Sincronizados` :
-                          logisticsSubTab === 'kardex' ? 'Libro Diario de Movimientos' :
-                          `${logisticsTasks.filter(t => t.estado !== 'Completada').length} Tareas Pendientes`
-                        }
+                        ERP Enterprise v3.4
                       </span>
                     </div>
                     <p className="text-[10.5px] text-slate-500 font-medium mt-0.5 leading-tight">
@@ -5408,7 +2950,7 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
                 </div>
 
                 {/* Selector de Sede CEDI activo estilizado y compacto */}
-                <div className="flex items-center gap-2 bg-slate-50 hover:bg-slate-100/90 py-1 px-2.5 rounded-md border border-slate-200/90 transition-all shadow-2xs self-start md:self-auto shrink-0">
+                <div className="flex items-center gap-2 bg-slate-50 hover:bg-slate-100/90 py-0.5 px-2 rounded-md border border-slate-200/90 transition-all shadow-2xs self-start md:self-auto shrink-0">
                   <div className="w-5 h-5 rounded bg-cyan-50 text-cyan-700 flex items-center justify-center border border-cyan-200/80 shrink-0 shadow-2xs">
                     <MapPin className="w-3 h-3" />
                   </div>
@@ -5430,6 +2972,96 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
                       ))}
                     </select>
                   </div>
+                </div>
+              </div>
+
+              {/* TIER 2: BARRA DE NAVEGACIÓN DE PESTAÑAS (COMPACTA Y ALINEADA) */}
+              <div className="bg-white rounded-lg border border-slate-200/90 p-1 shadow-2xs w-full">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-1 w-full">
+                  <button
+                    type="button"
+                    onClick={() => setLogisticsSubTab('inventario')}
+                    className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-md text-xs transition-all cursor-pointer ${
+                      logisticsSubTab === 'inventario'
+                        ? 'bg-[#001D3D] text-white shadow-sm font-black border border-[#001D3D]'
+                        : 'bg-slate-50/80 hover:bg-slate-100 text-slate-700 hover:text-slate-900 font-bold border border-slate-200/70 shadow-2xs'
+                    }`}
+                  >
+                    <Package className={`w-3.5 h-3.5 shrink-0 ${logisticsSubTab === 'inventario' ? 'text-cyan-300' : 'text-slate-500'}`} />
+                    <span className="truncate">Inventario & Matriz</span>
+                    <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-bold shrink-0 ${
+                      logisticsSubTab === 'inventario' ? 'bg-cyan-500/25 text-cyan-200 border border-cyan-400/30' : 'bg-slate-200/80 text-slate-700'
+                    }`}>
+                      {(Number(productStats.totalRef) || 0)}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setLogisticsSubTab('recepcion_compras')}
+                    className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-md text-xs transition-all cursor-pointer ${
+                      logisticsSubTab === 'recepcion_compras'
+                        ? 'bg-[#001D3D] text-white shadow-sm font-black border border-[#001D3D]'
+                        : 'bg-slate-50/80 hover:bg-slate-100 text-slate-700 hover:text-slate-900 font-bold border border-slate-200/70 shadow-2xs'
+                    }`}
+                  >
+                    <Boxes className={`w-3.5 h-3.5 shrink-0 ${logisticsSubTab === 'recepcion_compras' ? 'text-amber-300' : 'text-amber-600'}`} />
+                    <span className="truncate">Recepción Compras</span>
+                    <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-bold shrink-0 ${
+                      logisticsSubTab === 'recepcion_compras' ? 'bg-amber-500/25 text-amber-200 border border-amber-400/30' : 'bg-amber-100 text-amber-800'
+                    }`}>
+                      {(Number(productStats.ocsPendientes) || 0)}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setLogisticsSubTab('traslados')}
+                    className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-md text-xs transition-all cursor-pointer ${
+                      logisticsSubTab === 'traslados'
+                        ? 'bg-[#001D3D] text-white shadow-sm font-black border border-[#001D3D]'
+                        : 'bg-slate-50/80 hover:bg-slate-100 text-slate-700 hover:text-slate-900 font-bold border border-slate-200/70 shadow-2xs'
+                    }`}
+                  >
+                    <ArrowLeftRight className={`w-3.5 h-3.5 shrink-0 ${logisticsSubTab === 'traslados' ? 'text-cyan-300' : 'text-cyan-600'}`} />
+                    <span className="truncate">Traslados Inter-Sedes</span>
+                    <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-bold shrink-0 ${
+                      logisticsSubTab === 'traslados' ? 'bg-cyan-500/25 text-cyan-200 border border-cyan-400/30' : 'bg-cyan-100 text-cyan-900'
+                    }`}>
+                      {trasladosStats.pendientesRecibo > 0 ? `${trasladosStats.pendientesRecibo} por recibir` : trasladosStats.total}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setLogisticsSubTab('despachos')}
+                    className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-md text-xs transition-all cursor-pointer ${
+                      logisticsSubTab === 'despachos'
+                        ? 'bg-[#001D3D] text-white shadow-sm font-black border border-[#001D3D]'
+                        : 'bg-slate-50/80 hover:bg-slate-100 text-slate-700 hover:text-slate-900 font-bold border border-slate-200/70 shadow-2xs'
+                    }`}
+                  >
+                    <Truck className={`w-3.5 h-3.5 shrink-0 ${logisticsSubTab === 'despachos' ? 'text-cyan-300' : 'text-slate-500'}`} />
+                    <span className="truncate">Despachos & Pedidos</span>
+                    <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-bold shrink-0 ${
+                      logisticsSubTab === 'despachos' ? 'bg-cyan-500/25 text-cyan-200 border border-cyan-400/30' : 'bg-slate-200/80 text-slate-700'
+                    }`}>
+                      {(Number(orderStats.total) || 0)}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setLogisticsSubTab('kardex')}
+                    className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-md text-xs transition-all cursor-pointer col-span-2 sm:col-span-1 ${
+                      logisticsSubTab === 'kardex'
+                        ? 'bg-[#001D3D] text-white shadow-sm font-black border border-[#001D3D]'
+                        : 'bg-slate-50/80 hover:bg-slate-100 text-slate-700 hover:text-slate-900 font-bold border border-slate-200/70 shadow-2xs'
+                    }`}
+                  >
+                    <Clock className={`w-3.5 h-3.5 shrink-0 ${logisticsSubTab === 'kardex' ? 'text-cyan-300' : 'text-slate-500'}`} />
+                    <span className="truncate">Historial Kardex</span>
+                  </button>
                 </div>
               </div>
 
@@ -5566,16 +3198,6 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
 
                       {/* Botones de Acción Compactos */}
                       <div className="flex items-center gap-1.5 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => handleOpenReabastecimientoModal()}
-                          className="px-2.5 py-1 h-8 rounded-md bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 font-black text-xs transition-all flex items-center gap-1.5 shadow-2xs hover:shadow-xs cursor-pointer whitespace-nowrap active:scale-[0.99]"
-                          title="Enviar solicitud de compra a Compras & Abastecimiento cuando el stock esté bajo"
-                        >
-                          <ShoppingBag className="w-3.5 h-3.5" />
-                          <span>+ Crear Solicitud de Reabastecimiento</span>
-                        </button>
-
                         <button
                           type="button"
                           onClick={handleOpenNewProductModal}
@@ -5861,23 +3483,12 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
 
                                   {/* 7. Estado */}
                                   <td className="py-1 px-2.5 text-center whitespace-nowrap">
-                                    <span className={`px-2 py-0.5 rounded-full text-[9px] font-black border inline-flex items-center gap-1 ${
-                                      item.estado === 'Borrador'
-                                        ? 'bg-amber-50 text-amber-700 border-amber-300'
-                                        : item.activo
-                                          ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
-                                          : 'bg-rose-50 text-rose-700 border-rose-300'
+                                    <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold border ${
+                                      item.activo
+                                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200/60'
+                                        : 'bg-slate-100 text-slate-600 border border-slate-200/60'
                                     }`}>
-                                      <span className={`w-1.5 h-1.5 rounded-full ${
-                                        item.estado === 'Borrador'
-                                          ? 'bg-amber-500'
-                                          : item.activo
-                                            ? 'bg-emerald-500'
-                                            : 'bg-rose-500'
-                                      }`} />
-                                      <span>
-                                        {item.estado === 'Borrador' ? 'Borrador' : item.activo ? 'Activo' : 'Inactivo'}
-                                      </span>
+                                      {item.activo ? 'Activo' : 'Inactivo'}
                                     </span>
                                   </td>
 
@@ -5905,21 +3516,6 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
                                         title="Registrar entrada, salida o ajuste en unidades"
                                       >
                                         Stock
-                                      </button>
-
-                                      {/* Botón Reabastecer a Compras */}
-                                      <button
-                                        type="button"
-                                        onClick={() => handleOpenReabastecimientoModal(item)}
-                                        className={`px-1.5 py-0.5 rounded font-bold text-[9px] shadow-2xs transition-all cursor-pointer flex items-center gap-1 ${
-                                          isLow
-                                            ? 'bg-amber-400 hover:bg-amber-300 text-slate-950 font-black animate-pulse'
-                                            : 'bg-slate-100 hover:bg-amber-100 text-slate-700 hover:text-amber-900 border border-slate-200'
-                                        }`}
-                                        title="Solicitar reabastecimiento de este SKU a Compras & Abastecimiento"
-                                      >
-                                        <ShoppingBag className="w-2.5 h-2.5" />
-                                        <span>+ Reabastecer</span>
                                       </button>
 
                                       {/* Botón Desactivar / Eliminar */}
@@ -7125,173 +4721,6 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
               )}
 
               {/* =====================================================================
-                  SUB-PESTAÑA 6: TAREAS ASIGNADAS A OPERACIONES & LOGÍSTICA
-              ===================================================================== */}
-              {logisticsSubTab === 'tareas_asignadas' && (
-                <div className="space-y-3 sm:space-y-4 animate-fadeIn">
-                  {/* Tarjetas KPIs de Tareas de Logística */}
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
-                    <div className="bg-white p-3 sm:p-3.5 rounded-xl border-t-2 border-t-blue-800 border-x border-b border-slate-200/90 shadow-2xs">
-                      <div className="flex items-center justify-between text-slate-500 text-[10px] font-black uppercase tracking-wider">
-                        <span>Total Asignadas</span>
-                        <ClipboardCheck className="w-4 h-4 text-blue-900" />
-                      </div>
-                      <span className="text-xl sm:text-2xl font-black text-slate-900 mt-1 block">
-                        {logisticsTasks.length}
-                      </span>
-                      <span className="text-[10px] text-slate-400 font-medium">Logística, CEDI y Bodega</span>
-                    </div>
-
-                    <div className="bg-white p-3 sm:p-3.5 rounded-xl border-t-2 border-t-amber-500 border-x border-b border-slate-200/90 shadow-2xs">
-                      <div className="flex items-center justify-between text-amber-700 text-[10px] font-black uppercase tracking-wider">
-                        <span>En Progreso</span>
-                        <Clock className="w-4 h-4 text-amber-600" />
-                      </div>
-                      <span className="text-xl sm:text-2xl font-black text-amber-600 mt-1 block">
-                        {logisticsTasks.filter((t) => t.estado === 'En progreso').length}
-                      </span>
-                      <span className="text-[10px] text-amber-700 font-medium">En ejecución activa</span>
-                    </div>
-
-                    <div className="bg-white p-3 sm:p-3.5 rounded-xl border-t-2 border-t-rose-500 border-x border-b border-slate-200/90 shadow-2xs">
-                      <div className="flex items-center justify-between text-rose-700 text-[10px] font-black uppercase tracking-wider">
-                        <span>Pendientes / Urgentes</span>
-                        <AlertTriangle className="w-4 h-4 text-rose-600" />
-                      </div>
-                      <span className="text-xl sm:text-2xl font-black text-rose-600 mt-1 block">
-                        {logisticsTasks.filter((t) => t.estado === 'Pendiente' || t.prioridad === 'Urgente').length}
-                      </span>
-                      <span className="text-[10px] text-rose-700 font-medium">Por iniciar o críticas</span>
-                    </div>
-
-                    <div className="bg-white p-3 sm:p-3.5 rounded-xl border-t-2 border-t-emerald-600 border-x border-b border-slate-200/90 shadow-2xs">
-                      <div className="flex items-center justify-between text-emerald-700 text-[10px] font-black uppercase tracking-wider">
-                        <span>Completadas</span>
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                      </div>
-                      <span className="text-xl sm:text-2xl font-black text-emerald-600 mt-1 block">
-                        {logisticsTasks.filter((t) => t.estado === 'Completada').length}
-                      </span>
-                      <span className="text-[10px] text-emerald-700 font-medium">Finalizadas con éxito</span>
-                    </div>
-                  </div>
-
-                  {/* Barra de Controles y Creación */}
-                  <div className="bg-white p-3 rounded-xl border border-slate-200/90 shadow-2xs flex flex-wrap items-center justify-between gap-2.5">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-black text-slate-800">
-                        Compromisos del Personal de Almacén y Rutas
-                      </span>
-                      <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-mono font-bold">
-                        {logisticsTasks.length} Registradas
-                      </span>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => setIsNewTaskModalOpen(true)}
-                      className="px-3.5 py-1.5 rounded-lg bg-[#001D3D] hover:bg-blue-900 text-white font-bold text-xs shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
-                    >
-                      <Plus className="w-3.5 h-3.5 text-cyan-300" />
-                      <span>+ Nueva Tarea Logística</span>
-                    </button>
-                  </div>
-
-                  {/* Grid de Tarjetas de Tareas */}
-                  {logisticsTasks.length === 0 ? (
-                    <div className="bg-white p-8 rounded-2xl border border-slate-200 text-center space-y-2">
-                      <ClipboardCheck className="w-10 h-10 text-slate-300 mx-auto" />
-                      <h4 className="font-bold text-sm text-slate-800">No hay tareas asignadas para Logística</h4>
-                      <p className="text-xs text-slate-500">
-                        Crea una nueva tarea de inventario, alistamiento, recepción o mantenimiento para tu equipo.
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                      {logisticsTasks.map((t) => (
-                        <div
-                          key={t.id}
-                          onClick={() => setSelectedTaskForDetail(t)}
-                          className="bg-white p-4 rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md transition-all cursor-pointer space-y-3 flex flex-col justify-between"
-                        >
-                          <div className="space-y-2">
-                            <div className="flex items-center justify-between gap-1">
-                              <span className="text-[9.5px] font-black uppercase px-2 py-0.5 rounded bg-indigo-50 text-indigo-900 truncate">
-                                {t.areaNombre || 'Logística & Operaciones'}
-                              </span>
-                              <span
-                                className={`text-[9.5px] font-bold px-2 py-0.5 rounded ${
-                                  t.prioridad === 'Urgente'
-                                    ? 'bg-rose-100 text-rose-800'
-                                    : t.prioridad === 'Alta'
-                                    ? 'bg-amber-100 text-amber-800'
-                                    : 'bg-slate-100 text-slate-700'
-                                }`}
-                              >
-                                {t.prioridad}
-                              </span>
-                            </div>
-
-                            <h4 className="font-bold text-xs sm:text-sm text-slate-900 leading-snug line-clamp-2">
-                              {t.titulo}
-                            </h4>
-                            {t.descripcion && (
-                              <p className="text-[11px] text-slate-500 line-clamp-2 leading-relaxed">
-                                {t.descripcion}
-                              </p>
-                            )}
-                          </div>
-
-                          <div className="space-y-2 pt-2 border-t border-slate-100">
-                            <div className="flex items-center justify-between text-[11px]">
-                              <span className="text-slate-500 font-medium">Progreso</span>
-                              <span className="font-mono font-bold text-slate-800">{t.progresoPct}%</span>
-                            </div>
-                            <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                              <div
-                                className={`h-full ${
-                                  t.estado === 'Completada' ? 'bg-emerald-500' : 'bg-[#001D3D]'
-                                }`}
-                                style={{ width: `${t.progresoPct}%` }}
-                              />
-                            </div>
-
-                            <div className="flex items-center justify-between text-[10.5px] text-slate-500 pt-1">
-                              <span className="truncate max-w-[120px] font-medium text-slate-700">
-                                👤 {t.responsableNombre || 'Sin asignar'}
-                              </span>
-                              <span className="font-mono text-[10px] text-slate-400">
-                                📅 {t.fechaLimite || 'Sin fecha'}
-                              </span>
-                            </div>
-
-                            <div className="flex items-center justify-between pt-1">
-                              <span
-                                className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                                  t.estado === 'Completada'
-                                    ? 'bg-emerald-100 text-emerald-800'
-                                    : t.estado === 'En progreso'
-                                    ? 'bg-amber-100 text-amber-800'
-                                    : t.estado === 'Bloqueada'
-                                    ? 'bg-rose-100 text-rose-800'
-                                    : 'bg-slate-100 text-slate-700'
-                                }`}
-                              >
-                                {t.estado}
-                              </span>
-                              <span className="text-[10px] text-cyan-700 font-bold hover:underline">
-                                Ver Ficha →
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* =====================================================================
                   MODALES DEL MÓDULO LOGÍSTICO
               ===================================================================== */}
 
@@ -7462,73 +4891,6 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
                           />
                         </div>
 
-                        {/* Control de Visibilidad y Estado del Producto */}
-                        <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
-                          <div className="flex items-center justify-between">
-                            <label className="block text-xs font-black text-slate-800 tracking-tight">
-                              Control de Visibilidad y Estado en Catálogo Público *
-                            </label>
-                            <span className="text-[10px] text-slate-500 font-bold">
-                              Define si la variante se publica a los clientes
-                            </span>
-                          </div>
-                          <div className="grid grid-cols-3 gap-2">
-                            <button
-                              type="button"
-                              onClick={() => setProductForm({ ...productForm, estado: 'Activo' })}
-                              className={`py-2 px-3 rounded-xl border flex flex-col items-center justify-center gap-1 transition-all cursor-pointer ${
-                                productForm.estado === 'Activo'
-                                  ? 'bg-emerald-50 border-emerald-500 text-emerald-950 font-black ring-2 ring-emerald-300 shadow-xs'
-                                  : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
-                              }`}
-                            >
-                              <div className="flex items-center gap-1.5">
-                                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-                                <span className="text-xs font-black">Activo</span>
-                              </div>
-                              <span className="text-[9px] text-emerald-700 font-medium text-center">
-                                Público en Tienda & Cotizador
-                              </span>
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => setProductForm({ ...productForm, estado: 'Borrador' })}
-                              className={`py-2 px-3 rounded-xl border flex flex-col items-center justify-center gap-1 transition-all cursor-pointer ${
-                                productForm.estado === 'Borrador'
-                                  ? 'bg-amber-50 border-amber-500 text-amber-950 font-black ring-2 ring-amber-300 shadow-xs'
-                                  : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
-                              }`}
-                            >
-                              <div className="flex items-center gap-1.5">
-                                <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
-                                <span className="text-xs font-black">Borrador</span>
-                              </div>
-                              <span className="text-[9px] text-amber-700 font-medium text-center">
-                                En Preparación Técnica
-                              </span>
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => setProductForm({ ...productForm, estado: 'Inactivo' })}
-                              className={`py-2 px-3 rounded-xl border flex flex-col items-center justify-center gap-1 transition-all cursor-pointer ${
-                                productForm.estado === 'Inactivo'
-                                  ? 'bg-rose-50 border-rose-500 text-rose-950 font-black ring-2 ring-rose-300 shadow-xs'
-                                  : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
-                              }`}
-                            >
-                              <div className="flex items-center gap-1.5">
-                                <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
-                                <span className="text-xs font-black">Inactivo</span>
-                              </div>
-                              <span className="text-[9px] text-rose-700 font-medium text-center">
-                                Oculto en Tienda / Solo Bodega
-                              </span>
-                            </button>
-                          </div>
-                        </div>
-
                         <div className="flex justify-end gap-2 pt-4 border-t border-slate-100">
                           <button
                             type="button"
@@ -7632,73 +4994,6 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
                                 placeholder="CEDI Rionegro - Pasillo A-02"
                                 className="w-full p-2 rounded-xl bg-white border border-slate-200 text-slate-900"
                               />
-                            </div>
-                          </div>
-
-                          {/* Control de Visibilidad y Estado para la Matriz */}
-                          <div className="pt-3 border-t border-slate-200/80">
-                            <div className="flex items-center justify-between mb-1.5">
-                              <label className="block font-black text-slate-800 text-xs">
-                                Estado Inicial de Publicación para Nuevos SKUs *
-                              </label>
-                              <span className="text-[10px] text-slate-500 font-bold">
-                                Visibilidad en catálogo de clientes
-                              </span>
-                            </div>
-                            <div className="grid grid-cols-3 gap-2">
-                              <button
-                                type="button"
-                                onClick={() => setMatrixEstado('Activo')}
-                                className={`py-2 px-3 rounded-xl border flex flex-col items-center justify-center gap-1 transition-all cursor-pointer ${
-                                  matrixEstado === 'Activo'
-                                    ? 'bg-emerald-50 border-emerald-500 text-emerald-950 font-black ring-2 ring-emerald-300 shadow-xs'
-                                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
-                                }`}
-                              >
-                                <div className="flex items-center gap-1.5">
-                                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-                                  <span className="text-xs font-black">Activo</span>
-                                </div>
-                                <span className="text-[9px] text-emerald-700 font-medium text-center">
-                                  Público en Tienda & Cotizador
-                                </span>
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => setMatrixEstado('Borrador')}
-                                className={`py-2 px-3 rounded-xl border flex flex-col items-center justify-center gap-1 transition-all cursor-pointer ${
-                                  matrixEstado === 'Borrador'
-                                    ? 'bg-amber-50 border-amber-500 text-amber-950 font-black ring-2 ring-amber-300 shadow-xs'
-                                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
-                                }`}
-                              >
-                                <div className="flex items-center gap-1.5">
-                                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
-                                  <span className="text-xs font-black">Borrador</span>
-                                </div>
-                                <span className="text-[9px] text-amber-700 font-medium text-center">
-                                  En Preparación Técnica / Oculto
-                                </span>
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => setMatrixEstado('Inactivo')}
-                                className={`py-2 px-3 rounded-xl border flex flex-col items-center justify-center gap-1 transition-all cursor-pointer ${
-                                  matrixEstado === 'Inactivo'
-                                    ? 'bg-rose-50 border-rose-500 text-rose-950 font-black ring-2 ring-rose-300 shadow-xs'
-                                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
-                                }`}
-                              >
-                                <div className="flex items-center gap-1.5">
-                                  <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
-                                  <span className="text-xs font-black">Inactivo</span>
-                                </div>
-                                <span className="text-[9px] text-rose-700 font-medium text-center">
-                                  Oculto en Tienda / Solo Bodega
-                                </span>
-                              </button>
                             </div>
                           </div>
                         </div>
@@ -8504,196 +5799,6 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
                 );
               })()}
 
-              {/* Modal: Crear Solicitud de Reabastecimiento a Compras */}
-              {isReabastecimientoModalOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/70 backdrop-blur-xs animate-fadeIn">
-                  <div className="w-full max-w-xl bg-white rounded-2xl p-5 sm:p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[92vh] overflow-y-auto">
-                    <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-9 h-9 rounded-xl bg-amber-400 text-slate-950 font-black flex items-center justify-center shadow-xs">
-                          <ShoppingBag className="w-5 h-5" />
-                        </div>
-                        <div>
-                          <h3 className="font-black text-sm sm:text-base text-slate-900 leading-tight">
-                            Solicitud de Reabastecimiento a Compras
-                          </h3>
-                          <span className="text-[10px] text-slate-500 font-medium">
-                            Enlace Logística CEDI ➔ Departamento de Compras & Abastecimiento
-                          </span>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setIsReabastecimientoModalOpen(false)}
-                        className="p-1 rounded-lg text-slate-400 hover:text-slate-600 cursor-pointer"
-                      >
-                        <X className="w-5 h-5" />
-                      </button>
-                    </div>
-
-                    <form onSubmit={handleConfirmReabastecimientoSubmit} className="space-y-3.5 text-xs">
-                      <div>
-                        <label className="block font-bold text-slate-700 mb-1">
-                          Seleccionar Producto / Variante SKU *
-                        </label>
-                        <select
-                          value={reabastecimientoForm.sku}
-                          onChange={(e) => {
-                            const found = inventario.find((i) => i.sku === e.target.value);
-                            setSelectedItemForReabastecimiento(found || null);
-                            setReabastecimientoForm({
-                              ...reabastecimientoForm,
-                              sku: e.target.value,
-                            });
-                          }}
-                          className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-300 font-bold text-slate-900 focus:bg-white focus:ring-2 focus:ring-amber-500 cursor-pointer"
-                          required
-                        >
-                          {inventario.map((item) => {
-                            const stockDisp = getStockEnSede(item, reabastecimientoForm.sedeId);
-                            const minStock = item.stockMinimoUnidades || 15;
-                            const isLow = stockDisp <= minStock;
-                            return (
-                              <option key={item.id} value={item.sku}>
-                                [{item.sku}] {item.nombre} ({item.presentacion || 'Cuñete'}) — Stock: {stockDisp} Unds {isLow ? '⚠️ (Bajo)' : ''}
-                              </option>
-                            );
-                          })}
-                        </select>
-                      </div>
-
-                      {/* Resumen Informativo del SKU seleccionado */}
-                      {(() => {
-                        const it = inventario.find((i) => i.sku === reabastecimientoForm.sku) || selectedItemForReabastecimiento;
-                        if (!it) return null;
-                        const stockDisp = getStockEnSede(it, reabastecimientoForm.sedeId);
-                        const minStock = it.stockMinimoUnidades || 15;
-                        const metricas = calcularMetricasStockSKU(it.sku, reabastecimientoForm.sedeId, inventario, ordenesCompra, orders);
-
-                        return (
-                          <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 grid grid-cols-3 gap-2 text-center">
-                            <div>
-                              <span className="text-[10px] text-slate-400 font-bold block">Físico Disponible:</span>
-                              <strong className={`font-mono text-xs ${stockDisp <= minStock ? 'text-rose-600' : 'text-emerald-700'}`}>
-                                {stockDisp} Unds
-                              </strong>
-                            </div>
-                            <div>
-                              <span className="text-[10px] text-slate-400 font-bold block">Reservado Clientes:</span>
-                              <strong className="font-mono text-xs text-blue-700">
-                                {metricas.stockReservado} Unds
-                              </strong>
-                            </div>
-                            <div>
-                              <span className="text-[10px] text-slate-400 font-bold block">Punto Reorden:</span>
-                              <strong className="font-mono text-xs text-slate-700">
-                                {minStock} Unds
-                              </strong>
-                            </div>
-                          </div>
-                        );
-                      })()}
-
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <div>
-                          <label className="block font-bold text-slate-700 mb-1">
-                            Sede CEDI Solicitante *
-                          </label>
-                          <select
-                            value={reabastecimientoForm.sedeId}
-                            onChange={(e) => setReabastecimientoForm({ ...reabastecimientoForm, sedeId: e.target.value })}
-                            className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-300 font-bold text-slate-900 cursor-pointer"
-                          >
-                            {SEDES_CEDI_CONFIG.map((s) => (
-                              <option key={s.id} value={s.id}>
-                                {s.nombre}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-
-                        <div>
-                          <label className="block font-bold text-slate-700 mb-1">
-                            Cantidad a Solicitar (Unidades) *
-                          </label>
-                          <input
-                            type="number"
-                            min={1}
-                            value={reabastecimientoForm.cantidad}
-                            onChange={(e) => setReabastecimientoForm({ ...reabastecimientoForm, cantidad: Number(e.target.value) || 10 })}
-                            className="w-full px-3 py-2 rounded-xl bg-white border border-slate-300 font-mono font-black text-slate-900 text-sm"
-                            required
-                          />
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="block font-bold text-slate-700 mb-1">
-                          Nivel de Prioridad *
-                        </label>
-                        <div className="grid grid-cols-3 gap-2">
-                          {(['Normal', 'Alta', 'Crítica / Quiebre Stock'] as const).map((prio) => (
-                            <button
-                              key={prio}
-                              type="button"
-                              onClick={() => setReabastecimientoForm({ ...reabastecimientoForm, prioridad: prio })}
-                              className={`py-2 px-1 rounded-xl text-[10.5px] font-bold border transition-all cursor-pointer ${
-                                reabastecimientoForm.prioridad === prio
-                                  ? prio.includes('Crítica')
-                                    ? 'bg-rose-100 text-rose-900 border-rose-300 shadow-2xs font-black'
-                                    : prio === 'Alta'
-                                    ? 'bg-amber-100 text-amber-900 border-amber-300 shadow-2xs font-black'
-                                    : 'bg-blue-100 text-blue-900 border-blue-300 shadow-2xs font-black'
-                                  : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
-                              }`}
-                            >
-                              {prio}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="block font-bold text-slate-700 mb-1">
-                          Justificación Operativa para Compras *
-                        </label>
-                        <textarea
-                          value={reabastecimientoForm.motivo}
-                          onChange={(e) => setReabastecimientoForm({ ...reabastecimientoForm, motivo: e.target.value })}
-                          rows={2}
-                          placeholder="Explique la demanda en obra o el motivo por el cual se requiere reabastecer..."
-                          className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-300 text-xs focus:bg-white"
-                          required
-                        />
-                      </div>
-
-                      <div className="flex items-center justify-between pt-3 border-t border-slate-100">
-                        <span className="text-[10px] text-slate-400">
-                          Solicitante: <strong>{userSession?.nombre || 'Auxiliar Bodega'}</strong>
-                        </span>
-
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setIsReabastecimientoModalOpen(false)}
-                            className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 font-bold text-slate-700 cursor-pointer"
-                          >
-                            Cancelar
-                          </button>
-                          <button
-                            type="submit"
-                            className="px-5 py-2 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-black text-xs shadow-md cursor-pointer flex items-center gap-1.5"
-                          >
-                            <Send className="w-3.5 h-3.5" />
-                            <span>Enviar Solicitud a Compras</span>
-                          </button>
-                        </div>
-                      </div>
-                    </form>
-                  </div>
-                </div>
-              )}
-
               {/* 5. Modal: Corroboración y Recepción Física de Orden de Compra (Compras vs. Logística) */}
               {isRecepcionModalOpen && selectedOCForRecepcion && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/70 backdrop-blur-xs animate-fadeIn">
@@ -9483,54 +6588,18 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
           {activeTab === 'sac' && (
             <div className="space-y-6 animate-fadeIn">
               
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white px-4 py-3 sm:px-5 sm:py-3.5 rounded-2xl border border-slate-200/90 shadow-2xs">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#001D3D] via-[#002D5C] to-[#0A192F] text-emerald-300 flex items-center justify-center shrink-0 shadow-xs ring-1 ring-emerald-500/30">
-                    <HeadphonesIcon className="w-4 h-4" />
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-3xl border border-slate-200 shadow-xs">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-900 uppercase">
+                      Integración Web Pública Activa
+                    </span>
+                    <span className="text-xs text-slate-400">Recepción Inmediata</span>
                   </div>
-                  <div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h2 className="text-sm sm:text-base font-black text-slate-900 tracking-tight leading-none">
-                        Atención al Cliente (SAC) • {
-                          ticketFilterTab === 'todos' ? 'Todos los Radicados' :
-                          ticketFilterTab === 'nuevos' ? 'Casos Nuevos (Urgentes)' :
-                          ticketFilterTab === 'en_proceso' ? 'Casos En Gestión' : 'Casos Resueltos'
-                        }
-                      </h2>
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9.5px] font-black bg-emerald-50 text-emerald-800 border border-emerald-200 font-mono">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                        {filteredTicketsSAC.length} Casos • SLA &lt; 8h
-                      </span>
-                    </div>
-                    <p className="text-[10.5px] text-slate-500 font-medium mt-0.5 leading-tight">
-                      Recepción y Seguimiento en Tiempo Real de Mensajes y PQRS del Formulario Web
-                    </p>
-                  </div>
-                </div>
-
-                {/* Selector de Sede CEDI activo */}
-                <div className="flex items-center gap-2 bg-slate-50 hover:bg-slate-100/90 py-1 px-2.5 rounded-md border border-slate-200/90 transition-all shadow-2xs self-start sm:self-auto shrink-0">
-                  <div className="w-5 h-5 rounded bg-cyan-50 text-cyan-700 flex items-center justify-center border border-cyan-200/80 shrink-0 shadow-2xs">
-                    <MapPin className="w-3 h-3" />
-                  </div>
-                  <div className="text-left">
-                    <label htmlFor="sedeSelectorSAC" className="text-[8.5px] font-black text-slate-400 uppercase tracking-wider block leading-none">
-                      Sede / CEDI Activo:
-                    </label>
-                    <select
-                      id="sedeSelectorSAC"
-                      value={selectedSede}
-                      onChange={(e) => setSelectedSede(e.target.value)}
-                      className="bg-transparent text-slate-900 font-black text-[11px] focus:outline-none cursor-pointer mt-0.5 pr-1 leading-tight"
-                    >
-                      <option value="todas">🏢 Todas las Sedes (Consolidado Nacional)</option>
-                      {SEDES_CEDI_CONFIG.map((sede) => (
-                        <option key={sede.id} value={sede.id}>
-                          📍 {sede.nombre}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                  <h2 className="text-xl font-black text-slate-900 mt-1">Bandeja de Atención al Cliente (SAC)</h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Respuestas oficiales a mensajes, chats y radicados de visitantes de la página de ColorLink.
+                  </p>
                 </div>
               </div>
 
@@ -9540,19 +6609,12 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
                 {/* Columna Izquierda: Lista de Tickets */}
                 <div className="lg:col-span-5 bg-white rounded-3xl border border-slate-200 shadow-xs p-4 space-y-3 flex flex-col">
                   <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-                    <span className="font-black text-xs text-slate-900">
-                      Casos Mostrados ({filteredTicketsSAC.length})
-                    </span>
-                    <span className="text-[10px] text-emerald-700 font-bold">Conexión Web Activa</span>
+                    <span className="font-black text-xs text-slate-900">Casos Radicados ({ticketsSAC.length})</span>
+                    <span className="text-[10px] text-emerald-700 font-bold">SLA: &lt; 8 Horas</span>
                   </div>
 
                   <div className="flex-1 space-y-2.5 overflow-y-auto">
-                    {filteredTicketsSAC.length === 0 ? (
-                      <div className="p-8 text-center text-slate-400 text-xs">
-                        No hay casos con el filtro seleccionado ({ticketFilterTab}).
-                      </div>
-                    ) : (
-                      filteredTicketsSAC.map((t) => (
+                    {ticketsSAC.map((t) => (
                       <div
                         key={t.id}
                         onClick={() => setSelectedTicketId(t.id)}
@@ -9580,7 +6642,7 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
                           <span className="text-[10px]">{t.fechaCreacion.slice(5)}</span>
                         </div>
                       </div>
-                    )))}
+                    ))}
                   </div>
                 </div>
 
@@ -9676,142 +6738,109 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
           )}
 
           {/* =========================================================================
-              MÓDULO: COMPRAS & ABASTECIMIENTO ESTRATÉGICO
-          ========================================================================= */}
-          {activeTab === 'compras' && (
-            <ComprasAbastecimientoManager
-              activeSubTab={comprasSubTab}
-              onChangeSubTab={setComprasSubTab}
-              selectedSede={selectedSede}
-              onChangeSede={setSelectedSede}
-              userSession={userSession}
-              inventario={inventario}
-              ordenesCompra={ordenesCompra}
-              onUpdateOrdenesCompra={(ocs) => {
-                setOrdenesCompra(ocs);
-              }}
-              pedidosCliente={orders}
-              onNavigateToRecepcionBodega={(ocNum) => {
-                setActiveTab('logistica');
-                setLogisticsSubTab('recepcion_compras');
-                setOcSearchQuery(ocNum);
-              }}
-              onRegistrarAuditoria={(mod, acc, det) => {
-                registrarAuditoria(mod as any, acc, det);
-                setAuditoria(getAuditoria());
-              }}
-            />
-          )}
-
-          {/* =========================================================================
-              MÓDULO SST: PORTAL DE SEGURIDAD Y SALUD EN EL TRABAJO (DECRETO 1072 & ISO 45001)
-          ========================================================================= */}
-          {activeTab === 'sst' && (
-            <PortalSSTManager
-              activeSubTab={sstSubTab}
-              onChangeSubTab={setSstSubTab}
-              selectedSede={selectedSede}
-              onChangeSede={setSelectedSede}
-              userSession={userSession}
-              onRegistrarAuditoria={(mod, acc, det) => {
-                registrarAuditoria(mod as any, acc, det);
-                setAuditoria(getAuditoria());
-              }}
-            />
-          )}
-
-          {/* =========================================================================
-              MÓDULO 8: ARCHIVO CORPORATIVO & DOCUMENTOS LEGALES (6 CATEGORÍAS) Y NTC 1335
+              MÓDULO 8: DOCUMENTOS & NORMAS NTC 1335
           ========================================================================= */}
           {activeTab === 'documentos' && (
-            <div className="space-y-6">
-              {/* Selector de subpestañas superiores: Archivo Corporativo vs. Manuales Técnicos */}
-              <div className="bg-white p-2 sm:p-2.5 rounded-2xl border border-slate-200/90 shadow-2xs flex items-center justify-between gap-3 flex-wrap">
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setDocumentosSubTab('archivo')}
-                    className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
-                      documentosSubTab === 'archivo'
-                        ? 'bg-[#001D3D] text-white shadow-xs'
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                    }`}
-                  >
-                    <FolderOpen className="w-4 h-4 text-cyan-300" />
-                    <span>Archivo & Documentos Legales</span>
-                    <span className="px-1.5 py-0.2 rounded-full text-[9px] font-black bg-cyan-500/20 text-cyan-200">
-                      6 Áreas
-                    </span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setDocumentosSubTab('manuales')}
-                    className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
-                      documentosSubTab === 'manuales'
-                        ? 'bg-[#001D3D] text-white shadow-xs'
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                    }`}
-                  >
-                    <BookOpen className="w-4 h-4 text-blue-300" />
-                    <span>Manuales Técnicos & NTC 1335</span>
-                    <span className="px-1.5 py-0.2 rounded-full text-[9px] font-black bg-emerald-500/20 text-emerald-200">
-                      ICONTEC
-                    </span>
-                  </button>
-                </div>
-
-                <div className="text-[11px] text-slate-500 font-medium px-2 hidden lg:block">
-                  Sistema Integrado de Gestión • Calidad, SST, Legal, Talento, Logística & Comercial
-                </div>
+            <div className="space-y-6 animate-fadeIn">
+              <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs">
+                <h2 className="text-xl font-black text-slate-900">Repositorio Normativo y Fichas Técnicas</h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Documentación oficial de ensayos de laboratorio, hojas de seguridad MSDS y procedimientos NTC 1335.
+                </p>
               </div>
 
-              {/* Render de la subvista seleccionada */}
-              {documentosSubTab === 'archivo' ? (
-                <ArchivoDocumentosManager
-                  userSession={userSession}
-                  selectedSede={selectedSede}
-                  onChangeSede={setSelectedSede}
-                  onRegistrarAuditoria={(mod, acc, det) => {
-                    registrarAuditoria(mod, acc, det);
-                    setAuditoria(getAuditoria());
-                  }}
-                />
-              ) : (
-                <DocumentViewerNTC1335
-                  selectedManualId={selectedManualId}
-                  onSelectManualId={setSelectedManualId}
-                  docCategoryFilter={docCategoryFilter}
-                  onSelectCategoryFilter={setDocCategoryFilter}
-                  selectedSede={selectedSede}
-                  onSelectSede={setSelectedSede}
-                  onRegistrarAuditoria={(mod, acc, det) => {
-                    registrarAuditoria(mod, acc, det);
-                    setAuditoria(getAuditoria());
-                  }}
-                />
-              )}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                <div className="p-5 rounded-3xl bg-white border border-slate-200 shadow-xs space-y-3">
+                  <div className="w-10 h-10 rounded-2xl bg-cyan-100 text-cyan-900 flex items-center justify-center font-bold">
+                    <FileText className="w-5 h-5" />
+                  </div>
+                  <h3 className="font-bold text-sm text-slate-900">Norma ICONTEC NTC 1335 (Tipo 1)</h3>
+                  <p className="text-xs text-slate-500 leading-relaxed">
+                    Especificaciones técnicas obligatorias de lavabilidad, abrasión húmeda y poder de cubrimiento para recubrimientos arquitectónicos.
+                  </p>
+                  <span className="text-[10px] font-black text-emerald-700 block">Vigente 2026 • Verificado</span>
+                </div>
+
+                <div className="p-5 rounded-3xl bg-white border border-slate-200 shadow-xs space-y-3">
+                  <div className="w-10 h-10 rounded-2xl bg-blue-100 text-blue-900 flex items-center justify-center font-bold">
+                    <ShieldCheck className="w-5 h-5" />
+                  </div>
+                  <h3 className="font-bold text-sm text-slate-900">Fichas de Seguridad MSDS (SGA)</h3>
+                  <p className="text-xs text-slate-500 leading-relaxed">
+                    Hojas técnicas de manejo de pigmentos, biocidas y solventes bajo el Sistema Globalmente Armonizado de clasificación.
+                  </p>
+                  <span className="text-[10px] font-black text-emerald-700 block">14 Fichas Disponibles</span>
+                </div>
+
+                <div className="p-5 rounded-3xl bg-white border border-slate-200 shadow-xs space-y-3">
+                  <div className="w-10 h-10 rounded-2xl bg-purple-100 text-purple-900 flex items-center justify-center font-bold">
+                    <FlaskConical className="w-5 h-5" />
+                  </div>
+                  <h3 className="font-bold text-sm text-slate-900">Procedimientos Operativos POE</h3>
+                  <p className="text-xs text-slate-500 leading-relaxed">
+                    Protocolos de calibración de dosificadoras tintométricas y toma de muestras en cuarentena para despachos B2B.
+                  </p>
+                  <span className="text-[10px] font-black text-emerald-700 block">Aprobado por Dirección</span>
+                </div>
+              </div>
             </div>
           )}
 
           {/* =========================================================================
-              MÓDULO 9: AUDITORÍA & INFORMES (INFORMES, ACTAS DE REUNIÓN Y TRAZABILIDAD)
+              MÓDULO 9: AUDITORÍA & INFORMES
           ========================================================================= */}
           {activeTab === 'auditoria' && (
-            <AuditoriaActasManager
-              activeSubTab={auditoriaSubTab}
-              onChangeSubTab={setAuditoriaSubTab}
-              selectedSede={selectedSede}
-              onChangeSede={setSelectedSede}
-              userSession={userSession}
-              funcionarios={funcionarios}
-              auditoria={auditoria}
-              onExportCSV={handleExportCSV}
-              onRegistrarAuditoria={(mod, acc, det) => {
-                registrarAuditoria(mod, acc, det);
-                setAuditoria(getAuditoria());
-              }}
-            />
+            <div className="space-y-6 animate-fadeIn">
+              <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-xl font-black text-slate-900">Registro de Auditoría & Trazabilidad</h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Historial inmutable de acciones administrativas, movimientos de inventario y respuestas emitidas.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleExportCSV('auditoria')}
+                  className="px-4 py-2 rounded-xl bg-slate-900 text-white font-bold text-xs shadow-xs"
+                >
+                  Exportar Auditoría CSV
+                </button>
+              </div>
+
+              <div className="bg-white rounded-3xl border border-slate-200 shadow-xs overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold text-[11px]">
+                        <th className="py-3 px-4">Fecha y Hora</th>
+                        <th className="py-3 px-4">Usuario Responsable</th>
+                        <th className="py-3 px-4">Módulo</th>
+                        <th className="py-3 px-4">Acción</th>
+                        <th className="py-3 px-4">Detalle Técnico</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {auditoria.map((a) => (
+                        <tr key={a.id} className="hover:bg-slate-50">
+                          <td className="py-3 px-4 font-mono text-slate-500 text-[11px]">{a.fecha}</td>
+                          <td className="py-3 px-4">
+                            <strong className="text-slate-900 block">{a.usuarioNombre}</strong>
+                            <span className="text-[10px] text-slate-400">{a.usuarioRol}</span>
+                          </td>
+                          <td className="py-3 px-4">
+                            <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-800 text-[10px] font-bold">
+                              {a.modulo}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 font-bold text-slate-800">{a.accion}</td>
+                          <td className="py-3 px-4 text-slate-600 text-[11px] max-w-xs truncate">{a.detalle}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
           )}
 
         </main>

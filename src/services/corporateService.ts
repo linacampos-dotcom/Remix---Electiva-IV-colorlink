@@ -5,6 +5,7 @@
  */
 
 import { INVENTARIO_CATALOGO_COMPLETO } from '../data/initialCatalogInventory';
+import { fetchTicketsFromSupabase, upsertTicketToSupabase } from '../lib/supabaseService';
 
 export interface AreaCorporativa {
   id: string;
@@ -1927,6 +1928,41 @@ export function saveTicketsSAC(tickets: TicketSAC[]): void {
 }
 
 /**
+ * Sincroniza tickets SAC / PQRS desde Supabase y respaldo servidor hacia el estado local
+ */
+export async function syncTicketsFromSupabase(
+  userEmail?: string | null,
+  userId?: string | null
+): Promise<TicketSAC[]> {
+  try {
+    const remoteTickets = await fetchTicketsFromSupabase(userEmail, userId);
+    const localTickets = getTicketsSAC();
+    const map = new Map<string, TicketSAC>();
+
+    // Remoto tiene prioridad por contener respuestas recientes desde otros equipos / SAC
+    remoteTickets.forEach((rt: any) => {
+      if (rt && (rt.id || rt.radicado)) {
+        map.set(rt.id || rt.radicado, rt as TicketSAC);
+      }
+    });
+
+    localTickets.forEach((lt) => {
+      const key = lt.id || lt.radicado;
+      if (key && !map.has(key)) {
+        map.set(key, lt);
+      }
+    });
+
+    const merged = Array.from(map.values());
+    saveTicketsSAC(merged);
+    return merged;
+  } catch (err) {
+    console.warn('Error sincronizando tickets desde Supabase:', err);
+    return getTicketsSAC();
+  }
+}
+
+/**
  * Radicar consulta desde la web pública (Chat / Formulario PQR / Cotizador)
  */
 export function radicarConsultaWeb(consulta: {
@@ -1970,6 +2006,7 @@ export function radicarConsultaWeb(consulta: {
   };
 
   saveTicketsSAC([nuevoTicket, ...current]);
+  upsertTicketToSupabase(nuevoTicket).catch(() => {});
 
   // Notificar al equipo SAC en la intranet
   crearNotificacion({
@@ -2025,6 +2062,7 @@ export function responderTicketSAC(
   saveTicketsSAC(next);
 
   if (updatedTicket) {
+    upsertTicketToSupabase(updatedTicket).catch(() => {});
     registrarAuditoria('SAC', esNotaInterna ? 'Nota Interna Agregada' : 'Respuesta a Cliente Enviada', `Agente ${agenteNombre} respondió ticket ${(updatedTicket as TicketSAC).radicado}`);
   }
   return updatedTicket;

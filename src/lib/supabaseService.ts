@@ -1,6 +1,6 @@
 import { supabase, isSupabaseConfigured, reconfigureSupabaseClient, SupabaseCliente, SupabaseProducto, SupabaseProyecto } from './supabaseClient';
-import { FMVFormData, CalculationResult, COLORLINKOrder, CatalogProduct } from '../types';
-import { PINTUCO_CATALOG, getLiveCatalog } from '../data/pintucoData';
+import { FMVFormData, CalculationResult, COLORLINKOrder, CatalogProduct, UserAddress } from '../types';
+import { PINTUCO_CATALOG } from '../data/pintucoData';
 
 export interface SupabaseProjectWithRelations {
   id: string;
@@ -142,6 +142,8 @@ export async function syncClientProfileToSupabase(profile: {
   telefono?: string;
   tipoDocumento?: string;
   ciudad?: string;
+  direccion?: string;
+  direcciones?: UserAddress[];
 }): Promise<{
   success: boolean;
   clienteId?: string;
@@ -155,11 +157,11 @@ export async function syncClientProfileToSupabase(profile: {
   const cleanTipoDoc = normalizeTipoDocumento(profile.tipoDocumento);
   const cleanCiudad = (profile.ciudad || 'Bogotá D.C.').trim();
   const cleanTelefono = (profile.telefono || '').trim();
+  const cleanDireccion = (profile.direccion || '').trim();
 
   let clienteId = profile.user_id || profile.id || '';
 
   // 1. Guardar en tabla 'clientes' de Supabase
-  // NOTA: La tabla clientes contiene estrictamente: id, tipo_documento, numero_documento, nombre, ciudad
   if (isSupabaseConfigured && supabase && cleanDoc) {
     try {
       const { data: existingClients, error: searchErr } = await supabase
@@ -201,16 +203,17 @@ export async function syncClientProfileToSupabase(profile: {
 
       // Actualizar metadata de Supabase Auth si hay sesión activa
       try {
-        await supabase.auth.updateUser({
-          data: {
-            nombre: cleanNombre,
-            cedula: cleanDoc,
-            numero_documento: cleanDoc,
-            telefono: cleanTelefono,
-            tipoDocumento: cleanTipoDoc,
-            ciudad: cleanCiudad,
-          },
-        });
+        const metaUpdate: Record<string, any> = {
+          nombre: cleanNombre,
+          cedula: cleanDoc,
+          numero_documento: cleanDoc,
+          telefono: cleanTelefono,
+          tipoDocumento: cleanTipoDoc,
+          ciudad: cleanCiudad,
+        };
+        if (cleanDireccion) metaUpdate.direccion = cleanDireccion;
+        if (Array.isArray(profile.direcciones)) metaUpdate.direcciones = profile.direcciones;
+        await supabase.auth.updateUser({ data: metaUpdate });
       } catch (authMetaErr) {
         console.debug('No active session for updateUser:', authMetaErr);
       }
@@ -219,7 +222,7 @@ export async function syncClientProfileToSupabase(profile: {
     }
   }
 
-  // 2. Notificar al servidor Express para actualizar usersDatabase
+  // 2. Notificar al servidor Express para respaldo multidispositivo
   try {
     await fetch('/api/auth/sync-profile', {
       method: 'POST',
@@ -231,6 +234,8 @@ export async function syncClientProfileToSupabase(profile: {
         telefono: cleanTelefono,
         tipoDocumento: cleanTipoDoc,
         ciudad: cleanCiudad,
+        direccion: cleanDireccion || undefined,
+        direcciones: Array.isArray(profile.direcciones) ? profile.direcciones : undefined,
         userId: clienteId,
       }),
     });
@@ -274,9 +279,8 @@ export async function fetchSupabaseProducts(): Promise<{
   await checkAndInitServerSupabase();
 
   if (!isSupabaseConfigured) {
-    // Map local live catalog to SupabaseProducto shape
-    const liveProds = getLiveCatalog();
-    const localMapped: SupabaseProducto[] = liveProds.map((p) => ({
+    // Map local catalog to SupabaseProducto shape
+    const localMapped: SupabaseProducto[] = PINTUCO_CATALOG.map((p) => ({
       id: p.id,
       nombre: p.nombre,
       ambiente: p.presetAmbiente || p.ambienteIdeal[0] || 'Interior / Exterior',
@@ -294,9 +298,8 @@ export async function fetchSupabaseProducts(): Promise<{
 
     if (error) {
       console.warn('Error fetching productos from Supabase:', error.message);
-      const liveFallback = getLiveCatalog();
       return {
-        data: liveFallback.map((p) => ({
+        data: PINTUCO_CATALOG.map((p) => ({
           id: p.id,
           nombre: p.nombre,
           ambiente: p.presetAmbiente || p.ambienteIdeal[0] || 'Interior / Exterior',
@@ -309,9 +312,8 @@ export async function fetchSupabaseProducts(): Promise<{
     }
 
     if (!data || data.length === 0) {
-      const liveFallback = getLiveCatalog();
       return {
-        data: liveFallback.map((p) => ({
+        data: PINTUCO_CATALOG.map((p) => ({
           id: p.id,
           nombre: p.nombre,
           ambiente: p.presetAmbiente || p.ambienteIdeal[0] || 'Interior / Exterior',
@@ -325,9 +327,8 @@ export async function fetchSupabaseProducts(): Promise<{
     return { data: data as SupabaseProducto[], fromSupabase: true };
   } catch (err: any) {
     console.error('Supabase products query failed:', err);
-    const liveFallback = getLiveCatalog();
     return {
-      data: liveFallback.map((p) => ({
+      data: PINTUCO_CATALOG.map((p) => ({
         id: p.id,
         nombre: p.nombre,
         ambiente: p.presetAmbiente || p.ambienteIdeal[0] || 'Interior / Exterior',
@@ -836,77 +837,579 @@ export async function updateSupabaseProjectStatus(
   }
 }
 
+// ==============================================================================
+// SINCRONIZACIÓN MULTIDISPOSITIVO: PERFIL, DIRECCIONES, PEDIDOS, SAC Y CHAT IA
+// ==============================================================================
+
 /**
- * Sincroniza un producto (creación, edición o cambio de estado) con Supabase en tiempo real
- * y emite eventos globales para invalidar caché y actualizar reactivamente el Catálogo de Clientes y Cotizador
- * sin requerir recargar la página.
+ * Obtiene perfil completo y libreta de direcciones desde Supabase (user_addresses, user_metadata, clientes)
+ * y respaldo del servidor para restaurar la cuenta en cualquier dispositivo.
  */
-export async function syncProductToSupabase(product: {
-  sku: string;
-  nombre: string;
-  ambiente?: string;
-  rendimiento_m2?: number;
-  activo?: boolean;
-  estado?: 'Activo' | 'Inactivo' | 'Borrador' | string;
-  precio?: number;
-  categoria?: string;
-}): Promise<{ success: boolean; error?: string }> {
-  // 1. Despachar inmediatamente eventos para reactividad total en la interfaz del cliente
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent('colorlink_inventory_updated', { detail: product }));
-    window.dispatchEvent(new CustomEvent('colorlink_catalog_sync_needed', { detail: product }));
+export interface RemoteUserProfile {
+  nombre?: string;
+  documento?: string;
+  tipoDocumento?: string;
+  telefono?: string;
+  ciudad?: string;
+  direccion?: string;
+  direcciones: UserAddress[];
+}
+
+export async function fetchUserProfileAndAddressesFromSupabase(
+  userId?: string | null,
+  userEmail?: string | null,
+  userDoc?: string | null
+): Promise<RemoteUserProfile> {
+  await checkAndInitServerSupabase();
+  const cleanEmail = (userEmail || '').trim().toLowerCase();
+  const cleanDoc = (userDoc || '').trim();
+  const result: RemoteUserProfile = { direcciones: [] };
+
+  const addrsMap = new Map<string, UserAddress>();
+  const addAddressList = (list: any[]) => {
+    if (!Array.isArray(list)) return;
+    list.forEach((a: any) => {
+      if (!a || !a.direccion) return;
+      if (a.id === 'addr-1' || a.id === 'addr-2' || a.id === 'addr-3') return;
+      const key = String(a.id || `${a.etiqueta}_${a.direccion}`).toLowerCase();
+      if (!addrsMap.has(key)) {
+        addrsMap.set(key, {
+          id: a.id || `addr-${Date.now()}`,
+          etiqueta: a.etiqueta || 'Dirección guardada',
+          direccion: a.direccion,
+          departamento: a.departamento || 'Cundinamarca',
+          ciudad: a.ciudad || 'Bogotá D.C.',
+          detalles: a.detalles || '',
+          esPredeterminada: Boolean(a.es_predeterminada ?? a.esPredeterminada),
+        });
+      }
+    });
+  };
+
+  if (isSupabaseConfigured && supabase) {
+    // 1. Metadata de Supabase Auth del usuario autenticado (viaja siempre entre dispositivos)
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const meta = user.user_metadata || {};
+        if (meta.nombre) result.nombre = meta.nombre;
+        if (meta.cedula || meta.documento || meta.numero_documento) {
+          result.documento = meta.cedula || meta.documento || meta.numero_documento;
+        }
+        if (meta.tipoDocumento) result.tipoDocumento = meta.tipoDocumento;
+        if (meta.telefono) result.telefono = meta.telefono;
+        if (meta.ciudad) result.ciudad = meta.ciudad;
+        if (meta.direccion) result.direccion = meta.direccion;
+        if (Array.isArray(meta.direcciones)) addAddressList(meta.direcciones);
+      }
+    } catch {}
+
+    // 2. Tabla user_addresses de Supabase
+    if (userId || cleanEmail) {
+      try {
+        let query = supabase.from('user_addresses').select('*');
+        if (userId && cleanEmail) {
+          query = query.or(`user_id.eq.${userId},user_email.ilike.${cleanEmail}`);
+        } else if (userId) {
+          query = query.eq('user_id', userId);
+        } else if (cleanEmail) {
+          query = query.ilike('user_email', cleanEmail);
+        }
+        const { data: dbAddrs, error: addrErr } = await query.order('created_at', { ascending: true });
+        if (!addrErr && Array.isArray(dbAddrs) && dbAddrs.length > 0) {
+          addAddressList(dbAddrs);
+        }
+      } catch {}
+    }
+
+    // 3. Tabla clientes de Supabase (si tiene documento o email)
+    const docToQuery = result.documento || cleanDoc;
+    if (docToQuery) {
+      try {
+        const { data: clients } = await supabase
+          .from('clientes')
+          .select('*')
+          .eq('numero_documento', docToQuery)
+          .limit(1);
+        if (clients && clients.length > 0) {
+          const c: any = clients[0];
+          if (!result.nombre && c.nombre) result.nombre = c.nombre;
+          if (!result.ciudad && c.ciudad) result.ciudad = c.ciudad;
+          if (!result.tipoDocumento && c.tipo_documento) result.tipoDocumento = c.tipo_documento;
+          if (!result.telefono && c.telefono) result.telefono = c.telefono;
+          if (!result.direccion && c.direccion) result.direccion = c.direccion;
+        }
+      } catch {}
+    }
   }
 
+  // 4. Respaldo del servidor Express por correo electrónico
+  if (cleanEmail) {
+    try {
+      const res = await fetch(`/api/auth/profile?email=${encodeURIComponent(cleanEmail)}`);
+      if (res.ok) {
+        const json = await res.json();
+        const p = json?.profile;
+        if (p) {
+          if (!result.nombre && p.nombre) result.nombre = p.nombre;
+          if (!result.documento && (p.cedula || p.documento)) result.documento = p.cedula || p.documento;
+          if (!result.tipoDocumento && p.tipoDocumento) result.tipoDocumento = p.tipoDocumento;
+          if (!result.telefono && p.telefono) result.telefono = p.telefono;
+          if (!result.ciudad && p.ciudad) result.ciudad = p.ciudad;
+          if (!result.direccion && p.direccion) result.direccion = p.direccion;
+          if (Array.isArray(p.direcciones)) addAddressList(p.direcciones);
+        }
+      }
+    } catch {}
+  }
+
+  result.direcciones = Array.from(addrsMap.values());
+  return result;
+}
+
+/**
+ * Guarda la libreta de direcciones en Supabase (user_addresses + auth.user_metadata) y respaldo servidor.
+ */
+export async function saveUserAddressesToSupabase(
+  addresses: UserAddress[],
+  profile?: {
+    userId?: string;
+    email?: string;
+    nombre?: string;
+    documento?: string;
+    telefono?: string;
+    tipoDocumento?: string;
+    ciudad?: string;
+  }
+): Promise<void> {
+  await checkAndInitServerSupabase();
+  const cleanEmail = (profile?.email || '').trim().toLowerCase();
+  const defaultAddr = addresses.find((a) => a.esPredeterminada) || addresses[0];
+
+  if (isSupabaseConfigured && supabase) {
+    let authUid = profile?.userId || null;
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user?.id) authUid = user.id;
+      if (user) {
+        await supabase.auth.updateUser({
+          data: {
+            direcciones: addresses,
+            ...(defaultAddr ? { direccion: defaultAddr.direccion, ciudad: defaultAddr.ciudad } : {}),
+          },
+        });
+      }
+    } catch {}
+
+    // Sincronizar con tabla user_addresses en Supabase si existe
+    if (cleanEmail) {
+      try {
+        await supabase.from('user_addresses').delete().ilike('user_email', cleanEmail);
+        if (addresses.length > 0) {
+          const rows = addresses.map((a) => ({
+            id: a.id,
+            user_id: authUid,
+            user_email: cleanEmail,
+            etiqueta: a.etiqueta,
+            direccion: a.direccion,
+            departamento: a.departamento || 'Cundinamarca',
+            ciudad: a.ciudad || 'Bogotá D.C.',
+            detalles: a.detalles || '',
+            es_predeterminada: Boolean(a.esPredeterminada),
+          }));
+          await supabase.from('user_addresses').upsert(rows, { onConflict: 'id' });
+        }
+      } catch {}
+    }
+  }
+
+  // Respaldo servidor Express
+  if (cleanEmail) {
+    try {
+      await fetch('/api/auth/sync-profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: cleanEmail,
+          nombre: profile?.nombre,
+          cedula: profile?.documento,
+          telefono: profile?.telefono,
+          tipoDocumento: profile?.tipoDocumento,
+          ciudad: defaultAddr?.ciudad || profile?.ciudad,
+          direccion: defaultAddr?.direccion,
+          direcciones: addresses,
+          userId: profile?.userId,
+        }),
+      });
+    } catch {}
+  }
+}
+
+/**
+ * Actualiza el estado del pedido en Supabase ('orders' y 'proyectos') para disparar Realtime en otros dispositivos.
+ */
+export async function updateSupabaseOrderStatus(
+  orderIdOrNumber: string,
+  newStatus: string,
+  updates?: {
+    numeroOrden?: string;
+    guiaDespacho?: string;
+    observacionesBodega?: string;
+    responsableAlistamiento?: string;
+  }
+): Promise<void> {
+  await checkAndInitServerSupabase();
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(orderIdOrNumber);
+
+  if (isSupabaseConfigured && supabase) {
+    // 1. Actualizar tabla 'proyectos' si es UUID
+    if (isUuid) {
+      let projStatus = 'Radicado';
+      const st = newStatus.toLowerCase();
+      if (st.includes('entregado')) projStatus = 'Entregado';
+      else if (st.includes('despachado') || st.includes('tránsito') || st.includes('transito')) projStatus = 'Despachado';
+      else if (st.includes('listo') || st.includes('aprobado')) projStatus = 'Listo para Despacho';
+      else if (st.includes('alistamiento') || st.includes('prepar') || st.includes('bodega') || st.includes('producc')) projStatus = 'En Alistamiento';
+      else if (st.includes('cancelado')) projStatus = 'Cancelado';
+      else if (st.includes('cotiz')) projStatus = 'Cotizado';
+
+      try {
+        await supabase
+          .from('proyectos')
+          .update({
+            estado_pedido: projStatus,
+            ...(updates?.guiaDespacho ? { guia_transporte: updates.guiaDespacho } : {}),
+            ...(updates?.observacionesBodega ? { observaciones_bodega: updates.observacionesBodega } : {}),
+          })
+          .eq('id', orderIdOrNumber);
+      } catch {
+        // Fallback si aún no existen las columnas opcionales
+        await updateSupabaseProjectStatus(orderIdOrNumber, projStatus);
+      }
+    }
+
+    // 2. Actualizar tabla 'orders' por id o por order_number
+    try {
+      const orderPayload: Record<string, any> = {
+        status: newStatus,
+        updated_at: new Date().toISOString(),
+      };
+      if (updates?.guiaDespacho !== undefined) orderPayload.guia_transporte = updates.guiaDespacho;
+      if (updates?.observacionesBodega !== undefined) orderPayload.observaciones_bodega = updates.observacionesBodega;
+
+      if (isUuid) {
+        await supabase.from('orders').update(orderPayload).eq('id', orderIdOrNumber);
+      }
+      if (updates?.numeroOrden) {
+        await supabase.from('orders').update(orderPayload).eq('order_number', updates.numeroOrden);
+      }
+    } catch {}
+  }
+
+  // 3. Respaldo en servidor Express
+  try {
+    await fetch(`/api/orders/${encodeURIComponent(orderIdOrNumber)}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        estado: newStatus,
+        guiaDespacho: updates?.guiaDespacho,
+        observacionesBodega: updates?.observacionesBodega,
+        responsableAlistamiento: updates?.responsableAlistamiento,
+      }),
+    });
+  } catch {}
+}
+
+/**
+ * Consulta tickets SAC / PQRS en Supabase y servidor por usuario (o todos para intranet).
+ */
+export async function fetchTicketsFromSupabase(
+  userEmail?: string | null,
+  userId?: string | null
+): Promise<any[]> {
+  await checkAndInitServerSupabase();
+  const cleanEmail = (userEmail || '').trim().toLowerCase();
+  const collected: any[] = [];
+  const seen = new Set<string>();
+
+  const pushTicket = (t: any) => {
+    if (!t || (!t.id && !t.radicado)) return;
+    const key = t.id || t.radicado;
+    if (!seen.has(key)) {
+      seen.add(key);
+      collected.push(t);
+    }
+  };
+
+  if (isSupabaseConfigured && supabase) {
+    try {
+      let query = supabase.from('tickets').select('*');
+      if (cleanEmail) {
+        query = query.ilike('cliente_email', cleanEmail);
+      } else if (userId) {
+        query = query.eq('user_id', userId);
+      }
+      const { data, error } = await query.order('created_at', { ascending: false });
+      if (!error && Array.isArray(data)) {
+        data.forEach((row: any) => {
+          pushTicket({
+            id: row.id,
+            radicado: row.radicado,
+            clienteId: row.user_id,
+            clienteNombre: row.cliente_nombre,
+            clienteEmail: row.cliente_email,
+            clienteTelefono: row.cliente_telefono || '',
+            canal: row.canal || 'Formulario PQR',
+            categoria: row.categoria || 'Asesoría Técnica Pinturas',
+            asunto: row.asunto,
+            mensaje: row.mensaje,
+            estado: row.estado || 'Nuevo',
+            prioridad: row.prioridad || 'Media',
+            fechaCreacion: row.fecha_creacion || (row.created_at ? String(row.created_at).replace('T', ' ').slice(0, 16) : ''),
+            fechaUltimaActividad: row.fecha_ultima_actividad || (row.updated_at ? String(row.updated_at).replace('T', ' ').slice(0, 16) : ''),
+            slaHorasLimite: row.sla_horas_limite || 8,
+            slaVencido: Boolean(row.sla_vencido),
+            mensajes: Array.isArray(row.mensajes) && row.mensajes.length > 0
+              ? row.mensajes
+              : [{
+                  id: `msg-${row.id}`,
+                  remitenteTipo: 'cliente',
+                  remitenteNombre: row.cliente_nombre,
+                  texto: row.mensaje,
+                  fecha: row.fecha_creacion || '',
+                }],
+          });
+        });
+      }
+    } catch {}
+  }
+
+  // Consultar respaldo del servidor Express
+  try {
+    const qs = cleanEmail ? `?email=${encodeURIComponent(cleanEmail)}` : '';
+    const res = await fetch(`/api/tickets${qs}`);
+    if (res.ok) {
+      const json = await res.json();
+      if (Array.isArray(json.tickets)) {
+        json.tickets.forEach(pushTicket);
+      }
+    }
+  } catch {}
+
+  return collected;
+}
+
+/**
+ * Guarda o actualiza un ticket SAC / PQRS en Supabase y servidor para propagación Realtime.
+ */
+export async function upsertTicketToSupabase(ticket: any): Promise<void> {
+  if (!ticket) return;
   await checkAndInitServerSupabase();
 
-  if (!isSupabaseConfigured || !supabase) {
-    return { success: true };
+  let authUserId: string | null = ticket.clienteId || ticket.userId || null;
+  if (isSupabaseConfigured && supabase) {
+    try {
+      if (!authUserId) {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user?.id) authUserId = user.id;
+      }
+      const payload = {
+        id: ticket.id,
+        radicado: ticket.radicado,
+        user_id: authUserId,
+        cliente_nombre: ticket.clienteNombre,
+        cliente_email: (ticket.clienteEmail || '').trim().toLowerCase(),
+        cliente_telefono: ticket.clienteTelefono || '',
+        canal: ticket.canal || 'Formulario PQR',
+        categoria: ticket.categoria || 'Asesoría Técnica Pinturas',
+        asunto: ticket.asunto,
+        mensaje: ticket.mensaje,
+        estado: ticket.estado || 'Nuevo',
+        prioridad: ticket.prioridad || 'Media',
+        mensajes: Array.isArray(ticket.mensajes) ? ticket.mensajes : [],
+        sla_horas_limite: ticket.slaHorasLimite || 8,
+        sla_vencido: Boolean(ticket.slaVencido),
+        fecha_creacion: ticket.fechaCreacion,
+        fecha_ultima_actividad: ticket.fechaUltimaActividad,
+        updated_at: new Date().toISOString(),
+      };
+      const { error } = await supabase.from('tickets').upsert([payload], { onConflict: 'id' });
+      if (error && error.message?.includes('column')) {
+        await supabase.from('tickets').upsert([{
+          id: ticket.id,
+          radicado: ticket.radicado,
+          user_id: authUserId,
+          cliente_nombre: ticket.clienteNombre,
+          cliente_email: (ticket.clienteEmail || '').trim().toLowerCase(),
+          cliente_telefono: ticket.clienteTelefono || '',
+          categoria: ticket.categoria || 'Asesoría Técnica Pinturas',
+          asunto: ticket.asunto,
+          mensaje: ticket.mensaje,
+          estado: ticket.estado || 'Nuevo',
+        }], { onConflict: 'id' });
+      }
+    } catch {}
   }
 
   try {
-    const sku = (product.sku || '').trim().toUpperCase();
-    if (!sku) return { success: false, error: 'SKU requerido' };
-
-    const isActivo = product.activo !== false && product.estado !== 'Inactivo' && product.estado !== 'Borrador';
-
-    // Si el producto está inactivo o borrador, no debe ser visible en el catálogo público de Supabase
-    if (!isActivo) {
-      try {
-        await supabase.from('productos').delete().eq('sku', sku);
-      } catch (delErr) {
-        console.debug('Aviso al despublicar SKU de Supabase:', delErr);
-      }
-      return { success: true };
-    }
-
-    // Si está activo, realizar Upsert en tabla 'productos'
-    const { data: existing, error: searchErr } = await supabase
-      .from('productos')
-      .select('id, sku')
-      .eq('sku', sku)
-      .limit(1);
-
-    const payload: any = {
-      nombre: product.nombre.trim(),
-      ambiente: product.ambiente || (product.categoria?.toLowerCase().includes('exterior') ? 'Exterior Fachada' : 'Interior'),
-      rendimiento_m2: Number(product.rendimiento_m2) || 30,
-      sku: sku,
-    };
-
-    if (!searchErr && existing && existing.length > 0) {
-      await supabase
-        .from('productos')
-        .update(payload)
-        .eq('id', existing[0].id);
-    } else {
-      await supabase
-        .from('productos')
-        .insert(payload);
-    }
-
-    return { success: true };
-  } catch (err: any) {
-    console.warn('Excepción sincronizando producto en Supabase:', err);
-    return { success: false, error: err.message };
-  }
+    await fetch('/api/tickets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ticket, user_id: authUserId }),
+    });
+  } catch {}
 }
+
+/**
+ * Carga historial de chat de Linky desde Supabase (chat_messages / user_metadata) y respaldo servidor.
+ */
+export async function fetchChatHistoryFromSupabase(
+  userId?: string | null,
+  userEmail?: string | null
+): Promise<any[]> {
+  await checkAndInitServerSupabase();
+  const cleanEmail = (userEmail || '').trim().toLowerCase();
+  if (!userId && !cleanEmail) return [];
+
+  if (isSupabaseConfigured && supabase) {
+    try {
+      let query = supabase.from('chat_messages').select('*');
+      if (userId && cleanEmail) {
+        query = query.or(`user_id.eq.${userId},user_email.ilike.${cleanEmail}`);
+      } else if (userId) {
+        query = query.eq('user_id', userId);
+      } else {
+        query = query.ilike('user_email', cleanEmail);
+      }
+      const { data, error } = await query.order('created_at', { ascending: true });
+      if (!error && Array.isArray(data) && data.length > 0) {
+        return data.map((row: any) => ({
+          ...(row.metadata || {}),
+          id: row.message_id || row.id,
+          sender: row.sender,
+          text: row.text,
+          imageUrl: row.image_url || row.metadata?.imageUrl,
+          timestamp: row.metadata?.timestamp || (row.created_at ? new Date(row.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''),
+        }));
+      }
+    } catch {}
+
+    // Fallback a user_metadata si aún no existe la tabla chat_messages
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const metaHistory = user?.user_metadata?.linky_chat_history;
+      if (Array.isArray(metaHistory) && metaHistory.length > 0) {
+        return metaHistory;
+      }
+    } catch {}
+  }
+
+  // Respaldo servidor Express
+  if (cleanEmail) {
+    try {
+      const res = await fetch(`/api/chat-history?email=${encodeURIComponent(cleanEmail)}`);
+      if (res.ok) {
+        const json = await res.json();
+        if (Array.isArray(json.messages) && json.messages.length > 0) {
+          return json.messages;
+        }
+      }
+    } catch {}
+  }
+
+  return [];
+}
+
+/**
+ * Sincroniza el historial de mensajes con Linky hacia Supabase y respaldo multidispositivo.
+ */
+export async function saveChatHistoryToSupabase(
+  userId: string | null,
+  userEmail: string,
+  messages: any[]
+): Promise<void> {
+  const cleanEmail = (userEmail || '').trim().toLowerCase();
+  if (!cleanEmail || !Array.isArray(messages) || messages.length === 0) return;
+
+  await checkAndInitServerSupabase();
+
+  const compactMessages = messages.slice(-40).map((m) => ({
+    id: m.id,
+    sender: m.sender,
+    text: m.text,
+    timestamp: m.timestamp,
+    showQuickChips: m.showQuickChips,
+    cartActions: m.cartActions,
+    cartAction: m.cartAction,
+    toolsKit: m.toolsKit,
+    superficieIdentificada: m.superficieIdentificada,
+    areaEstimadaM2: m.areaEstimadaM2,
+    imageUrl: m.imageUrl && String(m.imageUrl).length < 40000 ? m.imageUrl : undefined,
+  }));
+
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const rows = compactMessages.map((m) => {
+        const { id, sender, text, imageUrl, ...rest } = m;
+        return {
+          id: `${cleanEmail}_${id}`,
+          user_id: userId || null,
+          user_email: cleanEmail,
+          message_id: String(id),
+          sender: String(sender || 'assistant'),
+          text: String(text || ''),
+          image_url: imageUrl || null,
+          metadata: rest,
+        };
+      });
+      await supabase.from('chat_messages').upsert(rows, { onConflict: 'id' });
+    } catch {}
+
+    // Guardar copia ligera en auth.user_metadata (los últimos 15 mensajes sin imágenes pesadas)
+    try {
+      const metaCopy = compactMessages.slice(-15).map((m) => ({
+        id: m.id,
+        sender: m.sender,
+        text: String(m.text || '').slice(0, 600),
+        timestamp: m.timestamp,
+        showQuickChips: m.showQuickChips,
+      }));
+      await supabase.auth.updateUser({
+        data: { linky_chat_history: metaCopy },
+      });
+    } catch {}
+  }
+
+  try {
+    await fetch('/api/chat-history', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: cleanEmail, messages: compactMessages }),
+    });
+  } catch {}
+}
+
+/**
+ * Limpia el historial de Linky del usuario en Supabase y respaldo.
+ */
+export async function clearChatHistoryInSupabase(
+  userId: string | null,
+  userEmail: string
+): Promise<void> {
+  const cleanEmail = (userEmail || '').trim().toLowerCase();
+  if (!cleanEmail) return;
+  await checkAndInitServerSupabase();
+
+  if (isSupabaseConfigured && supabase) {
+    try {
+      await supabase.from('chat_messages').delete().ilike('user_email', cleanEmail);
+      await supabase.auth.updateUser({ data: { linky_chat_history: [] } });
+    } catch {}
+  }
+
+  try {
+    await fetch(`/api/chat-history?email=${encodeURIComponent(cleanEmail)}`, { method: 'DELETE' });
+  } catch {}
+}
+

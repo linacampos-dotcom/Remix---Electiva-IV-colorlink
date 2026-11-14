@@ -103,39 +103,245 @@ function getGenAI(): GoogleGenAI | null {
   return genAIClient;
 }
 
-// In-memory persistent orders buffer (can also be saved from client)
-let savedOrders: any[] = [];
+// In-memory persistent orders buffer (also backed on disk for multi-device resilience)
+const RUNTIME_SYNC_FILE = path.join(process.cwd(), 'data', 'multidevice-sync.json');
+interface RuntimeSyncStore {
+  orders: any[];
+  tickets: any[];
+  chatHistories: Record<string, any[]>;
+  userProfiles: Record<string, any>;
+}
+
+function loadRuntimeSyncStore(): RuntimeSyncStore {
+  try {
+    if (fs.existsSync(RUNTIME_SYNC_FILE)) {
+      const raw = fs.readFileSync(RUNTIME_SYNC_FILE, 'utf-8');
+      const parsed = JSON.parse(raw);
+      return {
+        orders: Array.isArray(parsed.orders) ? parsed.orders : [],
+        tickets: Array.isArray(parsed.tickets) ? parsed.tickets : [],
+        chatHistories: parsed.chatHistories && typeof parsed.chatHistories === 'object' ? parsed.chatHistories : {},
+        userProfiles: parsed.userProfiles && typeof parsed.userProfiles === 'object' ? parsed.userProfiles : {},
+      };
+    }
+  } catch {}
+  return { orders: [], tickets: [], chatHistories: {}, userProfiles: {} };
+}
+
+function persistRuntimeSyncStore(store: RuntimeSyncStore) {
+  try {
+    const dir = path.dirname(RUNTIME_SYNC_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(RUNTIME_SYNC_FILE, JSON.stringify(store, null, 2), 'utf-8');
+  } catch (err) {
+    console.debug('[Server] Runtime sync persist note:', err);
+  }
+}
+
+const runtimeStore = loadRuntimeSyncStore();
+let savedOrders: any[] = runtimeStore.orders;
 
 // In-memory OTP storage for secure verification (phoneNumber -> { otp, expiresAt, role })
 const otpStore = new Map<string, { otp: string; expiresAt: number; role?: string }>();
 
-// API: Radicar PQR / Consulta Técnica y registrar en Supabase
+// API: Consultar tickets SAC / PQR (Supabase + respaldo multidispositivo)
+app.get('/api/tickets', async (req, res) => {
+  try {
+    const email = String(req.query.email || '').trim().toLowerCase();
+    const userId = String(req.query.userId || '').trim();
+    const collected: any[] = [];
+    const seen = new Set<string>();
+
+    if (isSupabaseConfigured && supabase) {
+      try {
+        let query = supabase.from('tickets').select('*');
+        if (email) {
+          query = query.ilike('cliente_email', email);
+        } else if (userId) {
+          query = query.eq('user_id', userId);
+        }
+        const { data, error } = await query.order('created_at', { ascending: false });
+        if (!error && Array.isArray(data)) {
+          data.forEach((row: any) => {
+            const key = row.id || row.radicado;
+            if (key && !seen.has(key)) {
+              seen.add(key);
+              collected.push({
+                id: row.id,
+                radicado: row.radicado,
+                clienteId: row.user_id,
+                clienteNombre: row.cliente_nombre,
+                clienteEmail: row.cliente_email,
+                clienteTelefono: row.cliente_telefono || '',
+                canal: row.canal || 'Formulario PQR',
+                categoria: row.categoria || 'Asesoría Técnica Pinturas',
+                asunto: row.asunto,
+                mensaje: row.mensaje,
+                estado: row.estado || 'Nuevo',
+                prioridad: row.prioridad || 'Media',
+                fechaCreacion: row.fecha_creacion || (row.created_at ? String(row.created_at).replace('T', ' ').slice(0, 16) : ''),
+                fechaUltimaActividad: row.fecha_ultima_actividad || (row.updated_at ? String(row.updated_at).replace('T', ' ').slice(0, 16) : ''),
+                slaHorasLimite: row.sla_horas_limite || 8,
+                slaVencido: Boolean(row.sla_vencido),
+                mensajes: Array.isArray(row.mensajes) && row.mensajes.length > 0
+                  ? row.mensajes
+                  : [{
+                      id: `msg-${row.id}`,
+                      remitenteTipo: 'cliente',
+                      remitenteNombre: row.cliente_nombre,
+                      texto: row.mensaje,
+                      fecha: row.fecha_creacion || '',
+                    }],
+              });
+            }
+          });
+        }
+      } catch (e: any) {
+        console.debug('[Server] Supabase tickets select note:', e?.message);
+      }
+    }
+
+    (runtimeStore.tickets || []).forEach((t: any) => {
+      const tEmail = String(t.clienteEmail || '').trim().toLowerCase();
+      if (email && tEmail !== email) return;
+      const key = t.id || t.radicado;
+      if (key && !seen.has(key)) {
+        seen.add(key);
+        collected.push(t);
+      }
+    });
+
+    return res.json({ success: true, tickets: collected });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message, tickets: [] });
+  }
+});
+
+// API: Radicar o actualizar PQR / Ticket SAC y registrar en Supabase
 app.post(['/api/pqr', '/api/tickets'], async (req, res) => {
   try {
-    const { user_id, clienteNombre, clienteEmail, clienteTelefono, categoria, asunto, mensaje, radicado } = req.body;
+    const body = req.body || {};
+    const ticketObj = body.ticket || null;
+    const radicado = ticketObj?.radicado || body.radicado || `CLK-SAC-2026-${String(Date.now()).slice(-4)}`;
+    const user_id = body.user_id || ticketObj?.clienteId || null;
+    const clienteNombre = ticketObj?.clienteNombre || body.clienteNombre || 'Cliente Pintuco';
+    const clienteEmail = (ticketObj?.clienteEmail || body.clienteEmail || '').trim().toLowerCase();
+    const clienteTelefono = ticketObj?.clienteTelefono || body.clienteTelefono || '';
+    const categoria = ticketObj?.categoria || body.categoria || 'Asesoría Técnica Pinturas';
+    const asunto = ticketObj?.asunto || body.asunto || 'Consulta técnica oficial';
+    const mensaje = ticketObj?.mensaje || body.mensaje || '';
+    const estado = ticketObj?.estado || body.estado || 'Nuevo';
+    const canal = ticketObj?.canal || body.canal || 'Formulario PQR';
+    const mensajes = Array.isArray(ticketObj?.mensajes) ? ticketObj.mensajes : (Array.isArray(body.mensajes) ? body.mensajes : []);
+    const ticketId = ticketObj?.id || body.id || `sac-${Date.now()}`;
+    const nowFormatted = new Date().toISOString().replace('T', ' ').slice(0, 16);
+
+    const normalizedTicket = {
+      id: ticketId,
+      radicado,
+      clienteId: user_id,
+      clienteNombre,
+      clienteEmail,
+      clienteTelefono,
+      canal,
+      categoria,
+      asunto,
+      mensaje,
+      estado,
+      prioridad: ticketObj?.prioridad || 'Media',
+      fechaCreacion: ticketObj?.fechaCreacion || nowFormatted,
+      fechaUltimaActividad: ticketObj?.fechaUltimaActividad || nowFormatted,
+      slaHorasLimite: ticketObj?.slaHorasLimite || 8,
+      slaVencido: Boolean(ticketObj?.slaVencido),
+      mensajes: mensajes.length > 0 ? mensajes : [{
+        id: `msg-${Date.now()}`,
+        remitenteTipo: 'cliente',
+        remitenteNombre: clienteNombre,
+        texto: mensaje,
+        fecha: nowFormatted,
+      }],
+    };
+
+    const existingIdx = runtimeStore.tickets.findIndex((t: any) => t.id === ticketId || t.radicado === radicado);
+    if (existingIdx >= 0) {
+      runtimeStore.tickets[existingIdx] = normalizedTicket;
+    } else {
+      runtimeStore.tickets.unshift(normalizedTicket);
+    }
+    persistRuntimeSyncStore(runtimeStore);
+
     let supabaseSaved = false;
     if (isSupabaseConfigured && supabase) {
       try {
-        const { error } = await supabase.from('tickets').insert([{
+        const { error } = await supabase.from('tickets').upsert([{
+          id: ticketId,
           user_id: user_id || null,
-          radicado: radicado || `CLK-SAC-2026-${String(Date.now()).slice(-4)}`,
+          radicado,
           cliente_nombre: clienteNombre,
           cliente_email: clienteEmail,
           cliente_telefono: clienteTelefono,
+          canal,
           categoria,
-          asunto: asunto || 'Consulta técnica oficial',
+          asunto,
           mensaje,
-          estado: 'Nuevo',
-          created_at: new Date().toISOString()
-        }]);
+          estado,
+          prioridad: normalizedTicket.prioridad,
+          mensajes: normalizedTicket.mensajes,
+          fecha_creacion: normalizedTicket.fechaCreacion,
+          fecha_ultima_actividad: normalizedTicket.fechaUltimaActividad,
+          updated_at: new Date().toISOString(),
+        }], { onConflict: 'id' });
         if (!error) supabaseSaved = true;
       } catch (e: any) {
-        console.debug('[Server] Supabase tickets insert note:', e?.message);
+        console.debug('[Server] Supabase tickets upsert note:', e?.message);
       }
     }
-    return res.status(200).json({ success: true, radicado, supabaseSaved });
+    return res.status(200).json({ success: true, radicado, ticket: normalizedTicket, supabaseSaved });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// API: Historial de chat Linky multidispositivo (respaldo de Supabase)
+app.get('/api/chat-history', (req, res) => {
+  try {
+    const email = String(req.query.email || '').trim().toLowerCase();
+    if (!email) return res.json({ success: true, messages: [] });
+    const history = runtimeStore.chatHistories[email] || [];
+    return res.json({ success: true, messages: history });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, messages: [] });
+  }
+});
+
+app.post('/api/chat-history', (req, res) => {
+  try {
+    const { email, messages } = req.body || {};
+    const cleanEmail = String(email || '').trim().toLowerCase();
+    if (!cleanEmail || !Array.isArray(messages)) {
+      return res.status(400).json({ success: false });
+    }
+    runtimeStore.chatHistories[cleanEmail] = messages.slice(-60).map((m: any) => ({
+      ...m,
+      imageUrl: m.imageUrl && String(m.imageUrl).length > 150000 ? undefined : m.imageUrl,
+    }));
+    persistRuntimeSyncStore(runtimeStore);
+    return res.json({ success: true });
+  } catch {
+    return res.status(500).json({ success: false });
+  }
+});
+
+app.delete('/api/chat-history', (req, res) => {
+  try {
+    const email = String(req.query.email || req.body?.email || '').trim().toLowerCase();
+    if (email) {
+      delete runtimeStore.chatHistories[email];
+      persistRuntimeSyncStore(runtimeStore);
+    }
+    return res.json({ success: true });
+  } catch {
+    return res.status(500).json({ success: false });
   }
 });
 
@@ -272,6 +478,7 @@ interface RegisteredUserRecord {
   telefono?: string;
   ciudad?: string;
   direccion?: string;
+  direcciones?: any[];
   role: 'cliente' | 'funcionario' | 'distribuidor';
   isCorporate?: boolean;
   corporateRole?: string;
@@ -472,10 +679,22 @@ app.post('/api/auth/check-user-status', async (req, res) => {
   }
 });
 
+// API: Obtener perfil y libreta de direcciones sincronizados por correo
+app.get('/api/auth/profile', (req, res) => {
+  try {
+    const email = String(req.query.email || '').toLowerCase().trim();
+    if (!email) return res.json({ success: true, profile: null });
+    const stored = runtimeStore.userProfiles[email] || usersDatabase.get(email) || null;
+    return res.json({ success: true, profile: stored });
+  } catch {
+    return res.json({ success: false, profile: null });
+  }
+});
+
 // API: Sincronizar perfil de cliente en Supabase y memoria del servidor
 app.post('/api/auth/sync-profile', async (req, res) => {
   try {
-    const { email, nombre, cedula, telefono, tipoDocumento, ciudad, userId } = req.body;
+    const { email, nombre, cedula, telefono, tipoDocumento, ciudad, direccion, direcciones, userId } = req.body;
     if (!email || !email.includes('@')) {
       return res.status(400).json({ success: false, error: 'Email requerido' });
     }
@@ -486,6 +705,7 @@ app.post('/api/auth/sync-profile', async (req, res) => {
     const cleanTelefono = (telefono || '').trim();
     const cleanTipoDoc = (tipoDocumento || 'CC').trim().toUpperCase();
     const cleanCiudad = (ciudad || 'Bogotá D.C.').trim();
+    const cleanDireccion = (direccion || '').trim();
 
     // Actualizar registro en memoria
     const current: RegisteredUserRecord = usersDatabase.get(cleanEmail) || {
@@ -497,16 +717,24 @@ app.post('/api/auth/sync-profile', async (req, res) => {
       created_at: new Date().toISOString(),
     };
 
-    usersDatabase.set(cleanEmail, {
+    const prevRuntime = runtimeStore.userProfiles[cleanEmail] || {};
+    const mergedUser: any = {
       ...current,
-      id: userId || current.id || `usr-${Date.now()}`,
-      nombre: cleanNombre || current.nombre || cleanEmail.split('@')[0],
-      cedula: cleanCedula || current.cedula,
-      documento: cleanCedula || current.documento,
-      telefono: cleanTelefono || current.telefono,
-      tipoDocumento: cleanTipoDoc,
-      ciudad: cleanCiudad,
-    });
+      ...prevRuntime,
+      id: userId || current.id || prevRuntime.id || `usr-${Date.now()}`,
+      nombre: cleanNombre || current.nombre || prevRuntime.nombre || cleanEmail.split('@')[0],
+      cedula: cleanCedula || current.cedula || prevRuntime.cedula,
+      documento: cleanCedula || current.documento || prevRuntime.documento,
+      telefono: cleanTelefono || current.telefono || prevRuntime.telefono,
+      tipoDocumento: cleanTipoDoc || current.tipoDocumento || prevRuntime.tipoDocumento,
+      ciudad: cleanCiudad || current.ciudad || prevRuntime.ciudad,
+      direccion: cleanDireccion || current.direccion || prevRuntime.direccion,
+      direcciones: Array.isArray(direcciones) ? direcciones : (prevRuntime.direcciones || current.direcciones || []),
+    };
+
+    usersDatabase.set(cleanEmail, mergedUser);
+    runtimeStore.userProfiles[cleanEmail] = mergedUser;
+    persistRuntimeSyncStore(runtimeStore);
 
     // Guardar en tabla 'clientes' de Supabase (SOLO columnas existentes)
     if (isSupabaseConfigured && supabase && cleanCedula) {
@@ -541,7 +769,7 @@ app.post('/api/auth/sync-profile', async (req, res) => {
       }
     }
 
-    return res.json({ success: true, message: 'Perfil sincronizado correctamente' });
+    return res.json({ success: true, profile: mergedUser, message: 'Perfil sincronizado correctamente' });
   } catch (err: any) {
     console.error('Error in sync-profile:', err);
     return res.status(500).json({ success: false, error: 'Error al sincronizar perfil' });
@@ -1455,7 +1683,7 @@ Responde ÚNICAMENTE en JSON con la siguiente estructura:
   }
 });
 
-// API: Consultar pedidos reales del usuario autenticado en Supabase
+// API: Consultar pedidos reales del usuario autenticado en Supabase + servidor
 app.get('/api/orders/user', async (req, res) => {
   try {
     const userId = (req.query.userId as string) || '';
@@ -1468,7 +1696,8 @@ app.get('/api/orders/user', async (req, res) => {
 
     const cleanEmail = email.trim().toLowerCase();
     const cleanDoc = doc.replace(/[\.\-\s]/g, '').trim();
-    let ordersList: any[] = [];
+    const ordersList: any[] = [];
+    const seen = new Set<string>();
 
     if (isSupabaseConfigured && supabase) {
       try {
@@ -1488,12 +1717,34 @@ app.get('/api/orders/user', async (req, res) => {
 
         const { data, error } = await query.order('created_at', { ascending: false });
         if (!error && Array.isArray(data) && data.length > 0) {
-          ordersList = data;
+          data.forEach((row: any) => {
+            const key = row.order_number || row.id;
+            if (key && !seen.has(key)) {
+              seen.add(key);
+              ordersList.push(row);
+            }
+          });
         }
       } catch (err) {
         console.warn('Error en /api/orders/user consultando tabla orders:', err);
       }
     }
+
+    // Incluir pedidos persistidos en el servidor para multidispositivo
+    (savedOrders || []).forEach((o: any) => {
+      const oEmail = String(o.customerEmail || o.user_email || o.form?.correo_electronico || '').trim().toLowerCase();
+      const oDoc = String(o.customerDocument || o.customer_document || o.form?.documento || '').replace(/[\.\-\s]/g, '').trim();
+      const oUserId = String(o.userId || o.user_id || '').trim();
+      const matches =
+        (cleanEmail && oEmail && oEmail === cleanEmail) ||
+        (cleanDoc && oDoc && oDoc === cleanDoc) ||
+        (userId && oUserId && oUserId === userId);
+      const key = o.numeroOrden || o.order_number || o.id;
+      if (matches && key && !seen.has(key)) {
+        seen.add(key);
+        ordersList.push(o);
+      }
+    });
 
     return res.json({ success: true, orders: ordersList });
   } catch (err: any) {
@@ -2323,37 +2574,42 @@ app.get('/api/orders', (req, res) => {
 
 app.post('/api/orders', (req, res) => {
   const order = req.body;
-  if (!order || !order.id) {
+  if (!order || (!order.id && !order.numeroOrden)) {
     return res.status(400).json({ error: 'Estructura de orden inválida' });
   }
 
   // Update or insert
-  const index = savedOrders.findIndex((o) => o.id === order.id);
+  const index = savedOrders.findIndex((o) => o.id === order.id || (order.numeroOrden && o.numeroOrden === order.numeroOrden));
   if (index >= 0) {
-    savedOrders[index] = order;
+    savedOrders[index] = { ...savedOrders[index], ...order };
   } else {
     savedOrders.unshift(order);
   }
 
-  // Keep last 100 orders in memory
-  if (savedOrders.length > 100) {
-    savedOrders = savedOrders.slice(0, 100);
+  // Keep last 200 orders persisted on server
+  if (savedOrders.length > 200) {
+    savedOrders = savedOrders.slice(0, 200);
   }
+  runtimeStore.orders = savedOrders;
+  persistRuntimeSyncStore(runtimeStore);
 
   res.json({ success: true, order });
 });
 
 app.patch('/api/orders/:id/status', (req, res) => {
   const { id } = req.params;
-  const { estado, observacionesBodega, responsableAlistamiento } = req.body;
-  const order = savedOrders.find((o) => o.id === id);
+  const { estado, guiaDespacho, observacionesBodega, responsableAlistamiento } = req.body;
+  const order = savedOrders.find((o) => o.id === id || o.numeroOrden === id);
   if (!order) {
-    return res.status(404).json({ error: 'Orden no encontrada' });
+    return res.status(200).json({ success: true, note: 'Orden actualizada solo en cliente/Supabase' });
   }
 
   if (estado) order.estado = estado;
+  if (guiaDespacho !== undefined) order.guiaDespacho = guiaDespacho;
   if (observacionesBodega !== undefined) order.observacionesBodega = observacionesBodega;
   if (responsableAlistamiento !== undefined) order.responsableAlistamiento = responsableAlistamiento;
+  runtimeStore.orders = savedOrders;
+  persistRuntimeSyncStore(runtimeStore);
 
   res.json({ success: true, order });
 });

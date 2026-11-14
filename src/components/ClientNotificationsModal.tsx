@@ -26,8 +26,7 @@ import {
   RefreshCw,
   ChevronRight,
   ExternalLink,
-  MessageCircle,
-  Star
+  MessageCircle
 } from 'lucide-react';
 import { COLORLINKOrder, UserSession } from '../types';
 import { 
@@ -35,16 +34,13 @@ import {
   saveTicketsSAC, 
   radicarConsultaWeb, 
   responderTicketSAC, 
+  syncTicketsFromSupabase,
   TicketSAC, 
   MensajeTicket 
 } from '../services/corporateService';
-import { OrderSatisfactionSurveyModal } from './OrderSatisfactionSurveyModal';
-import {
-  OrderSatisfactionReview,
-  getSatisfactionReviews,
-  fetchSatisfactionReviewsFromSupabase,
-  findReviewForOrder,
-} from '../services/reviewsService';
+import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
+import { fetchUserOrdersFromDatabase } from '../services/ordersService';
+import { upsertTicketToSupabase } from '../lib/supabaseService';
 
 export interface ClientNotificationsModalProps {
   isOpen: boolean;
@@ -89,10 +85,6 @@ export const ClientNotificationsModal: React.FC<ClientNotificationsModalProps> =
   // Respuesta de seguimiento a un ticket
   const [replyText, setReplyText] = useState('');
 
-  // Encuestas de Satisfacción en Pedidos Entregados
-  const [reviews, setReviews] = useState<OrderSatisfactionReview[]>(() => getSatisfactionReviews());
-  const [surveyOrder, setSurveyOrder] = useState<COLORLINKOrder | null>(null);
-
   // Sincronizar tab inicial
   useEffect(() => {
     if (initialTab) {
@@ -104,26 +96,68 @@ export const ClientNotificationsModal: React.FC<ClientNotificationsModalProps> =
   useEffect(() => {
     if (isOpen) {
       window.dispatchEvent(new CustomEvent('colorlink_close_ai_chat'));
-      setReviews(getSatisfactionReviews());
-      fetchSatisfactionReviewsFromSupabase().then(setReviews).catch(() => {});
     }
   }, [isOpen, activeTab]);
 
-  // Sincronizar tickets y reseñas desde eventos
+  // Pedidos consultados directamente desde Supabase para soporte multidispositivo
+  const [supabaseOrders, setSupabaseOrders] = useState<COLORLINKOrder[]>([]);
+
+  // Sincronizar tickets desde corporateService y eventos
   useEffect(() => {
     const handleTicketsUpdated = () => {
       setTickets(getTicketsSAC());
     };
-    const handleReviewsUpdated = () => {
-      setReviews(getSatisfactionReviews());
-    };
     window.addEventListener('colorlink_tickets_updated', handleTicketsUpdated);
-    window.addEventListener('colorlink_reviews_updated', handleReviewsUpdated);
-    return () => {
-      window.removeEventListener('colorlink_tickets_updated', handleTicketsUpdated);
-      window.removeEventListener('colorlink_reviews_updated', handleReviewsUpdated);
-    };
+    return () => window.removeEventListener('colorlink_tickets_updated', handleTicketsUpdated);
   }, []);
+
+  // Consulta directa a Supabase y suscripción Realtime para Pedidos y Mensajes/Tickets SAC
+  useEffect(() => {
+    if (!isOpen || !userSession || (!userSession.isLoggedIn && !userSession.email)) return;
+    let isMounted = true;
+
+    const refreshFromSupabase = async () => {
+      try {
+        const dbOrders = await fetchUserOrdersFromDatabase(
+          userSession.id,
+          userSession.email,
+          userSession.documento || (userSession as any).cedula
+        );
+        if (isMounted) setSupabaseOrders(dbOrders);
+      } catch {}
+
+      try {
+        const syncedTickets = await syncTicketsFromSupabase(userSession.email, userSession.id);
+        if (isMounted) setTickets(syncedTickets);
+      } catch {}
+    };
+
+    refreshFromSupabase();
+
+    if (!isSupabaseConfigured || !supabase) return;
+
+    const channel = supabase
+      .channel(`notif-realtime-${userSession.email || userSession.id || 'client'}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
+        refreshFromSupabase();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'proyectos' }, () => {
+        refreshFromSupabase();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tickets' }, () => {
+        syncTicketsFromSupabase(userSession.email, userSession.id)
+          .then((synced) => { if (isMounted) setTickets(synced); })
+          .catch(() => {});
+      })
+      .subscribe();
+
+    return () => {
+      isMounted = false;
+      try {
+        supabase.removeChannel(channel);
+      } catch {}
+    };
+  }, [isOpen, userSession?.id, userSession?.email, userSession?.documento, userSession?.isLoggedIn]);
 
   // Cargar órdenes persistentes estrictamente del usuario autenticado
   const effectiveOrders = useMemo(() => {
@@ -157,6 +191,13 @@ export const ClientNotificationsModal: React.FC<ClientNotificationsModalProps> =
       }
     });
 
+    // Prioridad a los datos frescos traídos directamente de Supabase
+    supabaseOrders.forEach((o) => {
+      if (o && (o.id || o.numeroOrden)) {
+        map.set(o.id || o.numeroOrden, o);
+      }
+    });
+
     const list = Array.from(map.values());
 
     // FILTRADO ESTRICTO POR USUARIO AUTENTICADO (Email, Cédula/NIT, ID o Nombre)
@@ -175,7 +216,7 @@ export const ClientNotificationsModal: React.FC<ClientNotificationsModalProps> =
     });
 
     return userSpecific;
-  }, [orders, userSession]);
+  }, [orders, supabaseOrders, userSession]);
 
   // Mapear los mensajes amigables y cercanos según el estado del pedido
   const getFriendlyStatus = (estado: string) => {
@@ -327,6 +368,7 @@ export const ClientNotificationsModal: React.FC<ClientNotificationsModalProps> =
     if (!replyText.trim()) return;
     const currentTickets = getTicketsSAC();
     const now = new Date().toISOString().replace('T', ' ').slice(0, 16);
+    let updatedTicketObj: TicketSAC | null = null;
     const updated = currentTickets.map((t) => {
       if (t.id === ticketId) {
         const nuevoMsg: MensajeTicket = {
@@ -336,17 +378,21 @@ export const ClientNotificationsModal: React.FC<ClientNotificationsModalProps> =
           texto: replyText.trim(),
           fecha: now,
         };
-        return {
+        updatedTicketObj = {
           ...t,
           fechaUltimaActividad: now,
           estado: 'Nuevo' as const,
           mensajes: [...t.mensajes, nuevoMsg],
         };
+        return updatedTicketObj;
       }
       return t;
     });
 
     saveTicketsSAC(updated);
+    if (updatedTicketObj) {
+      upsertTicketToSupabase(updatedTicketObj).catch(() => {});
+    }
     setTickets(updated);
     setReplyText('');
     if (onShowToast) {
@@ -506,8 +552,6 @@ export const ClientNotificationsModal: React.FC<ClientNotificationsModalProps> =
                 {effectiveOrders.map((order) => {
                   const statusInfo = getFriendlyStatus(order.estado);
                   const Icon = statusInfo.icon;
-                  const orderNum = order.numeroOrden || order.id;
-                  const existingReview = findReviewForOrder(orderNum, reviews);
                   return (
                     <div 
                       key={`notif-ord-${order.id || order.numeroOrden}`}
@@ -526,7 +570,7 @@ export const ClientNotificationsModal: React.FC<ClientNotificationsModalProps> =
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-mono text-xs font-black text-[#002244]">
-                              {orderNum}
+                              {order.numeroOrden || order.id}
                             </span>
                             <span className={`px-2 py-0.5 rounded-md text-[10px] font-black border ${statusInfo.badgeClass}`}>
                               {order.estado}
@@ -547,34 +591,17 @@ export const ClientNotificationsModal: React.FC<ClientNotificationsModalProps> =
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2 shrink-0 self-end sm:self-center flex-wrap">
-                        {statusInfo.key === 'entregado' && (
-                          existingReview ? (
-                            <span className="px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-extrabold flex items-center gap-1">
-                              ✓ Experiencia Calificada
-                            </span>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => setSurveyOrder(order)}
-                              className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-500 hover:to-yellow-500 text-slate-950 text-xs font-black transition-all cursor-pointer shadow-xs flex items-center gap-1.5"
-                            >
-                              <span>⭐ Calificar Experiencia</span>
-                            </button>
-                          )
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setActiveTab('seguimiento');
-                            setOrderQuery(orderNum);
-                          }}
-                          className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-blue-900 hover:text-white text-slate-700 text-xs font-bold transition-all cursor-pointer shrink-0 flex items-center gap-1.5"
-                        >
-                          <span>Rastrear</span>
-                          <ChevronRight className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveTab('seguimiento');
+                          setOrderQuery(order.numeroOrden || order.id);
+                        }}
+                        className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-blue-900 hover:text-white text-slate-700 text-xs font-bold transition-all cursor-pointer shrink-0 self-end sm:self-center flex items-center gap-1.5"
+                      >
+                        <span>Rastrear</span>
+                        <ChevronRight className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   );
                 })}
@@ -854,22 +881,7 @@ export const ClientNotificationsModal: React.FC<ClientNotificationsModalProps> =
                             </span>
                           </div>
 
-                          <div className="flex items-center gap-2 flex-wrap">
-                            {statusInfo.key === 'entregado' && (
-                              findReviewForOrder(orderNum, reviews) ? (
-                                <span className="px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] font-extrabold flex items-center gap-1">
-                                  ✓ Experiencia Calificada
-                                </span>
-                              ) : (
-                                <button
-                                  type="button"
-                                  onClick={() => setSurveyOrder(order)}
-                                  className="px-3 py-1 rounded-lg bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-500 hover:to-yellow-500 text-slate-950 text-[11px] font-black transition-all cursor-pointer shadow-2xs flex items-center gap-1"
-                                >
-                                  <span>⭐ Calificar Experiencia</span>
-                                </button>
-                              )
-                            )}
+                          <div className="flex items-center gap-2">
                             <button
                               type="button"
                               onClick={() => {
@@ -1289,18 +1301,6 @@ export const ClientNotificationsModal: React.FC<ClientNotificationsModalProps> =
         </div>
 
       </div>
-
-      {/* Modal de Encuesta de Satisfacción para Pedidos Entregados */}
-      <OrderSatisfactionSurveyModal
-        isOpen={Boolean(surveyOrder)}
-        onClose={() => setSurveyOrder(null)}
-        order={surveyOrder}
-        userSession={userSession}
-        onSubmitted={() => {
-          setReviews(getSatisfactionReviews());
-        }}
-        onShowToast={onShowToast}
-      />
     </div>
   );
 };

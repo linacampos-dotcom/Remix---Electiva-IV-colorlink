@@ -38,6 +38,11 @@ import { ImageVisualizer } from './ImageVisualizer';
 import { SEDES_PINTUCO, SedePintuco } from './ColombiaInteractiveMap';
 import { DEPARTAMENTOS_COLOMBIA } from '../data/colombiaLogistics';
 import { fetchUserOrdersFromDatabase, isMockOrder } from '../services/ordersService';
+import {
+  fetchChatHistoryFromSupabase,
+  saveChatHistoryToSupabase,
+  clearChatHistoryInSupabase
+} from '../lib/supabaseService';
 const sampleWallImg = '/src/assets/images/living_room_wall_1789834592467.jpg';
 const facadeWallImg = '/src/assets/images/facade_wall_1789834604798.jpg';
 
@@ -962,7 +967,12 @@ export const AIChatDrawer: React.FC<AIChatDrawerProps> = ({
     }
   };
 
+  const remoteSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastRemoteHydratedKeyRef = useRef<string>('');
+  const skipNextRemoteSaveRef = useRef<boolean>(false);
+
   useEffect(() => {
+    let isMounted = true;
     try {
       const savedMsgs = localStorage.getItem(chatStorageKey);
       if (savedMsgs) {
@@ -997,7 +1007,81 @@ export const AIChatDrawer: React.FC<AIChatDrawerProps> = ({
       setMessages(getInitialMessages());
       setChatState({});
     }
-  }, [chatStorageKey, chatStateKey]);
+
+    // Cargar historial de chat directamente desde Supabase para soporte multidispositivo
+    if (isUserAuthenticated && activeUserEmail) {
+      fetchChatHistoryFromSupabase(activeUserId, activeUserEmail)
+        .then((remoteMsgs) => {
+          if (!isMounted || !Array.isArray(remoteMsgs) || remoteMsgs.length === 0) return;
+          lastRemoteHydratedKeyRef.current = activeUserEmail;
+          skipNextRemoteSaveRef.current = true;
+          setMessages((prev) => {
+            const map = new Map<string, Message>();
+            remoteMsgs.forEach((rm: any, idx: number) => {
+              const id = String(rm.id || `rm-${idx}`);
+              if (idx === 0 && rm.sender === 'assistant') {
+                map.set(id, { ...rm, id, text: OFFICIAL_GREETING, showQuickChips: true });
+              } else {
+                map.set(id, { ...rm, id });
+              }
+            });
+            prev.forEach((lm) => {
+              if (lm.id && !map.has(lm.id) && lm.id !== 'welcome-1') {
+                map.set(lm.id, lm);
+              }
+            });
+            const merged = Array.from(map.values());
+            return merged.length > 0 ? merged : getInitialMessages();
+          });
+        })
+        .catch(() => {});
+    }
+
+    return () => {
+      isMounted = false;
+    };
+  }, [chatStorageKey, chatStateKey, isUserAuthenticated, activeUserEmail, activeUserId]);
+
+  // Suscripción Supabase Realtime para historial de chat de Linky entre dispositivos
+  useEffect(() => {
+    if (!isSupabaseConfigured || !supabase || !isUserAuthenticated || !activeUserEmail) return;
+
+    const channel = supabase
+      .channel(`chat-realtime-${activeUserEmail}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'chat_messages' },
+        (payload: any) => {
+          const row = payload?.new;
+          if (!row) return;
+          const rowEmail = String(row.user_email || '').trim().toLowerCase();
+          if (rowEmail !== activeUserEmail) return;
+          const msgId = String(row.message_id || row.id);
+          setMessages((prev) => {
+            if (prev.some((m) => m.id === msgId)) return prev;
+            skipNextRemoteSaveRef.current = true;
+            return [
+              ...prev,
+              {
+                ...(row.metadata || {}),
+                id: msgId,
+                sender: row.sender,
+                text: row.text,
+                imageUrl: row.image_url || row.metadata?.imageUrl,
+                timestamp: row.metadata?.timestamp || new Date(row.created_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              } as Message,
+            ];
+          });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      try {
+        supabase.removeChannel(channel);
+      } catch {}
+    };
+  }, [isUserAuthenticated, activeUserEmail]);
 
   useEffect(() => {
     try {
@@ -1014,7 +1098,18 @@ export const AIChatDrawer: React.FC<AIChatDrawerProps> = ({
         localStorage.setItem(chatStorageKey, JSON.stringify(safeMessages));
       } catch {}
     }
-  }, [messages, chatStorageKey]);
+
+    if (isUserAuthenticated && activeUserEmail && messages.length > 1) {
+      if (skipNextRemoteSaveRef.current) {
+        skipNextRemoteSaveRef.current = false;
+        return;
+      }
+      if (remoteSyncTimerRef.current) clearTimeout(remoteSyncTimerRef.current);
+      remoteSyncTimerRef.current = setTimeout(() => {
+        saveChatHistoryToSupabase(activeUserId, activeUserEmail, messages).catch(() => {});
+      }, 450);
+    }
+  }, [messages, chatStorageKey, isUserAuthenticated, activeUserEmail, activeUserId]);
 
   useEffect(() => {
     try {
@@ -1035,6 +1130,9 @@ export const AIChatDrawer: React.FC<AIChatDrawerProps> = ({
       localStorage.removeItem(`colorlink_chat_sim_prod_${activeUserEmail}`);
     } catch (e) {
       console.error('Error limpiando historial:', e);
+    }
+    if (isUserAuthenticated && activeUserEmail) {
+      clearChatHistoryInSupabase(activeUserId, activeUserEmail).catch(() => {});
     }
     setAttachedImage(null);
     setUploadedImage(null);

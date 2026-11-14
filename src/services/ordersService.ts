@@ -53,120 +53,107 @@ export async function fetchUserOrdersFromDatabase(
   userDoc?: string | null
 ): Promise<COLORLINKOrder[]> {
   const cleanEmail = (userEmail || '').trim().toLowerCase();
-  const rawDoc = (userDoc || '').trim();
-  const cleanDoc = rawDoc.replace(/[\.\-\s]/g, '').toLowerCase();
+  const cleanDoc = (userDoc || '').replace(/[\.\-\s]/g, '').trim();
   const cleanId = (userId || '').trim();
-  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cleanId);
 
   if (!cleanId && !cleanEmail && !cleanDoc) {
     return [];
   }
 
   const resultOrders: COLORLINKOrder[] = [];
+  const pushUniqueOrder = (mapped: COLORLINKOrder) => {
+    if (isMockOrder(mapped)) return;
+    const keyNum = (mapped.numeroOrden || '').trim().toLowerCase();
+    const keyId = (mapped.id || '').trim().toLowerCase();
+    const existingIdx = resultOrders.findIndex(
+      (r) => (keyNum && r.numeroOrden?.trim().toLowerCase() === keyNum) || (keyId && r.id?.trim().toLowerCase() === keyId)
+    );
+    if (existingIdx === -1) {
+      resultOrders.push(mapped);
+    }
+  };
 
-  const normalizeOrderKey = (o: Partial<COLORLINKOrder>): string =>
-    String(o.numeroOrden || o.id || '').replace(/^#/, '').trim().toLowerCase();
+  const mapOrderRow = (row: any): COLORLINKOrder => {
+    let statusText = row.status || row.estado || 'Pendiente Alistamiento';
+    const s = String(statusText).toLowerCase();
+    if (s === 'pending' || s === 'pendiente') statusText = 'Pendiente Alistamiento';
+    else if (s === 'processing' || s === 'en_proceso') statusText = 'En Bodega';
+    else if (s === 'preparing' || s === 'en_preparacion') statusText = 'En Preparación';
+    else if (s === 'paid' || s === 'pagado') statusText = 'Listo para Despacho';
+    else if (s === 'shipped' || s === 'despachado') statusText = 'Despachado';
+    else if (s === 'delivered' || s === 'entregado') statusText = 'Entregado';
 
-  const isDeliveredStatus = (status?: string): boolean => {
-    const s = String(status || '').toLowerCase();
-    return s.includes('entregad') || s.includes('delivered') || s.includes('completad');
+    return {
+      ...row,
+      id: row.id || `ord-${Date.now()}`,
+      numeroOrden: row.order_number || row.numeroOrden || row.numero_orden || `#CLK-${String(row.id || '').slice(0, 6).toUpperCase()}`,
+      fechaCreacion: row.created_at || row.fechaCreacion || row.fecha_creacion || new Date().toISOString(),
+      customerName: row.customer_name || row.customerName || 'Cliente Pintuco',
+      customerEmail: row.user_email || row.customerEmail || cleanEmail,
+      customerPhone: row.customer_phone || row.customerPhone || '',
+      customerDocument: row.customer_document || row.customerDocument || cleanDoc,
+      direccionEntrega: row.shipping_address || row.direccionEntrega || 'Dirección de obra',
+      ciudadEntrega: row.city || row.ciudadEntrega || row.ciudad || 'Colombia',
+      departamentoEntrega: row.department || row.departamentoEntrega || '',
+      estado: statusText,
+      guiaDespacho: row.guia_transporte || row.guiaDespacho || undefined,
+      observacionesBodega: row.observaciones_bodega || row.observacionesBodega || undefined,
+      form: row.form_data || row.form || undefined,
+      calculo: row.calculo_data || row.calculo || undefined,
+      total: Number(row.total) || 0,
+      items: Array.isArray(row.items) ? row.items : [],
+    };
   };
 
   // 1. Consulta directa a Supabase
   if (isSupabaseConfigured && supabase) {
     try {
-      // 1.A Consulta en tabla 'orders' filtrando solo con tipos compatibles (UUID solo si cleanId es UUID válido)
       const orConditions: string[] = [];
-      if (cleanId && isUuid) orConditions.push(`user_id.eq.${cleanId}`);
+      if (cleanId) orConditions.push(`user_id.eq.${cleanId}`);
       if (cleanEmail) orConditions.push(`user_email.ilike.${cleanEmail}`);
       if (cleanDoc) orConditions.push(`customer_document.eq.${cleanDoc}`);
-      if (rawDoc && rawDoc !== cleanDoc) orConditions.push(`customer_document.eq.${rawDoc}`);
 
-      let dbOrders: any[] | null = null;
-      let ordersErr: any = null;
-
-      if (orConditions.length > 0) {
-        let query = supabase.from('orders').select('*');
-        if (orConditions.length === 1) {
-          if (cleanId && isUuid) query = query.eq('user_id', cleanId);
-          else if (cleanEmail) query = query.ilike('user_email', cleanEmail);
-          else query = query.eq('customer_document', cleanDoc);
-        } else {
-          query = query.or(orConditions.join(','));
-        }
-
-        const orderedRes = await query.order('created_at', { ascending: false });
-        if (!orderedRes.error) {
-          dbOrders = orderedRes.data;
-        } else {
-          // Reintentar por user_email si alguna columna opcional falló
-          if (cleanEmail) {
-            const emailRes = await supabase
-              .from('orders')
-              .select('*')
-              .ilike('user_email', cleanEmail);
-            if (!emailRes.error) {
-              dbOrders = emailRes.data;
-            } else {
-              ordersErr = emailRes.error;
-            }
-          } else {
-            ordersErr = orderedRes.error;
-          }
-        }
+      let query = supabase.from('orders').select('*');
+      if (orConditions.length === 1) {
+        if (cleanId) query = query.eq('user_id', cleanId);
+        else if (cleanEmail) query = query.ilike('user_email', cleanEmail);
+        else query = query.eq('customer_document', cleanDoc);
+      } else if (orConditions.length > 1) {
+        query = query.or(orConditions.join(','));
       }
 
+      const { data: dbOrders, error: ordersErr } = await query.order('created_at', { ascending: false });
+
       if (!ordersErr && Array.isArray(dbOrders) && dbOrders.length > 0) {
-        dbOrders.forEach((row: any) => {
-          let statusText = row.status || 'Pendiente Alistamiento';
-          const s = String(statusText).toLowerCase();
-          if (s === 'pending' || s === 'pendiente') statusText = 'Pendiente Alistamiento';
-          else if (s === 'processing' || s === 'en_proceso') statusText = 'En Bodega';
-          else if (s === 'preparing' || s === 'en_preparacion') statusText = 'En Preparación';
-          else if (s === 'paid' || s === 'pagado') statusText = 'Listo para Despacho';
-          else if (s === 'shipped' || s === 'despachado') statusText = 'Despachado';
-          else if (s === 'delivered' || s === 'entregado') statusText = 'Entregado';
-
-          const mapped: COLORLINKOrder = {
-            id: row.id || `ord-${Date.now()}`,
-            numeroOrden: row.order_number || row.numeroOrden || row.numero_orden || `#CLK-${String(row.id || '').slice(0, 6).toUpperCase()}`,
-            fechaCreacion: row.created_at || row.fecha_creacion || new Date().toISOString(),
-            customerName: row.customer_name || 'Cliente Pintuco',
-            customerEmail: row.user_email || cleanEmail,
-            customerPhone: row.customer_phone || '',
-            customerDocument: row.customer_document || rawDoc || cleanDoc,
-            direccionEntrega: row.shipping_address || 'Dirección de obra',
-            ciudadEntrega: row.city || row.ciudad || 'Colombia',
-            departamentoEntrega: row.department || '',
-            estado: statusText,
-            total: Number(row.total) || 0,
-            items: Array.isArray(row.items) ? row.items : [],
-          };
-
-          const mappedKey = normalizeOrderKey(mapped);
-          if (!isMockOrder(mapped) && mappedKey && !resultOrders.some(r => normalizeOrderKey(r) === mappedKey)) {
-            resultOrders.push(mapped);
-          }
-        });
+        dbOrders.forEach((row: any) => pushUniqueOrder(mapOrderRow(row)));
       }
     } catch (err) {
       console.warn('Error en fetchUserOrdersFromDatabase (orders):', err);
     }
 
-    // 1.B Complementar con proyectos asociados al cliente en tabla 'proyectos'
+    // 1.B Buscar también proyectos asociados al cliente en tablas 'clientes' + 'proyectos' de Supabase
     if (cleanEmail || cleanDoc) {
       try {
-        const orClientConds: string[] = [];
-        if (cleanEmail) orClientConds.push(`email.ilike.${cleanEmail}`);
-        if (cleanDoc) orClientConds.push(`numero_documento.eq.${cleanDoc}`);
-        if (rawDoc && rawDoc !== cleanDoc) orClientConds.push(`numero_documento.eq.${rawDoc}`);
+        let clients: any[] = [];
+        if (cleanDoc) {
+          const { data: byDoc } = await supabase
+            .from('clientes')
+            .select('id, nombre, numero_documento, ciudad')
+            .eq('numero_documento', cleanDoc);
+          if (Array.isArray(byDoc)) clients = byDoc;
+        }
 
-        const { data: clients } = await supabase
-          .from('clientes')
-          .select('id, nombre, numero_documento, ciudad')
-          .or(orClientConds.join(','));
+        if (clients.length === 0 && cleanEmail) {
+          try {
+            const { data: byEmail } = await supabase
+              .from('clientes')
+              .select('id, nombre, numero_documento, ciudad')
+              .ilike('email', cleanEmail);
+            if (Array.isArray(byEmail)) clients = byEmail;
+          } catch {}
+        }
 
-        if (clients && clients.length > 0) {
+        if (clients.length > 0) {
           const clientIds = clients.map((c: any) => c.id).filter(Boolean);
           if (clientIds.length > 0) {
             const { data: projs, error: projsErr } = await supabase
@@ -180,14 +167,16 @@ export async function fetchUserOrdersFromDatabase(
                 const clientInfo = clients.find((c: any) => c.id === p.cliente_id) || {};
                 const mapped: COLORLINKOrder = {
                   id: p.id,
-                  numeroOrden: `SB-${String(p.id).slice(0, 8).toUpperCase()}`,
+                  numeroOrden: p.order_number || `SB-${String(p.id).slice(0, 8).toUpperCase()}`,
                   fechaCreacion: p.created_at || new Date().toISOString(),
                   customerName: clientInfo.nombre || 'Cliente Pintuco',
-                  customerEmail: cleanEmail,
-                  customerDocument: clientInfo.numero_documento || rawDoc || cleanDoc,
+                  customerEmail: p.user_email || cleanEmail,
+                  customerDocument: clientInfo.numero_documento || cleanDoc,
                   direccionEntrega: 'Dirección de obra',
                   ciudadEntrega: clientInfo.ciudad || 'Colombia',
                   estado: p.estado_pedido || 'Cotizado',
+                  guiaDespacho: p.guia_transporte || undefined,
+                  observacionesBodega: p.observaciones_bodega || undefined,
                   total: (Number(p.galones_pintura) || 1) * 79900,
                   items: [{
                     id: p.id,
@@ -201,10 +190,7 @@ export async function fetchUserOrdersFromDatabase(
                   }],
                 };
 
-                const mappedKey = normalizeOrderKey(mapped);
-                if (!isMockOrder(mapped) && mappedKey && !resultOrders.some(r => normalizeOrderKey(r) === mappedKey)) {
-                  resultOrders.push(mapped);
-                }
+                pushUniqueOrder(mapped);
               });
             }
           }
@@ -215,62 +201,48 @@ export async function fetchUserOrdersFromDatabase(
     }
   }
 
-  // 2. Complementar y actualizar estados recientes desde localStorage REALES del usuario (NUNCA mocks)
+  // 2. Consultar respaldo remoto del servidor (/api/orders/user) para sincronización multidispositivo
   try {
-    const rawKeys = [localStorage.getItem('colorlink_user_orders'), localStorage.getItem('colorlink_orders')];
-    rawKeys.forEach((raw) => {
-      if (!raw) return;
+    const params = new URLSearchParams();
+    if (cleanId) params.set('userId', cleanId);
+    if (cleanEmail) params.set('email', cleanEmail);
+    if (cleanDoc) params.set('doc', cleanDoc);
+    const res = await fetch(`/api/orders/user?${params.toString()}`);
+    if (res.ok) {
+      const json = await res.json();
+      if (Array.isArray(json.orders)) {
+        json.orders.forEach((row: any) => pushUniqueOrder(mapOrderRow(row)));
+      }
+    }
+  } catch {}
+
+  // 3. Complementar con órdenes locales reales del usuario si aún no sincronizaron
+  try {
+    const raw = localStorage.getItem('colorlink_orders') || localStorage.getItem('colorlink_user_orders');
+    if (raw) {
       const parsed = JSON.parse(raw);
-      if (!Array.isArray(parsed)) return;
+      if (Array.isArray(parsed)) {
+        parsed.forEach((order: COLORLINKOrder) => {
+          if (isMockOrder(order)) return;
+          const orderEmail = (order.customerEmail || order.form?.responsable_contacto || '').trim().toLowerCase();
+          const orderDoc = (order.customerDocument || order.form?.documento || '').replace(/[\.\-\s]/g, '').trim();
+          const emailMatch = Boolean(cleanEmail && orderEmail && orderEmail === cleanEmail);
+          const docMatch = Boolean(cleanDoc && orderDoc && orderDoc === cleanDoc);
 
-      parsed.forEach((order: COLORLINKOrder) => {
-        if (!order || isMockOrder(order)) return;
-
-        const emailCandidates = [
-          order.customerEmail,
-          (order as any).user_email,
-          (order as any).email,
-          (order as any).customer_email,
-          order.form?.correo_electronico,
-          order.form?.responsable_contacto,
-        ]
-          .filter(Boolean)
-          .map((e) => String(e).trim().toLowerCase());
-
-        const orderDoc = String(order.customerDocument || (order as any).customer_document || order.form?.documento || '')
-          .replace(/[\.\-\s]/g, '')
-          .toLowerCase()
-          .trim();
-        const orderUserId = String((order as any).userId || (order as any).user_id || (order as any).customerId || (order as any).clienteId || '')
-          .trim()
-          .toLowerCase();
-
-        const emailMatch = Boolean(cleanEmail && emailCandidates.some((e) => e === cleanEmail || e.includes(cleanEmail)));
-        const docMatch = Boolean(cleanDoc && orderDoc && orderDoc === cleanDoc);
-        const idMatch = Boolean(cleanId && orderUserId && orderUserId === cleanId.toLowerCase());
-
-        if (emailMatch || docMatch || idMatch) {
-          const orderKey = normalizeOrderKey(order);
-          if (!orderKey) return;
-          const existingIdx = resultOrders.findIndex((r) => normalizeOrderKey(r) === orderKey);
-          if (existingIdx === -1) {
-            resultOrders.push(order);
-          } else {
-            // Si la versión local tiene estado más avanzado (ej. Entregado por Logística), preservarla
-            const existing = resultOrders[existingIdx];
-            if (isDeliveredStatus(order.estado) || (!isDeliveredStatus(existing.estado) && order.estado && order.estado !== existing.estado)) {
-              resultOrders[existingIdx] = { ...existing, ...order };
-            }
+          if (emailMatch || docMatch) {
+            pushUniqueOrder(order);
           }
-        }
-      });
-    });
+        });
+      }
+    }
   } catch (e) {
     console.error('Error sincronizando órdenes locales:', e);
   }
 
-  // Filtrar estrictamente cualquier mock order residual
-  return resultOrders.filter(o => !isMockOrder(o));
+  // Ordenar por fecha más reciente y filtrar cualquier mock order residual
+  return resultOrders
+    .filter((o) => !isMockOrder(o))
+    .sort((a, b) => new Date(b.fechaCreacion || 0).getTime() - new Date(a.fechaCreacion || 0).getTime());
 }
 
 /**
@@ -433,8 +405,18 @@ export async function persistShippingAddress(
  * Inserta un nuevo pedido en la tabla 'orders' de Supabase
  */
 export async function saveOrderToSupabase(order: COLORLINKOrder): Promise<boolean> {
+  // 0. Respaldo inmediato en servidor Express multidispositivo
+  try {
+    fetch('/api/orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(order),
+    }).catch(() => {});
+  } catch {}
+
   if (!isSupabaseConfigured || !supabase) return false;
 
+  let savedToOrders = false;
   try {
     let authUserId: string | null = null;
     try {
@@ -448,29 +430,38 @@ export async function saveOrderToSupabase(order: COLORLINKOrder): Promise<boolea
       Boolean(order.direccionEntrega && order.direccionEntrega.startsWith('Retiro en Tienda'));
 
     const deliveryModeStr = isPickup ? 'pickup' : 'delivery';
+    const customerEmail = (
+      order.customerEmail ||
+      (order.form as any)?.correo_electronico ||
+      (order.form?.responsable_contacto?.includes('@') ? order.form.responsable_contacto : '')
+    ).trim().toLowerCase() || null;
 
     const payload: any = {
       order_number: order.numeroOrden,
       user_id: authUserId,
-      user_email: order.customerEmail || (order.form?.responsable_contacto?.includes('@') ? order.form.responsable_contacto : null),
+      user_email: customerEmail,
       customer_name: order.customerName || order.form?.nombre_razon_social,
-      customer_phone: order.customerPhone,
-      customer_document: order.customerDocument || order.form?.documento,
+      customer_phone: order.customerPhone || order.form?.telefono,
+      customer_document: (order.customerDocument || order.form?.documento || '').replace(/[\.\-\s]/g, '').trim(),
       shipping_address: order.direccionEntrega,
-      city: order.ciudadEntrega,
-      department: order.departamentoEntrega,
+      city: order.ciudadEntrega || 'Bogotá D.C.',
+      department: order.departamentoEntrega || '',
       delivery_mode: deliveryModeStr,
       items: order.items || [],
-      total: order.total,
-      status: 'pending',
-      created_at: new Date().toISOString(),
+      total: order.total || 0,
+      status: order.estado || 'pending',
+      guia_transporte: order.guiaDespacho || null,
+      observaciones_bodega: order.observacionesBodega || null,
+      form_data: order.form || null,
+      calculo_data: order.calculo || null,
+      created_at: order.fechaCreacion || new Date().toISOString(),
     };
 
     let { error } = await supabase.from('orders').insert([payload]);
     if (error && error.message?.includes('column')) {
-      // Reintentar sin columnas opcionales en caso de esquema previo en Supabase
       const fallbackPayload: any = {
         order_number: order.numeroOrden,
+        user_id: authUserId,
         user_email: payload.user_email,
         customer_name: payload.customer_name,
         customer_phone: payload.customer_phone,
@@ -480,20 +471,70 @@ export async function saveOrderToSupabase(order: COLORLINKOrder): Promise<boolea
         department: payload.department,
         items: payload.items,
         total: payload.total,
-        status: 'pending',
+        status: payload.status,
         created_at: payload.created_at,
       };
       const retry = await supabase.from('orders').insert([fallbackPayload]);
       error = retry.error;
     }
 
-    if (error) {
+    if (!error) {
+      savedToOrders = true;
+    } else {
       console.warn('Nota: No se pudo insertar en orders:', error.message);
-      return false;
+      // Respaldo en tabla 'proyectos' + 'clientes' existente en Supabase
+      try {
+        const cleanDoc = (order.customerDocument || order.form?.documento || '00000000').replace(/[\.\-\s]/g, '').trim();
+        const cleanName = (order.customerName || order.form?.nombre_razon_social || 'Cliente Pintuco').trim();
+        const cleanCity = (order.ciudadEntrega || 'Bogotá D.C.').trim();
+        let clienteId = '';
+
+        const { data: existingClients } = await supabase
+          .from('clientes')
+          .select('id')
+          .eq('numero_documento', cleanDoc)
+          .limit(1);
+
+        if (existingClients && existingClients.length > 0) {
+          clienteId = existingClients[0].id;
+        } else {
+          const { data: createdClient } = await supabase
+            .from('clientes')
+            .insert({
+              tipo_documento: (order.form?.tipo_documento === 'NIT' ? 'NIT' : 'CC'),
+              numero_documento: cleanDoc,
+              nombre: cleanName,
+              ciudad: cleanCity,
+            })
+            .select('id')
+            .single();
+          if (createdClient?.id) clienteId = createdClient.id;
+        }
+
+        if (clienteId) {
+          const firstItem = Array.isArray(order.items) && order.items[0] ? order.items[0] : null;
+          const totalGallons = Array.isArray(order.items)
+            ? order.items.reduce((acc, it) => acc + (Number(it.cantidad) || 1), 0)
+            : 1;
+          await supabase.from('proyectos').insert({
+            cliente_id: clienteId,
+            producto_nombre: firstItem ? `${firstItem.nombre} (${order.numeroOrden})` : `Pedido ${order.numeroOrden}`,
+            area_m2: order.form?.area_m2 || (order.calculo as any)?.area_m2 || 30,
+            condicion_pared: 'Pedido Tienda Online',
+            galones_pintura: totalGallons,
+            galones_sellador: 0,
+            estado_pedido: 'Radicado',
+          });
+        }
+      } catch (fallbackErr) {
+        console.warn('Nota respaldo proyectos:', fallbackErr);
+      }
     }
-    return true;
+
+    return savedToOrders;
   } catch (err) {
     console.warn('Error guardando orden en Supabase:', err);
     return false;
   }
 }
+

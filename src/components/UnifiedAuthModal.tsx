@@ -12,7 +12,7 @@ import {
   PintucoUserAccount
 } from '../utils/userDatabase';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
-import { checkUnifiedUserStatus, syncClientProfileToSupabase } from '../lib/supabaseService';
+import { checkUnifiedUserStatus, syncClientProfileToSupabase, fetchUserProfileAndAddressesFromSupabase, RemoteUserProfile } from '../lib/supabaseService';
 import { 
   X, 
   User, 
@@ -301,10 +301,24 @@ export const UnifiedAuthModal: React.FC<UnifiedAuthModalProps> = ({
     // 1.2 Si Supabase Auth valida las credenciales exitosamente
     if (supabaseAuthSucceeded && supabaseUser) {
       const meta = supabaseUser.user_metadata || {};
-      const userDoc = meta.cedula || meta.numero_documento || existingAccount?.cedula;
-      const userName = meta.nombre || existingAccount?.nombre;
-      const userPhone = meta.telefono || existingAccount?.telefono;
-      const userTipoDoc = meta.tipoDocumento || existingAccount?.tipoDocumento || 'CC';
+      const remoteProfile: RemoteUserProfile = await fetchUserProfileAndAddressesFromSupabase(
+        supabaseUser.id,
+        email,
+        meta.cedula || meta.documento || meta.numero_documento || existingAccount?.cedula
+      ).catch((): RemoteUserProfile => ({ direcciones: [] }));
+
+      const userDoc = meta.cedula || meta.numero_documento || meta.documento || remoteProfile.documento || existingAccount?.cedula;
+      const userName = meta.nombre || remoteProfile.nombre || existingAccount?.nombre;
+      const userPhone = meta.telefono || remoteProfile.telefono || existingAccount?.telefono;
+      const userTipoDoc = meta.tipoDocumento || remoteProfile.tipoDocumento || existingAccount?.tipoDocumento || 'CC';
+      const userCiudad = meta.ciudad || remoteProfile.ciudad || existingAccount?.ciudad || 'Bogotá D.C.';
+      const userDireccion = meta.direccion || remoteProfile.direccion || existingAccount?.direccion || '';
+      const userDirecciones =
+        (Array.isArray(remoteProfile.direcciones) && remoteProfile.direcciones.length > 0)
+          ? remoteProfile.direcciones
+          : (Array.isArray(meta.direcciones) && meta.direcciones.length > 0)
+            ? meta.direcciones
+            : (existingAccount?.direcciones || []);
 
       // Si el usuario existe en Supabase Auth pero NO tiene perfil completo (nombre o cédula):
       // Permitirle completar su perfil y vincularlo
@@ -329,8 +343,8 @@ export const UnifiedAuthModal: React.FC<UnifiedAuthModalProps> = ({
         email: email,
         documento: userDoc || (isLinaAdmin ? '1.032.456.789' : '1.020.304.506'),
         tipoDocumento: userTipoDoc as TipoDocumento,
-        ciudad: existingAccount?.ciudad || 'Bogotá D.C.',
-        direccion: existingAccount?.direccion || 'Carrera 15 # 93-60',
+        ciudad: userCiudad,
+        direccion: userDireccion || 'Carrera 15 # 93-60',
         telefono: userPhone || '+57 300 123 4567',
         userType: isLinaAdmin ? 'funcionario' : 'cliente',
         isLoggedIn: true,
@@ -339,8 +353,14 @@ export const UnifiedAuthModal: React.FC<UnifiedAuthModalProps> = ({
         departamento: isLinaAdmin ? (existingAccount?.departamento || 'Dirección General & Operaciones Corporativas Pintuco') : undefined,
         cargo: isLinaAdmin ? (existingAccount?.cargo || 'Administrador General') : 'Cliente Registrado',
         isSuperAdmin: email === 'linajazmincampossaboya@gmail.com',
-        direcciones: existingAccount?.direcciones || [],
+        direcciones: userDirecciones,
       };
+
+      if (userDirecciones.length > 0) {
+        try {
+          localStorage.setItem('colorlink_user_addresses', JSON.stringify(userDirecciones));
+        } catch {}
+      }
 
       // Sincronizar en base local
       if (!existingAccount) {
@@ -689,17 +709,33 @@ export const UnifiedAuthModal: React.FC<UnifiedAuthModalProps> = ({
     if (res.success) {
       const usersDb = getPintucoUsersDb();
       let account = usersDb.find(u => normalizeEmail(u.email) === email);
+      const remoteProfile: RemoteUserProfile = await fetchUserProfileAndAddressesFromSupabase(
+        account?.id,
+        email,
+        account?.cedula
+      ).catch((): RemoteUserProfile => ({ direcciones: [] }));
 
       const isLinaAdmin = email === 'linajazmincampossaboya@gmail.com' || Boolean(account?.isCorporate) || email.endsWith('@pintuco.com');
+      const mergedDirecciones =
+        (Array.isArray(remoteProfile.direcciones) && remoteProfile.direcciones.length > 0)
+          ? remoteProfile.direcciones
+          : (account?.direcciones || []);
+
+      if (mergedDirecciones.length > 0) {
+        try {
+          localStorage.setItem('colorlink_user_addresses', JSON.stringify(mergedDirecciones));
+        } catch {}
+      }
 
       const session: UserSession = {
-        nombre: account?.nombre || email.split('@')[0],
+        id: account?.id,
+        nombre: remoteProfile.nombre || account?.nombre || email.split('@')[0],
         email: email,
-        documento: account?.cedula || (isLinaAdmin ? '1.032.456.789' : '1.020.304.506'),
-        tipoDocumento: (account?.tipoDocumento || 'CC') as TipoDocumento,
-        ciudad: account?.ciudad || 'Bogotá D.C.',
-        direccion: account?.direccion || 'Carrera 15 # 93-60',
-        telefono: account?.telefono || '+57 310 450 8890',
+        documento: remoteProfile.documento || account?.cedula || (isLinaAdmin ? '1.032.456.789' : '1.020.304.506'),
+        tipoDocumento: (remoteProfile.tipoDocumento || account?.tipoDocumento || 'CC') as TipoDocumento,
+        ciudad: remoteProfile.ciudad || account?.ciudad || 'Bogotá D.C.',
+        direccion: remoteProfile.direccion || account?.direccion || 'Carrera 15 # 93-60',
+        telefono: remoteProfile.telefono || account?.telefono || '+57 310 450 8890',
         userType: isLinaAdmin ? 'funcionario' : 'cliente',
         isLoggedIn: true,
         isCorporate: isLinaAdmin,
@@ -707,7 +743,7 @@ export const UnifiedAuthModal: React.FC<UnifiedAuthModalProps> = ({
         departamento: isLinaAdmin ? (account?.departamento || 'Dirección General & Operaciones Corporativas Pintuco') : undefined,
         cargo: isLinaAdmin ? (account?.cargo || 'Administrador General') : 'Cliente Registrado',
         isSuperAdmin: email === 'linajazmincampossaboya@gmail.com',
-        direcciones: account?.direcciones || [],
+        direcciones: mergedDirecciones,
       };
 
       if (isLinaAdmin) {

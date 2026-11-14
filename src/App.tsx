@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import confetti from 'canvas-confetti';
 import { 
   FMVFormData, 
@@ -39,7 +39,7 @@ import {
 } from './utils/userDatabase';
 import { CompanyHistoryModal } from './components/CompanyHistoryModal';
 import { CoverageModal } from './components/CoverageModal';
-import { descontarInventarioPorPedido, getTicketsSAC, TicketSAC } from './services/corporateService';
+import { descontarInventarioPorPedido } from './services/corporateService';
 import { CustomerInquiryModal } from './components/CustomerInquiryModal';
 import { BankInstallmentsModal } from './components/BankInstallmentsModal';
 import { ProductDetailModal } from './components/ProductDetailModal';
@@ -56,19 +56,18 @@ import {
   Database, 
   Sparkles,
   ArrowRight,
-  ArrowLeft,
   X,
   RotateCcw,
-  Trash2,
-  Bell,
-  Package,
-  MessageSquare
+  Trash2
 } from 'lucide-react';
 import { 
   fetchSupabaseProducts, 
   insertSupabaseOrder, 
   fetchSupabaseProjects, 
-  updateSupabaseProjectStatus 
+  updateSupabaseProjectStatus,
+  fetchUserProfileAndAddressesFromSupabase,
+  updateSupabaseOrderStatus,
+  RemoteUserProfile
 } from './lib/supabaseService';
 import { isSupabaseConfigured, SupabaseProducto, supabase } from './lib/supabaseClient';
 import { 
@@ -76,7 +75,8 @@ import {
   toggleStoredFavorite, 
   syncFavoritesWithSupabase 
 } from './utils/favoritesService';
-import { isMockOrder, fetchUserOrdersFromDatabase } from './services/ordersService';
+import { isMockOrder, fetchUserOrdersFromDatabase, saveOrderToSupabase } from './services/ordersService';
+import { syncTicketsFromSupabase } from './services/corporateService';
 
 const INITIAL_FORM_DATA: FMVFormData = {
   tipo_documento: 'NIT',
@@ -312,42 +312,10 @@ export default function App() {
     }
   }, []);
 
-  // Initial load on mount and realtime synchronization
+  // Initial load on mount
   useEffect(() => {
     loadCatalogFromSupabase();
     loadProjectsFromSupabase();
-
-    // Eventos reactivos globales para sincronización inmediata del catálogo
-    const handleSync = () => {
-      loadCatalogFromSupabase();
-    };
-    window.addEventListener('colorlink_catalog_sync_needed', handleSync);
-    window.addEventListener('colorlink_inventory_updated', handleSync);
-
-    // Suscripción Realtime a Supabase en tabla 'productos'
-    let channel: any = null;
-    if (isSupabaseConfigured && supabase) {
-      try {
-        channel = supabase
-          .channel('public:productos:realtime')
-          .on('postgres_changes', { event: '*', schema: 'public', table: 'productos' }, () => {
-            loadCatalogFromSupabase();
-          })
-          .subscribe();
-      } catch (err) {
-        console.debug('Error subscribing to Supabase productos realtime:', err);
-      }
-    }
-
-    return () => {
-      window.removeEventListener('colorlink_catalog_sync_needed', handleSync);
-      window.removeEventListener('colorlink_inventory_updated', handleSync);
-      if (channel && supabase) {
-        try {
-          supabase.removeChannel(channel);
-        } catch {}
-      }
-    };
   }, [loadCatalogFromSupabase, loadProjectsFromSupabase]);
 
   // Modals and tabs state
@@ -379,17 +347,6 @@ export default function App() {
     };
     window.addEventListener('colorlink_open_tracking', handleOpenTrackingEvent);
     return () => window.removeEventListener('colorlink_open_tracking', handleOpenTrackingEvent);
-  }, []);
-
-  useEffect(() => {
-    const handleOpenAuthEvent = (e: any) => {
-      const mode = e?.detail?.mode || 'login';
-      setAuthInitialTab('client');
-      setAuthMode(mode);
-      setIsAuthOpen(true);
-    };
-    window.addEventListener('colorlink_open_auth', handleOpenAuthEvent);
-    return () => window.removeEventListener('colorlink_open_auth', handleOpenAuthEvent);
   }, []);
 
   // E-commerce Platform Modals & States with URL Synchronization
@@ -530,80 +487,100 @@ export default function App() {
     return null;
   });
 
-  // Sincronización continua de Supabase Auth (user_id / email) con userSession
+  // Sincronización continua de Supabase Auth (user_id / email) con userSession + carga multidispositivo
   useEffect(() => {
     let isMounted = true;
+    const hydrateFromSupabaseSession = async (authUser: any) => {
+      if (!authUser || !isMounted) return;
+      const meta = authUser.user_metadata || {};
+      const email = (authUser.email || '').trim().toLowerCase();
+      const docFromMeta = meta.cedula || meta.documento || meta.numero_documento || '';
+
+      const remoteProfile: RemoteUserProfile = await fetchUserProfileAndAddressesFromSupabase(
+        authUser.id,
+        email,
+        docFromMeta
+      ).catch((): RemoteUserProfile => ({ direcciones: [] }));
+
+      if (!isMounted) return;
+
+      setUserSession((prev) => {
+        const mergedAddrs =
+          (Array.isArray(remoteProfile.direcciones) && remoteProfile.direcciones.length > 0)
+            ? remoteProfile.direcciones
+            : (Array.isArray(meta.direcciones) && meta.direcciones.length > 0)
+              ? meta.direcciones
+              : (prev?.direcciones || []);
+
+        if (mergedAddrs.length > 0) {
+          try {
+            localStorage.setItem('colorlink_user_addresses', JSON.stringify(mergedAddrs));
+          } catch {}
+        }
+
+        if (!prev) {
+          const nextSession: UserSession = {
+            id: authUser.id,
+            email: email,
+            nombre: meta.nombre || meta.full_name || remoteProfile.nombre || email.split('@')[0],
+            documento: docFromMeta || remoteProfile.documento || '',
+            tipoDocumento: (meta.tipoDocumento || remoteProfile.tipoDocumento || 'CC') as any,
+            ciudad: meta.ciudad || remoteProfile.ciudad || 'Bogotá D.C.',
+            direccion: meta.direccion || remoteProfile.direccion || '',
+            telefono: meta.telefono || remoteProfile.telefono || '',
+            userType: 'cliente',
+            isLoggedIn: true,
+            direcciones: mergedAddrs,
+          };
+          syncActiveSession(nextSession);
+          return nextSession;
+        }
+
+        const updatedPrev: UserSession = {
+          ...prev,
+          id: authUser.id,
+          email: email || prev.email,
+          nombre: prev.nombre || meta.nombre || remoteProfile.nombre,
+          documento: prev.documento || docFromMeta || remoteProfile.documento || '',
+          telefono: prev.telefono || meta.telefono || remoteProfile.telefono || '',
+          ciudad: prev.ciudad || meta.ciudad || remoteProfile.ciudad || 'Bogotá D.C.',
+          direcciones: mergedAddrs.length > 0 ? mergedAddrs : prev.direcciones,
+        };
+        syncActiveSession(updatedPrev);
+        return updatedPrev;
+      });
+
+      // Traer pedidos reales y tickets SAC desde Supabase automáticamente
+      const finalDoc = docFromMeta || remoteProfile.documento || '';
+      fetchUserOrdersFromDatabase(authUser.id, email, finalDoc)
+        .then((realOrders) => {
+          if (isMounted && Array.isArray(realOrders) && realOrders.length > 0) {
+            setOrders((prev) => {
+              const map = new Map<string, COLORLINKOrder>();
+              realOrders.forEach((o) => map.set(o.id || o.numeroOrden, o));
+              prev.forEach((o) => {
+                const key = o.id || o.numeroOrden;
+                if (key && !map.has(key)) map.set(key, o);
+              });
+              return Array.from(map.values());
+            });
+          }
+        })
+        .catch(() => {});
+
+      syncTicketsFromSupabase(email, authUser.id).catch(() => {});
+    };
+
     if (isSupabaseConfigured && supabase) {
       supabase.auth.getSession().then(({ data: { session } }) => {
         if (session?.user && isMounted) {
-          const authUser = session.user;
-          setUserSession((prev) => {
-            const meta = authUser.user_metadata || {};
-            const metaAddresses = Array.isArray(meta.direcciones) ? meta.direcciones : [];
-            if (!prev) {
-              const email = authUser.email || '';
-              return {
-                id: authUser.id,
-                email: email,
-                nombre: meta.nombre || meta.full_name || email.split('@')[0],
-                documento: meta.cedula || meta.documento || '',
-                tipoDocumento: meta.tipoDocumento || 'CC',
-                ciudad: meta.ciudad || 'Bogotá D.C.',
-                direccion: meta.direccion || '',
-                telefono: meta.telefono || '',
-                userType: 'cliente',
-                isLoggedIn: true,
-                direcciones: metaAddresses,
-              };
-            }
-            const nextDirecciones = (prev.direcciones && prev.direcciones.length > 0)
-              ? prev.direcciones
-              : metaAddresses;
-            if (!prev.id || prev.id !== authUser.id || (nextDirecciones.length > 0 && (!prev.direcciones || prev.direcciones.length === 0))) {
-              return {
-                ...prev,
-                id: authUser.id,
-                email: authUser.email || prev.email,
-                direcciones: nextDirecciones,
-              };
-            }
-            return prev;
-          });
+          hydrateFromSupabaseSession(session.user);
         }
       }).catch((e) => console.debug('Supabase session load:', e));
 
       const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
         if (session?.user && isMounted) {
-          const authUser = session.user;
-          setUserSession((prev) => {
-            const meta = authUser.user_metadata || {};
-            const metaAddresses = Array.isArray(meta.direcciones) ? meta.direcciones : [];
-            if (!prev) {
-              const email = authUser.email || '';
-              return {
-                id: authUser.id,
-                email: email,
-                nombre: meta.nombre || meta.full_name || email.split('@')[0],
-                documento: meta.cedula || meta.documento || '',
-                tipoDocumento: meta.tipoDocumento || 'CC',
-                ciudad: meta.ciudad || 'Bogotá D.C.',
-                direccion: meta.direccion || '',
-                telefono: meta.telefono || '',
-                userType: 'cliente',
-                isLoggedIn: true,
-                direcciones: metaAddresses,
-              };
-            }
-            const nextDirecciones = (prev.direcciones && prev.direcciones.length > 0)
-              ? prev.direcciones
-              : metaAddresses;
-            return {
-              ...prev,
-              id: authUser.id,
-              email: authUser.email || prev.email,
-              direcciones: nextDirecciones,
-            };
-          });
+          hydrateFromSupabaseSession(session.user);
         }
       });
 
@@ -612,7 +589,134 @@ export default function App() {
         subscription.unsubscribe();
       };
     }
+    return () => { isMounted = false; };
   }, []);
+
+  // Carga automática desde Supabase cuando ya existe una sesión restaurada por email/documento
+  useEffect(() => {
+    if (!userSession || (!userSession.isLoggedIn && !userSession.email)) return;
+    let isMounted = true;
+    const email = (userSession.email || '').trim().toLowerCase();
+    const doc = (userSession.documento || (userSession as any).cedula || '').trim();
+
+    fetchUserOrdersFromDatabase(userSession.id, email, doc)
+      .then((realOrders) => {
+        if (isMounted && Array.isArray(realOrders) && realOrders.length > 0) {
+          setOrders((prev) => {
+            const map = new Map<string, COLORLINKOrder>();
+            realOrders.forEach((o) => map.set(o.id || o.numeroOrden, o));
+            prev.forEach((o) => {
+              const key = o.id || o.numeroOrden;
+              if (key && !map.has(key)) map.set(key, o);
+            });
+            return Array.from(map.values());
+          });
+        }
+      })
+      .catch(() => {});
+
+    syncTicketsFromSupabase(email, userSession.id).catch(() => {});
+
+    return () => {
+      isMounted = false;
+    };
+  }, [userSession?.id, userSession?.email, userSession?.isLoggedIn]);
+
+  // Suscripción Supabase Realtime para reflejar cambios de bodega/logística y SAC en cualquier dispositivo al instante
+  useEffect(() => {
+    if (!isSupabaseConfigured || !supabase) return;
+
+    const channel = supabase
+      .channel('colorlink-multidevice-realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'orders' },
+        (payload: any) => {
+          const row = payload?.new;
+          if (!row) return;
+          setOrders((prev) => {
+            const existsIdx = prev.findIndex(
+              (o) =>
+                (row.id && o.id === row.id) ||
+                (row.order_number && o.numeroOrden === row.order_number)
+            );
+            const mappedStatus = row.status || 'Pendiente Alistamiento';
+            if (existsIdx >= 0) {
+              const next = [...prev];
+              next[existsIdx] = {
+                ...next[existsIdx],
+                estado: mappedStatus,
+                guiaDespacho: row.guia_transporte || next[existsIdx].guiaDespacho,
+                observacionesBodega: row.observaciones_bodega || next[existsIdx].observacionesBodega,
+              };
+              return next;
+            }
+            const userEmail = (userSession?.email || '').trim().toLowerCase();
+            const rowEmail = (row.user_email || '').trim().toLowerCase();
+            if (userRole !== 'cliente' || (userEmail && rowEmail === userEmail)) {
+              const newMapped: COLORLINKOrder = {
+                id: row.id || `ord-${Date.now()}`,
+                numeroOrden: row.order_number || `#CLK-${String(row.id || '').slice(0, 6).toUpperCase()}`,
+                fechaCreacion: row.created_at || new Date().toISOString(),
+                customerName: row.customer_name || 'Cliente Pintuco',
+                customerEmail: rowEmail,
+                customerPhone: row.customer_phone || '',
+                customerDocument: row.customer_document || '',
+                direccionEntrega: row.shipping_address || 'Dirección registrada',
+                ciudadEntrega: row.city || 'Colombia',
+                departamentoEntrega: row.department || '',
+                estado: mappedStatus,
+                guiaDespacho: row.guia_transporte || undefined,
+                observacionesBodega: row.observaciones_bodega || undefined,
+                total: Number(row.total) || 0,
+                items: Array.isArray(row.items) ? row.items : [],
+              };
+              return [newMapped, ...prev];
+            }
+            return prev;
+          });
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'proyectos' },
+        (payload: any) => {
+          const row = payload?.new;
+          if (!row) return;
+          setOrders((prev) => {
+            const existsIdx = prev.findIndex((o) => o.id === row.id);
+            if (existsIdx >= 0) {
+              const next = [...prev];
+              next[existsIdx] = {
+                ...next[existsIdx],
+                estado: row.estado_pedido || next[existsIdx].estado,
+                guiaDespacho: row.guia_transporte || next[existsIdx].guiaDespacho,
+                observacionesBodega: row.observaciones_bodega || next[existsIdx].observacionesBodega,
+              };
+              return next;
+            }
+            return prev;
+          });
+          if (payload.eventType === 'INSERT') {
+            loadProjectsFromSupabase();
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'tickets' },
+        () => {
+          syncTicketsFromSupabase(userSession?.email || null, userSession?.id || null).catch(() => {});
+        }
+      )
+      .subscribe();
+
+    return () => {
+      try {
+        supabase.removeChannel(channel);
+      } catch {}
+    };
+  }, [userSession?.email, userSession?.id, userRole, loadProjectsFromSupabase]);
 
   // Sincronización continua de la sesión activa del usuario con el formulario FMV / Cotizador
   useEffect(() => {
@@ -729,520 +833,13 @@ export default function App() {
   const [isNotificationsOpen, setIsNotificationsOpen] = useState<boolean>(false);
   const [notificationsInitialTab, setNotificationsInitialTab] = useState<'seguimiento' | 'pqrs' | 'notificaciones'>('notificaciones');
 
-  // Sistema de avisos y notificaciones en tiempo real para el cliente (Pedidos + SAC)
-  const [unreadRealtimeCount, setUnreadRealtimeCount] = useState<number>(0);
-  const [realtimeToast, setRealtimeToast] = useState<{
-    id: number;
-    type: 'order' | 'sac';
-    title: string;
-    message: string;
-    targetTab: 'seguimiento' | 'pqrs';
-  } | null>(null);
-
-  const realtimeToastTimerRef = useRef<number | null>(null);
-  const pendingClientToastRef = useRef<{
-    type: 'order' | 'sac';
-    title: string;
-    message: string;
-    targetTab: 'seguimiento' | 'pqrs';
-  } | null>(null);
-  const notifiedRealtimeKeysRef = useRef<Set<string>>(new Set());
-  const ordersStatusSnapshotRef = useRef<Map<string, string>>(new Map());
-  const ticketsSnapshotRef = useRef<Map<string, { estado: string; agentMsgIds: Set<string> }>>(new Map());
-  const ordersRef = useRef<COLORLINKOrder[]>(orders);
-  ordersRef.current = orders;
-  const userRoleRef = useRef<AppRole>(userRole);
-  userRoleRef.current = userRole;
-  const userSessionRef = useRef<UserSession | null>(userSession);
-  userSessionRef.current = userSession;
-
-  const clearRealtimeNotificationsState = useCallback(() => {
-    setUnreadRealtimeCount(0);
-    setRealtimeToast(null);
-    pendingClientToastRef.current = null;
-    notifiedRealtimeKeysRef.current.clear();
-    ordersStatusSnapshotRef.current.clear();
-    ticketsSnapshotRef.current.clear();
-    if (realtimeToastTimerRef.current) {
-      window.clearTimeout(realtimeToastTimerRef.current);
-      realtimeToastTimerRef.current = null;
-    }
-  }, []);
-
-  const doesOrderBelongToClient = useCallback((orderLike: any, session: UserSession | null): boolean => {
-    if (!session || (!session.isLoggedIn && !session.email)) return false;
-    const userEmail = (session.email || '').trim().toLowerCase();
-    const userDoc = ((session as any).cedula || (session as any).documento || '').replace(/[\.\-\s]/g, '').toLowerCase();
-    const userName = (session.nombre || '').trim().toLowerCase();
-    const userId = (session.id || '').trim().toLowerCase();
-
-    const emailCandidates = [
-      orderLike?.customerEmail,
-      orderLike?.user_email,
-      orderLike?.email,
-      orderLike?.customer_email,
-      orderLike?.form?.correo_electronico,
-      orderLike?.form?.responsable_contacto,
-    ]
-      .filter(Boolean)
-      .map((e) => String(e).trim().toLowerCase());
-    const oDoc = String(orderLike?.customerDocument || orderLike?.customer_document || orderLike?.form?.documento || '')
-      .replace(/[\.\-\s]/g, '')
-      .toLowerCase();
-    const oName = String(orderLike?.customerName || orderLike?.customer_name || orderLike?.form?.nombre_razon_social || '')
-      .trim()
-      .toLowerCase();
-    const oUserId = String(orderLike?.userId || orderLike?.user_id || orderLike?.customerId || orderLike?.clienteId || orderLike?.cliente_id || '')
-      .trim()
-      .toLowerCase();
-
-    return Boolean(
-      (userEmail && emailCandidates.some((e) => e === userEmail || e.includes(userEmail))) ||
-      (userDoc && oDoc && oDoc === userDoc) ||
-      (userId && oUserId && oUserId === userId) ||
-      (userName && oName && (oName === userName || oName.includes(userName)))
-    );
-  }, []);
-
-  const doesTicketBelongToClient = useCallback((ticketLike: any, session: UserSession | null): boolean => {
-    if (!session || (!session.isLoggedIn && !session.email)) return false;
-    const userEmail = (session.email || '').trim().toLowerCase();
-    const userName = (session.nombre || '').trim().toLowerCase();
-    const userId = (session.id || '').trim().toLowerCase();
-    const userPhone = (session.telefono || '').replace(/\s+/g, '');
-
-    const tEmail = String(ticketLike?.clienteEmail || ticketLike?.cliente_email || ticketLike?.email || '').trim().toLowerCase();
-    const tName = String(ticketLike?.clienteNombre || ticketLike?.cliente_nombre || ticketLike?.nombre || '').trim().toLowerCase();
-    const tUserId = String(ticketLike?.clienteId || ticketLike?.userId || ticketLike?.user_id || '').trim().toLowerCase();
-    const tPhone = String(ticketLike?.clienteTelefono || ticketLike?.cliente_telefono || ticketLike?.telefono || '').replace(/\s+/g, '');
-
-    return Boolean(
-      (userEmail && tEmail && (tEmail === userEmail || tEmail.includes(userEmail))) ||
-      (userId && tUserId && tUserId === userId) ||
-      (userName && tName && (tName === userName || tName.includes(userName))) ||
-      (userPhone && tPhone && userPhone.length >= 7 && tPhone.includes(userPhone))
-    );
-  }, []);
-
-  const showFloatingRealtimeToast = useCallback((payload: {
-    type: 'order' | 'sac';
-    title: string;
-    message: string;
-    targetTab: 'seguimiento' | 'pqrs';
-  }) => {
-    const toastId = Date.now();
-    setRealtimeToast({
-      id: toastId,
-      type: payload.type,
-      title: payload.title,
-      message: payload.message,
-      targetTab: payload.targetTab,
-    });
-    if (realtimeToastTimerRef.current) {
-      window.clearTimeout(realtimeToastTimerRef.current);
-    }
-    realtimeToastTimerRef.current = window.setTimeout(() => {
-      setRealtimeToast((cur) => (cur?.id === toastId ? null : cur));
-    }, 8000);
-  }, []);
-
-  const triggerClientRealtimeAlert = useCallback((params: {
-    dedupeKey: string;
-    type: 'order' | 'sac';
-    title: string;
-    message: string;
-    targetTab: 'seguimiento' | 'pqrs';
-  }) => {
-    const activeSession = userSessionRef.current;
-    if (!activeSession || (!activeSession.isLoggedIn && !activeSession.email)) return;
-    if (notifiedRealtimeKeysRef.current.has(params.dedupeKey)) return;
-    notifiedRealtimeKeysRef.current.add(params.dedupeKey);
-
-    setUnreadRealtimeCount((prev) => prev + 1);
-
-    if (userRoleRef.current === 'cliente') {
-      showFloatingRealtimeToast(params);
-    } else {
-      pendingClientToastRef.current = {
-        type: params.type,
-        title: params.title,
-        message: params.message,
-        targetTab: params.targetTab,
-      };
-    }
-  }, [showFloatingRealtimeToast]);
-
   const handleOpenNotifications = (tab: 'seguimiento' | 'pqrs' | 'notificaciones' = 'notificaciones') => {
     if (tab === 'pqrs') {
       setIsChatOpen(false);
     }
-    setUnreadRealtimeCount(0);
-    setRealtimeToast(null);
-    pendingClientToastRef.current = null;
-    if (realtimeToastTimerRef.current) {
-      window.clearTimeout(realtimeToastTimerRef.current);
-      realtimeToastTimerRef.current = null;
-    }
     setNotificationsInitialTab(tab);
     setIsNotificationsOpen(true);
   };
-
-  // Si hay un aviso pendiente al entrar a la vista de cliente autenticado, mostrarlo
-  useEffect(() => {
-    if (userRole === 'cliente' && userSession && (userSession.isLoggedIn || userSession.email) && pendingClientToastRef.current) {
-      const pending = pendingClientToastRef.current;
-      pendingClientToastRef.current = null;
-      showFloatingRealtimeToast(pending);
-    }
-  }, [userRole, userSession, showFloatingRealtimeToast]);
-
-  // Detección en tiempo real (Supabase Realtime + Cambios de Estado + Eventos SAC) para el cliente autenticado
-  useEffect(() => {
-    const isAuth = Boolean(userSession && (userSession.isLoggedIn || userSession.email));
-    if (!isAuth || !userSession) {
-      clearRealtimeNotificationsState();
-      return;
-    }
-
-    // 1. Sembrar snapshots iniciales sin disparar alertas falsas al iniciar sesión
-    const initialOrdersSnap = new Map<string, string>();
-    ordersRef.current.forEach((o) => {
-      if (doesOrderBelongToClient(o, userSession)) {
-        const key = String(o.id || o.numeroOrden || '').trim();
-        if (key && o.estado) initialOrdersSnap.set(key, o.estado);
-      }
-    });
-    ordersStatusSnapshotRef.current = initialOrdersSnap;
-
-    const initialTicketsSnap = new Map<string, { estado: string; agentMsgIds: Set<string> }>();
-    try {
-      getTicketsSAC().forEach((t) => {
-        if (doesTicketBelongToClient(t, userSession)) {
-          initialTicketsSnap.set(t.id, {
-            estado: t.estado,
-            agentMsgIds: new Set(
-              (t.mensajes || [])
-                .filter((m) => m.remitenteTipo === 'agente' && !m.esNotaInterna)
-                .map((m) => m.id)
-            ),
-          });
-        }
-      });
-    } catch {}
-    ticketsSnapshotRef.current = initialTicketsSnap;
-
-    const processSacTicketsList = (ticketsList: TicketSAC[]) => {
-      const activeSession = userSessionRef.current;
-      if (!activeSession || (!activeSession.isLoggedIn && !activeSession.email)) return;
-
-      ticketsList.forEach((t) => {
-        if (!doesTicketBelongToClient(t, activeSession)) return;
-        const publicAgentMsgs = (t.mensajes || []).filter(
-          (m) => m.remitenteTipo === 'agente' && !m.esNotaInterna
-        );
-        const prev = ticketsSnapshotRef.current.get(t.id);
-        const ticketCode = t.radicado || t.id;
-
-        if (prev) {
-          const newAgentMsgs = publicAgentMsgs.filter((m) => !prev.agentMsgIds.has(m.id));
-          const statusUpdatedBySac = t.estado !== prev.estado && t.estado !== 'Nuevo';
-
-          if (newAgentMsgs.length > 0 || statusUpdatedBySac) {
-            const latestMsg = newAgentMsgs[newAgentMsgs.length - 1];
-            const dedupeKey = latestMsg
-              ? `sac:${ticketCode}:msg:${latestMsg.id}`
-              : `sac:${ticketCode}:status:${t.estado}`;
-            triggerClientRealtimeAlert({
-              dedupeKey,
-              type: 'sac',
-              title: 'Actualización de Servicio al Cliente (SAC)',
-              message: `💬 Tienes un nuevo mensaje del asesor de SAC en tu solicitud ${ticketCode}.`,
-              targetTab: 'pqrs',
-            });
-          }
-        } else if (publicAgentMsgs.length > 0) {
-          const latestMsg = publicAgentMsgs[publicAgentMsgs.length - 1];
-          triggerClientRealtimeAlert({
-            dedupeKey: `sac:${ticketCode}:msg:${latestMsg.id}`,
-            type: 'sac',
-            title: 'Actualización de Servicio al Cliente (SAC)',
-            message: `💬 Tienes un nuevo mensaje del asesor de SAC en tu solicitud ${ticketCode}.`,
-            targetTab: 'pqrs',
-          });
-        }
-
-        ticketsSnapshotRef.current.set(t.id, {
-          estado: t.estado,
-          agentMsgIds: new Set(publicAgentMsgs.map((m) => m.id)),
-        });
-      });
-    };
-
-    const handleTicketsEvent = () => {
-      try {
-        processSacTicketsList(getTicketsSAC());
-      } catch {}
-    };
-
-    const handleOrderStatusEvent = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      const activeSession = userSessionRef.current;
-      if (!detail || !activeSession) return;
-      const orderObj = detail.order;
-      if (!orderObj || !doesOrderBelongToClient(orderObj, activeSession)) return;
-
-      const orderCode = detail.numeroOrden || orderObj.numeroOrden || detail.orderId;
-      const newStatus = detail.newStatus;
-      const prevStatus = detail.prevStatus;
-      if (!newStatus || newStatus === prevStatus) return;
-
-      const key = String(orderObj.id || orderCode || '').trim();
-      if (key) ordersStatusSnapshotRef.current.set(key, newStatus);
-
-      triggerClientRealtimeAlert({
-        dedupeKey: `order:${orderCode}:${newStatus}`,
-        type: 'order',
-        title: 'Actualización de Pedido',
-        message: `📦 Tu pedido ${orderCode} tiene cambios: ahora está en estado ${newStatus}.`,
-        targetTab: 'seguimiento',
-      });
-    };
-
-    const handleCrossTabStorage = (e: StorageEvent) => {
-      const activeSession = userSessionRef.current;
-      if (!activeSession) return;
-
-      if (!e.key || e.key === 'colorlink_customer_tickets') {
-        handleTicketsEvent();
-      }
-
-      if ((e.key === 'colorlink_user_orders' || e.key === 'colorlink_orders') && e.newValue) {
-        try {
-          const parsed = JSON.parse(e.newValue);
-          if (!Array.isArray(parsed)) return;
-          let changedInStorage = false;
-          const updatesMap = new Map<string, string>();
-
-          parsed.forEach((o: COLORLINKOrder) => {
-            if (!doesOrderBelongToClient(o, activeSession)) return;
-            const key = String(o.id || o.numeroOrden || '').trim();
-            if (!key || !o.estado) return;
-            const prevStatus = ordersStatusSnapshotRef.current.get(key);
-            if (prevStatus && prevStatus !== o.estado) {
-              changedInStorage = true;
-              updatesMap.set(key, o.estado);
-              const orderCode = o.numeroOrden || o.id;
-              ordersStatusSnapshotRef.current.set(key, o.estado);
-              triggerClientRealtimeAlert({
-                dedupeKey: `order:${orderCode}:${o.estado}`,
-                type: 'order',
-                title: 'Actualización de Pedido',
-                message: `📦 Tu pedido ${orderCode} tiene cambios: ahora está en estado ${o.estado}.`,
-                targetTab: 'seguimiento',
-              });
-            }
-          });
-
-          if (changedInStorage && updatesMap.size > 0) {
-            setOrders((prev) =>
-              prev.map((o) => {
-                const k = String(o.id || o.numeroOrden || '').trim();
-                const updatedSt = updatesMap.get(k);
-                return updatedSt ? { ...o, estado: updatedSt as COLORLINKOrder['estado'] } : o;
-              })
-            );
-          }
-        } catch {}
-      }
-    };
-
-    window.addEventListener('colorlink_tickets_updated', handleTicketsEvent);
-    window.addEventListener('colorlink_order_status_changed', handleOrderStatusEvent as EventListener);
-    window.addEventListener('storage', handleCrossTabStorage);
-
-    // 2. Suscripción Supabase Realtime a tablas de órdenes/proyectos y tickets/PQRS
-    let rtChannel: any = null;
-    if (isSupabaseConfigured && supabase) {
-      try {
-        const channelKey = `client-realtime-${(userSession.id || userSession.email || 'user').replace(/[^a-zA-Z0-9_-]/g, '_')}`;
-        rtChannel = supabase
-          .channel(channelKey)
-          .on(
-            'postgres_changes',
-            { event: 'UPDATE', schema: 'public', table: 'orders' },
-            (payload: any) => {
-              const row = payload?.new;
-              const activeSession = userSessionRef.current;
-              if (!row || !activeSession) return;
-
-              const matchedLocal = ordersRef.current.find(
-                (o) =>
-                  (row.order_number && o.numeroOrden === row.order_number) ||
-                  (row.id && o.id === row.id)
-              );
-
-              if (!doesOrderBelongToClient(row, activeSession) && !(matchedLocal && doesOrderBelongToClient(matchedLocal, activeSession))) {
-                return;
-              }
-
-              const newStatus = row.status;
-              if (!newStatus) return;
-
-              const key = String(matchedLocal?.id || row.id || row.order_number || '').trim();
-              const prevStatus = ordersStatusSnapshotRef.current.get(key) || matchedLocal?.estado || payload?.old?.status;
-              if (prevStatus === newStatus) return;
-
-              if (key) ordersStatusSnapshotRef.current.set(key, newStatus);
-              const orderCode = row.order_number || matchedLocal?.numeroOrden || row.id;
-
-              setOrders((prev) =>
-                prev.map((o) =>
-                  (row.order_number && o.numeroOrden === row.order_number) || (row.id && o.id === row.id)
-                    ? { ...o, estado: newStatus }
-                    : o
-                )
-              );
-
-              triggerClientRealtimeAlert({
-                dedupeKey: `order:${orderCode}:${newStatus}`,
-                type: 'order',
-                title: 'Actualización de Pedido',
-                message: `📦 Tu pedido ${orderCode} tiene cambios: ahora está en estado ${newStatus}.`,
-                targetTab: 'seguimiento',
-              });
-            }
-          )
-          .on(
-            'postgres_changes',
-            { event: 'UPDATE', schema: 'public', table: 'proyectos' },
-            (payload: any) => {
-              const row = payload?.new;
-              const activeSession = userSessionRef.current;
-              if (!row || !activeSession) return;
-
-              const matchedLocal = ordersRef.current.find((o) => o.id === row.id);
-              if (!matchedLocal || !doesOrderBelongToClient(matchedLocal, activeSession)) return;
-
-              const rawStatus = row.estado_pedido;
-              if (!rawStatus) return;
-
-              let mappedStatus: string = rawStatus;
-              if (rawStatus === 'Radicado') mappedStatus = 'Pendiente Alistamiento';
-              else if (rawStatus === 'En Alistamiento') mappedStatus = 'En Producción';
-
-              const prevStatus = ordersStatusSnapshotRef.current.get(matchedLocal.id) || matchedLocal.estado || payload?.old?.estado_pedido;
-              if (prevStatus === mappedStatus || prevStatus === rawStatus) return;
-
-              ordersStatusSnapshotRef.current.set(matchedLocal.id, mappedStatus);
-              const orderCode = matchedLocal.numeroOrden || `SB-${String(row.id).slice(0, 8).toUpperCase()}`;
-
-              setOrders((prev) =>
-                prev.map((o) => (o.id === row.id ? { ...o, estado: mappedStatus as COLORLINKOrder['estado'] } : o))
-              );
-
-              triggerClientRealtimeAlert({
-                dedupeKey: `order:${orderCode}:${mappedStatus}`,
-                type: 'order',
-                title: 'Actualización de Pedido',
-                message: `📦 Tu pedido ${orderCode} tiene cambios: ahora está en estado ${rawStatus}.`,
-                targetTab: 'seguimiento',
-              });
-            }
-          )
-          .on(
-            'postgres_changes',
-            { event: 'UPDATE', schema: 'public', table: 'tickets' },
-            (payload: any) => {
-              const row = payload?.new;
-              const activeSession = userSessionRef.current;
-              if (!row || !activeSession || !doesTicketBelongToClient(row, activeSession)) return;
-
-              const ticketCode = row.radicado || row.id;
-              const hasUpdate =
-                row.estado !== payload?.old?.estado ||
-                Boolean(row.respuesta && row.respuesta !== payload?.old?.respuesta) ||
-                Boolean(row.updated_at && row.updated_at !== payload?.old?.updated_at);
-              if (!hasUpdate && row.estado === 'Nuevo') return;
-
-              triggerClientRealtimeAlert({
-                dedupeKey: `sac-sb:${ticketCode}:${row.updated_at || row.estado || 'upd'}`,
-                type: 'sac',
-                title: 'Actualización de Servicio al Cliente (SAC)',
-                message: `💬 Tienes un nuevo mensaje del asesor de SAC en tu solicitud ${ticketCode}.`,
-                targetTab: 'pqrs',
-              });
-            }
-          )
-          .on(
-            'postgres_changes',
-            { event: 'UPDATE', schema: 'public', table: 'pqrs' },
-            (payload: any) => {
-              const row = payload?.new;
-              const activeSession = userSessionRef.current;
-              if (!row || !activeSession || !doesTicketBelongToClient(row, activeSession)) return;
-
-              const ticketCode = row.radicado || row.id;
-              triggerClientRealtimeAlert({
-                dedupeKey: `sac-pqrs:${ticketCode}:${row.updated_at || row.estado || 'upd'}`,
-                type: 'sac',
-                title: 'Actualización de Servicio al Cliente (SAC)',
-                message: `💬 Tienes un nuevo mensaje del asesor de SAC en tu solicitud ${ticketCode}.`,
-                targetTab: 'pqrs',
-              });
-            }
-          )
-          .subscribe();
-      } catch (err) {
-        console.debug('Error suscribiendo canal realtime de cliente:', err);
-      }
-    }
-
-    return () => {
-      window.removeEventListener('colorlink_tickets_updated', handleTicketsEvent);
-      window.removeEventListener('colorlink_order_status_changed', handleOrderStatusEvent as EventListener);
-      window.removeEventListener('storage', handleCrossTabStorage);
-      if (rtChannel && supabase) {
-        try {
-          supabase.removeChannel(rtChannel);
-        } catch {}
-      }
-    };
-  }, [
-    userSession?.id,
-    userSession?.email,
-    userSession?.documento,
-    userSession?.isLoggedIn,
-    clearRealtimeNotificationsState,
-    doesOrderBelongToClient,
-    doesTicketBelongToClient,
-    triggerClientRealtimeAlert,
-  ]);
-
-  // Detectar cambios de estado en el arreglo orders en memoria para el cliente autenticado
-  useEffect(() => {
-    if (!userSession || (!userSession.isLoggedIn && !userSession.email)) return;
-
-    orders.forEach((o) => {
-      if (!doesOrderBelongToClient(o, userSession)) return;
-      const key = String(o.id || o.numeroOrden || '').trim();
-      if (!key || !o.estado) return;
-
-      const prevStatus = ordersStatusSnapshotRef.current.get(key);
-      if (prevStatus && prevStatus !== o.estado) {
-        const orderCode = o.numeroOrden || o.id;
-        ordersStatusSnapshotRef.current.set(key, o.estado);
-        triggerClientRealtimeAlert({
-          dedupeKey: `order:${orderCode}:${o.estado}`,
-          type: 'order',
-          title: 'Actualización de Pedido',
-          message: `📦 Tu pedido ${orderCode} tiene cambios: ahora está en estado ${o.estado}.`,
-          targetTab: 'seguimiento',
-        });
-      } else if (!prevStatus) {
-        ordersStatusSnapshotRef.current.set(key, o.estado);
-      }
-    });
-  }, [orders, userSession, doesOrderBelongToClient, triggerClientRealtimeAlert]);
 
   // Conteo de notificaciones de órdenes estrictamente para el usuario autenticado
   const userNotificationsCount = useMemo(() => {
@@ -1253,22 +850,13 @@ export default function App() {
     const userId = (userSession.id || '').trim().toLowerCase();
 
     return orders.filter((o) => {
-      const emailCandidates = [
-        o.customerEmail,
-        (o as any).user_email,
-        (o as any).email,
-        (o as any).customer_email,
-        o.form?.correo_electronico,
-        o.form?.responsable_contacto,
-      ]
-        .filter(Boolean)
-        .map((e) => String(e).trim().toLowerCase());
-      const oDoc = (o.customerDocument || (o as any).customer_document || o.form?.documento || '').replace(/[\.\-\s]/g, '').toLowerCase();
+      const oEmail = (o.customerEmail || o.form?.responsable_contacto || '').trim().toLowerCase();
+      const oDoc = (o.customerDocument || o.form?.documento || '').replace(/[\.\-\s]/g, '').toLowerCase();
       const oName = (o.customerName || o.form?.nombre_razon_social || '').trim().toLowerCase();
-      const oUserId = String((o as any).userId || (o as any).user_id || (o as any).customerId || (o as any).clienteId || '').trim().toLowerCase();
+      const oUserId = String((o as any).userId || (o as any).customerId || (o as any).clienteId || '').trim().toLowerCase();
 
       return (
-        (userEmail && emailCandidates.some((e) => e === userEmail || e.includes(userEmail))) ||
+        (userEmail && oEmail && (oEmail === userEmail || oEmail.includes(userEmail))) ||
         (userDoc && oDoc && oDoc === userDoc) ||
         (userId && oUserId && oUserId === userId) ||
         (userName && oName && (oName === userName || oName.includes(userName)))
@@ -1322,38 +910,41 @@ export default function App() {
       localStorage.setItem('colorlink_cart', '[]');
     }
 
-    // Al iniciar sesión, consultar y fusionar los pedidos reales del usuario desde Supabase sin perder estados actualizados en memoria
+    // Al iniciar sesión, consultar los pedidos reales del usuario desde Supabase
     fetchUserOrdersFromDatabase(sessionWithToken.id, sessionWithToken.email, sessionWithToken.documento)
       .then((realOrders) => {
-        if (!Array.isArray(realOrders) || realOrders.length === 0) return;
-        setOrders((prev) => {
-          const map = new Map<string, COLORLINKOrder>();
-          const getKey = (o: COLORLINKOrder) =>
-            String(o.numeroOrden || o.id || '').replace(/^#/, '').trim().toLowerCase();
-          const isDeliv = (st?: string) => {
-            const s = String(st || '').toLowerCase();
-            return s.includes('entregad') || s.includes('delivered') || s.includes('completad');
-          };
-          prev.forEach((o) => {
-            const k = getKey(o);
-            if (k) map.set(k, o);
-          });
-          realOrders.forEach((ro) => {
-            const k = getKey(ro);
-            if (!k) return;
-            const existing = map.get(k);
-            if (!existing) {
-              map.set(k, ro);
-            } else if (!isDeliv(existing.estado) && isDeliv(ro.estado)) {
-              map.set(k, { ...existing, ...ro });
-            }
-          });
-          return Array.from(map.values());
-        });
+        setOrders(realOrders);
       })
       .catch((e) => {
         console.error('Error cargando pedidos al iniciar sesión:', e);
+        setOrders([]);
       });
+
+    // Sincronizar libreta de direcciones, perfil y tickets SAC desde Supabase en cualquier dispositivo
+    fetchUserProfileAndAddressesFromSupabase(sessionWithToken.id, sessionWithToken.email, sessionWithToken.documento)
+      .then((remoteProfile) => {
+        if (remoteProfile.direcciones && remoteProfile.direcciones.length > 0) {
+          try {
+            localStorage.setItem('colorlink_user_addresses', JSON.stringify(remoteProfile.direcciones));
+          } catch {}
+          setUserSession((prev) => {
+            if (!prev) return prev;
+            const merged = {
+              ...prev,
+              nombre: prev.nombre || remoteProfile.nombre || prev.nombre,
+              documento: prev.documento || remoteProfile.documento || prev.documento,
+              telefono: prev.telefono || remoteProfile.telefono || prev.telefono,
+              ciudad: prev.ciudad || remoteProfile.ciudad || prev.ciudad,
+              direcciones: remoteProfile.direcciones,
+            };
+            syncActiveSession(merged);
+            return merged;
+          });
+        }
+      })
+      .catch(() => {});
+
+    syncTicketsFromSupabase(sessionWithToken.email, sessionWithToken.id).catch(() => {});
 
     setFormData((prev) => ({
       ...prev,
@@ -1361,6 +952,8 @@ export default function App() {
       documento: session.documento,
       tipo_documento: session.tipoDocumento || 'NIT',
       responsable_contacto: session.nombre,
+      telefono: session.telefono || prev.telefono,
+      correo_electronico: session.email || (prev as any).correo_electronico,
       ciudad: session.ciudad || prev.ciudad,
     }));
     showToast(`Bienvenido/a, ${session.nombre}`);
@@ -1506,77 +1099,8 @@ export default function App() {
     } else {
       setUserRole('cliente');
       localStorage.setItem('colorlink_user_role', 'cliente');
-      setActiveClientTab('home');
-      if (typeof window !== 'undefined') {
-        const url = new URL(window.location.href);
-        url.searchParams.delete('role');
-        url.searchParams.delete('tab');
-        url.searchParams.delete('modulo');
-        url.searchParams.delete('corpTab');
-        url.searchParams.delete('intranet');
-        window.history.pushState({}, '', url.pathname);
-      }
-      showToast('Cambiado a Vista Tienda de Clientes');
+      showToast('Cambiado a Vista Cliente');
     }
-  };
-
-  const handleSwitchToClientView = () => {
-    setUserRole('cliente');
-    localStorage.setItem('colorlink_user_role', 'cliente');
-    setActiveClientTab('home');
-    if (typeof window !== 'undefined') {
-      const url = new URL(window.location.href);
-      url.searchParams.delete('role');
-      url.searchParams.delete('tab');
-      url.searchParams.delete('modulo');
-      url.searchParams.delete('corpTab');
-      url.searchParams.delete('intranet');
-      window.history.pushState({}, '', url.pathname);
-    }
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-    showToast('Modo Tienda de Clientes Activado');
-  };
-
-  // Validación estricta de autorización para acceso corporativo y visualización del banner de retorno
-  const isAuthorizedCorporateUser = useMemo(() => {
-    if (isAdminAuthenticated) return true;
-    if (!userSession) return false;
-
-    // 1. Dominio corporativo oficial (@pintuco.com, @colorlink.com, @colcan.com, @akzonobel.com)
-    const email = (userSession.email || '').trim().toLowerCase();
-    const isCorporateDomain = 
-      email.endsWith('@pintuco.com') || 
-      email.endsWith('@colorlink.com') || 
-      email.endsWith('@colcan.com') || 
-      email.endsWith('@akzonobel.com');
-
-    // 2. Rol en sesión / Supabase metadata
-    const userType = (userSession.userType || '').toLowerCase();
-    const corporateRole = (userSession.corporateRole || '').toLowerCase();
-    const isStaffRole = 
-      userType === 'funcionario' || 
-      userType === 'administrador' || 
-      userType === 'admin' ||
-      userSession.isCorporate === true ||
-      userSession.isSuperAdmin === true ||
-      (corporateRole.length > 0 && corporateRole !== 'cliente');
-
-    return isCorporateDomain || isStaffRole;
-  }, [isAdminAuthenticated, userSession]);
-
-  // Retorno directo y seguro al Portal de Funcionarios exclusivo para funcionarios autorizados
-  const handleReturnToCorporatePortal = () => {
-    setUserRole('admin');
-    setAdminTab('intranet');
-    localStorage.setItem('colorlink_user_role', 'admin');
-    if (typeof window !== 'undefined') {
-      const url = new URL(window.location.href);
-      url.searchParams.set('role', 'admin');
-      url.searchParams.set('tab', 'intranet');
-      window.history.pushState({}, '', url.pathname + url.search);
-    }
-    showToast('Regresando al Portal de Funcionarios');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleAdminLoginSuccess = () => {
@@ -1592,7 +1116,6 @@ export default function App() {
     setIsAdminAuthenticated(false);
     localStorage.removeItem('colorlink_admin_auth');
     sessionStorage.removeItem('colorlink_auth_token');
-    clearRealtimeNotificationsState();
     syncActiveSession(null);
     setUserSession(null);
     setUserRole('cliente');
@@ -1619,10 +1142,9 @@ export default function App() {
     localStorage.removeItem('colorlink_cart');
     sessionStorage.removeItem('colorlink_auth_token');
 
-    // 3. Reiniciar el carrito a 0 items, limpiar favoritos y notificaciones pendientes
+    // 3. Reiniciar el carrito a 0 items y limpiar favoritos activos
     setCart([]);
     setFavoriteIds([]);
-    clearRealtimeNotificationsState();
     if (activeClientTab === 'favorites') {
       setActiveClientTab('home');
     }
@@ -1921,34 +1443,12 @@ export default function App() {
     updates?: Partial<COLORLINKOrder>
   ) => {
     const targetOrder = orders.find((o) => o.id === id);
-
     try {
-      // Sync update with Supabase if ID matches a UUID
-      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
-        await updateSupabaseProjectStatus(id, newStatus);
-      }
-
-      // Sync update with Supabase 'orders' table (por order_number o id)
-      if (isSupabaseConfigured && supabase) {
-        try {
-          if (targetOrder?.numeroOrden) {
-            await supabase
-              .from('orders')
-              .update({ status: newStatus })
-              .eq('order_number', targetOrder.numeroOrden);
-          } else if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
-            await supabase
-              .from('orders')
-              .update({ status: newStatus })
-              .eq('id', id);
-          }
-        } catch {}
-      }
-
-      await fetch(`/api/orders/${id}/status`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ estado: newStatus, ...(updates || {}) }),
+      await updateSupabaseOrderStatus(id, newStatus, {
+        numeroOrden: targetOrder?.numeroOrden,
+        guiaDespacho: updates?.guiaDespacho,
+        observacionesBodega: updates?.observacionesBodega,
+        responsableAlistamiento: updates?.responsableAlistamiento,
       });
     } catch (err) {
       console.error(err);
@@ -1979,19 +1479,6 @@ export default function App() {
         return o;
       })
     );
-    if (targetOrder && targetOrder.estado !== newStatus) {
-      window.dispatchEvent(
-        new CustomEvent('colorlink_order_status_changed', {
-          detail: {
-            orderId: id,
-            numeroOrden: targetOrder.numeroOrden || id,
-            prevStatus: targetOrder.estado,
-            newStatus,
-            order: { ...targetOrder, estado: newStatus, ...(updates || {}) },
-          },
-        })
-      );
-    }
     showToast(`Estado actualizado a: ${newStatus}`);
   };
 
@@ -2050,7 +1537,7 @@ export default function App() {
         <div 
           role="alert"
           aria-live="assertive"
-          className="fixed bottom-6 right-6 z-[10050] bg-white text-slate-800 text-xs sm:text-sm font-semibold px-4 py-3.5 rounded-2xl shadow-xl border border-slate-200 flex items-center gap-3 animate-bounce max-w-md backdrop-blur-md"
+          className="fixed bottom-6 right-6 z-50 bg-white text-slate-800 text-xs sm:text-sm font-semibold px-4 py-3.5 rounded-2xl shadow-xl border border-slate-200 flex items-center gap-3 animate-bounce max-w-md backdrop-blur-md"
         >
           <div className="w-7 h-7 rounded-xl bg-teal-50 border border-teal-200 flex items-center justify-center shrink-0">
             <CheckCircle2 className="w-4 h-4 text-teal-600" />
@@ -2080,126 +1567,6 @@ export default function App() {
             <X className="w-3.5 h-3.5" />
           </button>
         </div>
-      )}
-
-      {/* Aviso Visual Flotante Interactivo en Tiempo Real (Esquina Superior Derecha) */}
-      {realtimeToast && userRole === 'cliente' && userSession && (userSession.isLoggedIn || userSession.email) && (
-        <div
-          role="button"
-          tabIndex={0}
-          onClick={() => handleOpenNotifications(realtimeToast.targetTab)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              handleOpenNotifications(realtimeToast.targetTab);
-            }
-          }}
-          className={`fixed top-16 sm:top-20 right-4 z-[10060] w-[calc(100vw-2rem)] sm:w-96 p-4 rounded-2xl shadow-2xl border-2 backdrop-blur-md cursor-pointer transition-all hover:scale-[1.01] active:scale-[0.99] animate-in fade-in slide-in-from-top-3 duration-300 ${
-            realtimeToast.type === 'order'
-              ? 'bg-white/95 border-blue-500/70 text-slate-900 shadow-blue-900/15'
-              : 'bg-white/95 border-emerald-500/70 text-slate-900 shadow-emerald-900/15'
-          }`}
-          title="Haz clic para abrir el Panel Unificado de Notificaciones"
-        >
-          <div className="flex items-start gap-3">
-            <div
-              className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border ${
-                realtimeToast.type === 'order'
-                  ? 'bg-blue-50 border-blue-200 text-blue-700'
-                  : 'bg-emerald-50 border-emerald-200 text-emerald-700'
-              }`}
-            >
-              {realtimeToast.type === 'order' ? (
-                <Package className="w-5 h-5" />
-              ) : (
-                <MessageSquare className="w-5 h-5" />
-              )}
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center justify-between gap-2">
-                <span
-                  className={`text-[10px] font-black uppercase tracking-wider flex items-center gap-1 ${
-                    realtimeToast.type === 'order' ? 'text-blue-700' : 'text-emerald-700'
-                  }`}
-                >
-                  <Bell className="w-3 h-3" />
-                  {realtimeToast.title}
-                </span>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setRealtimeToast(null);
-                    if (realtimeToastTimerRef.current) {
-                      window.clearTimeout(realtimeToastTimerRef.current);
-                      realtimeToastTimerRef.current = null;
-                    }
-                  }}
-                  className="text-slate-400 hover:text-slate-700 p-0.5 rounded-lg transition-colors cursor-pointer shrink-0"
-                  aria-label="Cerrar aviso en tiempo real"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-              <p className="text-xs sm:text-sm font-bold text-slate-800 leading-snug mt-1">
-                {realtimeToast.message}
-              </p>
-              <span
-                className={`inline-flex items-center gap-1 text-[11px] font-black mt-2 ${
-                  realtimeToast.type === 'order' ? 'text-blue-700' : 'text-emerald-700'
-                }`}
-              >
-                <span>
-                  {realtimeToast.type === 'order' ? 'Ver seguimiento del pedido' : 'Ver respuesta en Mis Solicitudes'}
-                </span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </span>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Barra de Retorno Exclusiva para Funcionarios Autorizados en Modo Tienda de Clientes */}
-      {userRole === 'cliente' && isAuthorizedCorporateUser && (
-        <aside 
-          aria-label="Barra de Retorno al Portal de Funcionarios"
-          className="sticky top-0 z-[1100] w-full bg-gradient-to-r from-slate-950 via-[#001D3D] to-slate-900 text-white border-b-2 border-amber-400 shadow-xl px-3 sm:px-6 py-2 transition-all duration-300 backdrop-blur-md"
-        >
-          <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2 sm:gap-4">
-            {/* Indicador de Estado y Perfil de Funcionario */}
-            <div className="flex items-center gap-2.5 min-w-0">
-              <span className="relative flex h-2.5 w-2.5 shrink-0">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
-              </span>
-              <div className="flex items-center gap-2 truncate">
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-400/15 border border-amber-400/40 text-[10px] sm:text-xs font-black tracking-wider uppercase text-amber-300">
-                  <ShieldCheck className="w-3 h-3 text-amber-400" />
-                  Modo Tienda
-                </span>
-                <span className="text-xs sm:text-sm font-semibold text-slate-100 truncate">
-                  Previsualizando vista de clientes
-                </span>
-                <span className="hidden md:inline text-xs text-slate-300 font-mono">
-                  • Funcionario: <strong className="text-amber-300 font-bold">{userSession?.nombre || 'Funcionario Activo'}</strong> {userSession?.cargo ? `(${userSession.cargo})` : ''}
-                </span>
-              </div>
-            </div>
-
-            {/* Botón de Retorno Inmediato al Portal */}
-            <div className="flex items-center gap-2 ml-auto">
-              <button
-                type="button"
-                onClick={handleReturnToCorporatePortal}
-                className="inline-flex items-center gap-2 px-4 py-1.5 rounded-lg bg-gradient-to-r from-amber-400 via-amber-500 to-yellow-500 hover:from-amber-300 hover:to-yellow-400 text-slate-950 font-black text-xs sm:text-sm tracking-wide shadow-md hover:shadow-amber-500/25 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer group"
-                title="Regresar a la Intranet y Panel Administrativo de Funcionarios"
-              >
-                <ArrowLeft className="w-4 h-4 transition-transform group-hover:-translate-x-1" />
-                <span>Volver al Portal de Funcionarios</span>
-              </button>
-            </div>
-          </div>
-        </aside>
       )}
 
       {/* Main Navigation with Role Switcher (E-commerce Header) */}
@@ -2249,7 +1616,6 @@ export default function App() {
         favoriteIds={favoriteIds}
         onToggleFavorite={handleToggleFavorite}
         ordersCount={userNotificationsCount}
-        unreadNotificationsCount={unreadRealtimeCount}
         cartCount={cart.reduce((sum, item) => sum + item.cantidad, 0)}
         userSession={userSession}
         onOpenProfile={(tab) => handleOpenUserProfile(tab || 'datos')}
@@ -2356,7 +1722,6 @@ export default function App() {
                 orders={orders}
                 onUpdateOrderStatus={(id, st, updates) => handleUpdateOrderStatus(id, st, updates)}
                 onOpenOrderTracking={handleOpenOmniForOrder}
-                onSwitchToClientView={handleSwitchToClientView}
               />
             ) : adminTab === 'rbac' ? (
               <CorporateRBACDashboard
@@ -2539,7 +1904,9 @@ export default function App() {
             console.error('Error descontando stock en pedido carrito:', e);
           }
 
-          setOrders((prev) => [newOrder, ...prev]);
+          // Persistir también en Supabase / respaldo multidispositivo
+          saveOrderToSupabase(newOrder).catch(() => {});
+          setOrders((prev) => [newOrder, ...prev.filter((o) => o.id !== newOrder.id && o.numeroOrden !== newOrder.numeroOrden)]);
           setLastSavedOrder(newOrder);
           if (newOrder.direccionEntrega && userSession) {
             const updatedUser = {
@@ -2699,23 +2066,6 @@ export default function App() {
           isCorporateView={isIntranetActive}
           currentTab={activeClientTab}
         />
-      )}
-
-      {/* Botón Flotante Adicional de Retorno Rápido (Bottom-Left) para Funcionarios en Modo Tienda */}
-      {userRole === 'cliente' && isAuthorizedCorporateUser && (
-        <div className="fixed bottom-6 left-6 z-[950] animate-in fade-in slide-in-from-bottom-4 duration-300">
-          <button
-            type="button"
-            onClick={handleReturnToCorporatePortal}
-            className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-full bg-[#001D3D] hover:bg-slate-900 text-white font-bold text-xs shadow-2xl border-2 border-amber-400/80 hover:border-amber-400 hover:scale-105 active:scale-95 transition-all cursor-pointer group"
-            title="Volver al Portal de Funcionarios"
-          >
-            <div className="w-6 h-6 rounded-full bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950 flex items-center justify-center font-black">
-              <ArrowLeft className="w-3.5 h-3.5 group-hover:-translate-x-0.5 transition-transform" />
-            </div>
-            <span className="pr-1 text-amber-300 group-hover:text-amber-200">Portal Funcionarios</span>
-          </button>
-        </div>
       )}
 
     </div>

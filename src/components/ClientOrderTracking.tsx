@@ -27,9 +27,9 @@ import {
   X
 } from 'lucide-react';
 import { searchSupabaseProjects, SupabaseProjectWithRelations } from '../lib/supabaseService';
-import { isSupabaseConfigured } from '../lib/supabaseClient';
+import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 
-import { isMockOrder } from '../services/ordersService';
+import { isMockOrder, fetchUserOrdersFromDatabase } from '../services/ordersService';
 export { isMockOrder };
 
 interface ClientOrderTrackingProps {
@@ -136,6 +136,51 @@ export const ClientOrderTracking: React.FC<ClientOrderTrackingProps> = ({
     if (!currentUser) return '';
     return (currentUser.email || '').trim().toLowerCase();
   }, [currentUser]);
+
+  // Carga automática desde Supabase + Suscripción Realtime para actualización en vivo entre dispositivos
+  useEffect(() => {
+    if (!isUserLoggedIn || (!currentUser?.id && !userEmailClean && !userDocClean)) return;
+    let isMounted = true;
+
+    const loadOrdersFromSupabase = async () => {
+      try {
+        const dbOrders = await fetchUserOrdersFromDatabase(currentUser?.id, userEmailClean, userDocClean);
+        if (!isMounted || !Array.isArray(dbOrders) || dbOrders.length === 0) return;
+        setAllOrders((prev) => {
+          const map = new Map<string, COLORLINKOrder>();
+          dbOrders.forEach((o) => {
+            if (o && (o.id || o.numeroOrden)) map.set(o.id || o.numeroOrden, o);
+          });
+          prev.forEach((o) => {
+            const key = o.id || o.numeroOrden;
+            if (key && !map.has(key)) map.set(key, o);
+          });
+          return Array.from(map.values());
+        });
+      } catch {}
+    };
+
+    loadOrdersFromSupabase();
+
+    if (!isSupabaseConfigured || !supabase) return;
+
+    const channel = supabase
+      .channel(`tracking-realtime-${userEmailClean || userDocClean || 'user'}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
+        loadOrdersFromSupabase();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'proyectos' }, () => {
+        loadOrdersFromSupabase();
+      })
+      .subscribe();
+
+    return () => {
+      isMounted = false;
+      try {
+        supabase.removeChannel(channel);
+      } catch {}
+    };
+  }, [isUserLoggedIn, currentUser?.id, userEmailClean, userDocClean]);
 
   // Carga automática de pedidos del cliente logueado sin necesidad de búsqueda manual
   // Muestra ÚNICAMENTE compras reales del usuario activo
