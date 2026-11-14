@@ -10,6 +10,7 @@ import {
   RegistroAuditoria,
   NotificacionCorp,
   RolId,
+  PermisosRol,
   ROLES_CORPORATIVOS,
   getAreas,
   saveAreas,
@@ -57,14 +58,9 @@ import {
   descontarInventarioPorPedido,
 } from '../services/corporateService';
 import { ActaRecepcionOCModal } from './ActaRecepcionOCModal';
-import { DocumentViewerNTC1335, ManualId } from './DocumentViewerNTC1335';
-import { AuditoriaActasManager } from './AuditoriaActasManager';
-import { ArchivoDocumentosManager } from './ArchivoDocumentosManager';
 import {
   Building2,
   TrendingUp,
-  FolderOpen,
-  BookOpen,
   Truck,
   HeadphonesIcon,
   Sparkles,
@@ -122,15 +118,18 @@ import {
   MapPin,
   ClipboardCheck,
   ArrowLeftRight,
-  Key,
   Mail,
-  Phone,
+  KeyRound,
   Shield,
-  User,
-  Copy,
-  EyeOff,
+  ArrowLeft,
+  Megaphone,
 } from 'lucide-react';
-import { supabase } from '../lib/supabaseClient';
+import { MercadeoReputacionModule } from './MercadeoReputacionModule';
+import {
+  OrderSatisfactionReview,
+  getSatisfactionReviews,
+  fetchSatisfactionReviewsFromSupabase,
+} from '../services/reviewsService';
 
 interface CorporateIntranetViewProps {
   userSession?: UserSession | null;
@@ -175,6 +174,7 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
   const [traslados, setTraslados] = useState<TrasladoInterSede[]>(getTrasladosInterSedes);
   const [auditoria, setAuditoria] = useState<RegistroAuditoria[]>(getAuditoria);
   const [notificaciones, setNotificaciones] = useState<NotificacionCorp[]>(getNotificaciones);
+  const [satisfactionReviews, setSatisfactionReviews] = useState<OrderSatisfactionReview[]>(getSatisfactionReviews);
 
   // Sincronización en tiempo real ante eventos de storage
   useEffect(() => {
@@ -189,19 +189,24 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
       setTraslados(getTrasladosInterSedes());
       setAuditoria(getAuditoria());
       setNotificaciones(getNotificaciones());
+      setSatisfactionReviews(getSatisfactionReviews());
     };
+
+    fetchSatisfactionReviewsFromSupabase().then(setSatisfactionReviews).catch(() => {});
 
     window.addEventListener('colorlink_corporate_updated', handleStorageUpdate);
     window.addEventListener('colorlink_tickets_updated', handleStorageUpdate);
     window.addEventListener('colorlink_inventory_updated', handleStorageUpdate);
     window.addEventListener('colorlink_ordenes_compra_updated', handleStorageUpdate);
     window.addEventListener('colorlink_traslados_updated', handleStorageUpdate);
+    window.addEventListener('colorlink_reviews_updated', handleStorageUpdate);
     return () => {
       window.removeEventListener('colorlink_corporate_updated', handleStorageUpdate);
       window.removeEventListener('colorlink_tickets_updated', handleStorageUpdate);
       window.removeEventListener('colorlink_inventory_updated', handleStorageUpdate);
       window.removeEventListener('colorlink_ordenes_compra_updated', handleStorageUpdate);
       window.removeEventListener('colorlink_traslados_updated', handleStorageUpdate);
+      window.removeEventListener('colorlink_reviews_updated', handleStorageUpdate);
     };
   }, []);
 
@@ -211,7 +216,7 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<
-    'dashboard' | 'areas' | 'funcionarios' | 'crear_funcionario' | 'tareas' | 'comunidad' | 'logistica' | 'sac' | 'documentos' | 'auditoria'
+    'dashboard' | 'areas' | 'funcionarios' | 'crear_funcionario' | 'tareas' | 'comunidad' | 'logistica' | 'sac' | 'mercadeo' | 'documentos' | 'auditoria'
   >(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
@@ -219,15 +224,16 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
       if (tabParam === 'logistica' || tabParam === 'bodega' || tabParam === 'inventario') return 'logistica';
       if (tabParam === 'dashboard') return 'dashboard';
       if (tabParam === 'sac') return 'sac';
+      if (tabParam === 'mercadeo') return 'mercadeo';
       if (tabParam === 'tareas') return 'tareas';
       if (tabParam === 'areas') return 'areas';
-      if (tabParam === 'crear_funcionario' || tabParam === 'nuevo_funcionario') return 'crear_funcionario';
       if (tabParam === 'funcionarios') return 'funcionarios';
+      if (tabParam === 'crear_funcionario') return 'crear_funcionario';
       if (tabParam === 'comunidad') return 'comunidad';
       if (tabParam === 'documentos') return 'documentos';
-      if (tabParam === 'auditoria' || tabParam === 'actas' || tabParam === 'informes') return 'auditoria';
+      if (tabParam === 'auditoria') return 'auditoria';
       const saved = localStorage.getItem('colorlink_corp_active_tab');
-      if (saved && ['dashboard', 'areas', 'funcionarios', 'crear_funcionario', 'tareas', 'comunidad', 'logistica', 'sac', 'documentos', 'auditoria'].includes(saved)) {
+      if (saved && ['dashboard', 'areas', 'funcionarios', 'crear_funcionario', 'tareas', 'comunidad', 'logistica', 'sac', 'mercadeo', 'documentos', 'auditoria'].includes(saved)) {
         return saved as any;
       }
     }
@@ -274,352 +280,62 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
 
   // Funcionarios
   const [selectedFuncForDetail, setSelectedFuncForDetail] = useState<Funcionario | null>(null);
-  const [isNewFuncModalOpen, setIsNewFuncModalOpen] = useState(false);
   const [deactivatingFunc, setDeactivatingFunc] = useState<Funcionario | null>(null);
   const [reassignTargetId, setReassignTargetId] = useState<string>('');
   const [funcSearch, setFuncSearch] = useState('');
   const [funcFilterArea, setFuncFilterArea] = useState('todos');
   const [funcFilterStatus, setFuncFilterStatus] = useState('todos');
+  const [funcToastMessage, setFuncToastMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
   // Formulario Completo: Crear Nuevo Funcionario
-  const [newFuncNombres, setNewFuncNombres] = useState('');
-  const [newFuncApellidos, setNewFuncApellidos] = useState('');
-  const [newFuncTipoDoc, setNewFuncTipoDoc] = useState<'CC' | 'NIT' | 'CE' | 'Pasaporte'>('CC');
-  const [newFuncDocumento, setNewFuncDocumento] = useState('');
-  const [newFuncTelefono, setNewFuncTelefono] = useState('');
-  const [newFuncCargo, setNewFuncCargo] = useState('');
+  const generateTempPass = () => `Ptc#${Math.random().toString(36).slice(2, 6).toUpperCase()}${Math.floor(100 + Math.random() * 899)}`;
+  const buildCorporateEmailSlug = (nombresStr: string, apellidosStr: string, domain: string) => {
+    const cleanWord = (w: string) =>
+      w
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/ñ/g, 'n')
+        .replace(/[^a-z0-9\s]/g, '')
+        .trim()
+        .split(/\s+/)[0] || '';
+    const first = cleanWord(nombresStr);
+    const last = cleanWord(apellidosStr);
+    if (!first && !last) return `nuevo.colaborador@${domain}`;
+    if (first && last) return `${first}.${last}@${domain}`;
+    return `${first || last}@${domain}`;
+  };
 
-  // Correo Corporativo & Accesos
-  const [newFuncCorporateDomain, setNewFuncCorporateDomain] = useState<'@pintuco.com' | '@colorlink.com'>('@pintuco.com');
-  const [newFuncCorporateEmail, setNewFuncCorporateEmail] = useState('');
-  const [isEmailManuallyEdited, setIsEmailManuallyEdited] = useState(false);
-  const [newFuncPersonalEmail, setNewFuncPersonalEmail] = useState('');
-  const [newFuncTempPassword, setNewFuncTempPassword] = useState('Pintuco.2026*');
-  const [showPasswordText, setShowPasswordText] = useState(false);
-  const [sendWelcomeEmail, setSendWelcomeEmail] = useState(true);
-
-  // Asignación Organizacional
-  const [newFuncAreaId, setNewFuncAreaId] = useState<string>('area-logistica');
-  const [newFuncSedeId, setNewFuncSedeId] = useState<string>('bogota');
-  const [newFuncFechaIngreso, setNewFuncFechaIngreso] = useState<string>(() => new Date().toISOString().split('T')[0]);
-  const [newFuncEstado, setNewFuncEstado] = useState<'Activo' | 'En Inducción'>('Activo');
-
-  // Matriz de Roles y Permisos Modulares
-  const [newFuncRolId, setNewFuncRolId] = useState<RolId>('funcionario');
-  const [newFuncPermisos, setNewFuncPermisos] = useState<{
-    logistica_ver: boolean;
-    logistica_movimientos: boolean;
-    logistica_ocs: boolean;
-    logistica_traslados: boolean;
-    sac_responder: boolean;
-    sac_cerrar: boolean;
-    sac_notas_internas: boolean;
-    tareas_crear: boolean;
-    tareas_aprobar: boolean;
-    tareas_kanban_all: boolean;
-    personal_administrar: boolean;
-    personal_organigrama: boolean;
-    auditoria_ver: boolean;
-    auditoria_exportar: boolean;
-  }>({
-    logistica_ver: true,
-    logistica_movimientos: false,
-    logistica_ocs: false,
-    logistica_traslados: false,
-    sac_responder: false,
-    sac_cerrar: false,
-    sac_notas_internas: false,
-    tareas_crear: true,
-    tareas_aprobar: false,
-    tareas_kanban_all: false,
-    personal_administrar: false,
-    personal_organigrama: false,
-    auditoria_ver: false,
-    auditoria_exportar: false,
+  const defaultFuncRole = ROLES_CORPORATIVOS.find((r) => r.id === 'funcionario') || ROLES_CORPORATIVOS[0];
+  const [newFuncForm, setNewFuncForm] = useState({
+    nombres: '',
+    apellidos: '',
+    tipoDocumento: 'CC',
+    documento: '',
+    telefono: '',
+    personalEmail: '',
+    cargo: '',
+    corporateDomain: 'pintuco.com' as 'pintuco.com' | 'colorlink.com',
+    customCorporateEmail: '',
+    isEmailManual: false,
+    tempPassword: generateTempPass(),
+    sendActivationEmail: true,
+    areaId: 'area-5',
+    sedeId: 'bogota',
+    jefeInmediatoId: '',
+    rolId: 'funcionario' as RolId,
+    permisos: { ...defaultFuncRole.permisos } as PermisosRol,
   });
-
   const [isSubmittingNewFunc, setIsSubmittingNewFunc] = useState(false);
-  const [newFuncSubmitError, setNewFuncSubmitError] = useState<string | null>(null);
-  const [newFuncSubmitSuccess, setNewFuncSubmitSuccess] = useState<string | null>(null);
+  const [newFuncError, setNewFuncError] = useState<string | null>(null);
 
-  // Generación automática del correo corporativo al escribir nombres y apellidos
-  useEffect(() => {
-    if (!isEmailManuallyEdited) {
-      const cleanFirst = newFuncNombres
-        .trim()
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/[^a-z0-9]/g, '');
-      const cleanLast = newFuncApellidos
-        .trim()
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/[^a-z0-9]/g, '');
-
-      if (cleanFirst && cleanLast) {
-        setNewFuncCorporateEmail(`${cleanFirst}.${cleanLast}${newFuncCorporateDomain}`);
-      } else if (cleanFirst) {
-        setNewFuncCorporateEmail(`${cleanFirst}${newFuncCorporateDomain}`);
-      } else {
-        setNewFuncCorporateEmail('');
-      }
-    }
-  }, [newFuncNombres, newFuncApellidos, newFuncCorporateDomain, isEmailManuallyEdited]);
-
-  // Generar contraseña temporal segura
-  const handleGenerateSecurePassword = () => {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%&*';
-    const randomSuffix = Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-    const gen = `Pintuco.${randomSuffix}*`;
-    setNewFuncTempPassword(gen);
-  };
-
-  // Configuración de permisos preestablecidos según el rol seleccionado
-  const handleRoleSelectionChange = (roleId: RolId) => {
-    setNewFuncRolId(roleId);
-    if (roleId === 'superadmin') {
-      setNewFuncPermisos({
-        logistica_ver: true,
-        logistica_movimientos: true,
-        logistica_ocs: true,
-        logistica_traslados: true,
-        sac_responder: true,
-        sac_cerrar: true,
-        sac_notas_internas: true,
-        tareas_crear: true,
-        tareas_aprobar: true,
-        tareas_kanban_all: true,
-        personal_administrar: true,
-        personal_organigrama: true,
-        auditoria_ver: true,
-        auditoria_exportar: true,
-      });
-    } else if (roleId === 'jefe_area' || roleId === 'director_gerente') {
-      setNewFuncPermisos({
-        logistica_ver: true,
-        logistica_movimientos: true,
-        logistica_ocs: true,
-        logistica_traslados: true,
-        sac_responder: true,
-        sac_cerrar: true,
-        sac_notas_internas: true,
-        tareas_crear: true,
-        tareas_aprobar: true,
-        tareas_kanban_all: true,
-        personal_administrar: false,
-        personal_organigrama: true,
-        auditoria_ver: true,
-        auditoria_exportar: true,
-      });
-    } else if (roleId === 'logistica_inventarios') {
-      setNewFuncPermisos({
-        logistica_ver: true,
-        logistica_movimientos: true,
-        logistica_ocs: true,
-        logistica_traslados: true,
-        sac_responder: false,
-        sac_cerrar: false,
-        sac_notas_internas: false,
-        tareas_crear: true,
-        tareas_aprobar: false,
-        tareas_kanban_all: false,
-        personal_administrar: false,
-        personal_organigrama: false,
-        auditoria_ver: false,
-        auditoria_exportar: false,
-      });
-    } else if (roleId === 'agente_sac') {
-      setNewFuncPermisos({
-        logistica_ver: false,
-        logistica_movimientos: false,
-        logistica_ocs: false,
-        logistica_traslados: false,
-        sac_responder: true,
-        sac_cerrar: true,
-        sac_notas_internas: true,
-        tareas_crear: true,
-        tareas_aprobar: false,
-        tareas_kanban_all: false,
-        personal_administrar: false,
-        personal_organigrama: false,
-        auditoria_ver: false,
-        auditoria_exportar: false,
-      });
-    } else {
-      // funcionario estándar / auditor visual
-      setNewFuncPermisos({
-        logistica_ver: true,
-        logistica_movimientos: false,
-        logistica_ocs: false,
-        logistica_traslados: false,
-        sac_responder: false,
-        sac_cerrar: false,
-        sac_notas_internas: false,
-        tareas_crear: true,
-        tareas_aprobar: false,
-        tareas_kanban_all: false,
-        personal_administrar: false,
-        personal_organigrama: false,
-        auditoria_ver: false,
-        auditoria_exportar: false,
-      });
-    }
-  };
-
-  // Guardar y Registrar Funcionario en el sistema, Supabase Auth y notificar
-  const handleSaveNewFuncionario = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setNewFuncSubmitError(null);
-    setNewFuncSubmitSuccess(null);
-
-    const nombres = newFuncNombres.trim();
-    const apellidos = newFuncApellidos.trim();
-    const documento = newFuncDocumento.trim();
-    const cargo = newFuncCargo.trim();
-    const email = newFuncCorporateEmail.trim().toLowerCase();
-    const password = newFuncTempPassword.trim();
-
-    if (!nombres || !apellidos) {
-      setNewFuncSubmitError('Por favor ingresa los Nombres y Apellidos completos del funcionario.');
-      return;
-    }
-    if (!documento) {
-      setNewFuncSubmitError('Por favor ingresa el Número de Documento (Cédula o NIT).');
-      return;
-    }
-    if (!cargo) {
-      setNewFuncSubmitError('Por favor ingresa el Cargo Oficial asignado al colaborador.');
-      return;
-    }
-    if (!email || !email.includes('@') || !email.includes('.')) {
-      setNewFuncSubmitError('El correo corporativo generado o editado no tiene un formato válido.');
-      return;
-    }
-    if (password.length < 6) {
-      setNewFuncSubmitError('La contraseña temporal de acceso debe contener al menos 6 caracteres.');
-      return;
-    }
-
-    setIsSubmittingNewFunc(true);
-
-    try {
-      const fullNombre = `${nombres} ${apellidos}`;
-      const areaObj = areas.find((a) => a.id === newFuncAreaId) || areas[0];
-      const sedeObj = SEDES_CEDI_CONFIG.find((s) => s.id === newFuncSedeId) || SEDES_CEDI_CONFIG[0];
-      const roleObj = ROLES_CORPORATIVOS.find((r) => r.id === newFuncRolId) || ROLES_CORPORATIVOS[4];
-
-      // 1. Guardar en el directorio corporativo
-      const avatarPhotos = [
-        'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&h=120&fit=crop&crop=faces',
-        'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=120&h=120&fit=crop&crop=faces',
-        'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=120&h=120&fit=crop&crop=faces',
-        'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=120&h=120&fit=crop&crop=faces',
-        'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=120&h=120&fit=crop&crop=faces',
-      ];
-      const chosenAvatar = avatarPhotos[Math.floor(Math.random() * avatarPhotos.length)];
-
-      createFuncionario({
-        nombre: fullNombre,
-        avatar: chosenAvatar,
-        email: email,
-        cargo: cargo,
-        areaId: areaObj.id,
-        areaNombre: areaObj.nombre,
-        rolId: newFuncRolId,
-        rolNombre: roleObj.nombre,
-        fechaIngreso: newFuncFechaIngreso || new Date().toISOString().split('T')[0],
-        estado: 'Activo',
-        telefono: newFuncTelefono.trim(),
-      });
-
-      // Actualizar estado reactivo
-      setFuncionarios(getFuncionarios());
-      setAreas(getAreas());
-
-      // 2. Registro en Supabase Auth si está configurado
-      if (supabase && supabase.auth && supabase.auth.signUp) {
-        try {
-          await supabase.auth.signUp({
-            email: email,
-            password: password,
-            options: {
-              data: {
-                nombre: fullNombre,
-                cargo: cargo,
-                documento: `${newFuncTipoDoc} ${documento}`,
-                telefono: newFuncTelefono.trim(),
-                areaId: areaObj.id,
-                areaNombre: areaObj.nombre,
-                sedeId: sedeObj.id,
-                sedeNombre: sedeObj.nombre,
-                rolId: newFuncRolId,
-                rolNombre: roleObj.nombre,
-                permisos: newFuncPermisos,
-              },
-            },
-          });
-        } catch (supaErr) {
-          console.warn('Registro en Supabase Auth completado con advertencia de red:', supaErr);
-        }
-      }
-
-      // 3. Envío de Credenciales de Bienvenida vía API oficial
-      if (sendWelcomeEmail) {
-        try {
-          await fetch('/api/corporate/send-welcome-credentials', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              funcionarioNombre: fullNombre,
-              corporateEmail: email,
-              personalEmail: newFuncPersonalEmail.trim().toLowerCase(),
-              tempPassword: password,
-              cargo: cargo,
-              areaNombre: areaObj.nombre,
-              sedeNombre: sedeObj.nombre,
-              rolNombre: roleObj.nombre,
-              documentoIdentidad: `${newFuncTipoDoc} ${documento}`,
-            }),
-          });
-        } catch (mailErr) {
-          console.warn('Aviso de envío de credenciales:', mailErr);
-        }
-      }
-
-      // 4. Registrar trazabilidad inmutable en Auditoría NTC 1335
-      registrarAuditoria(
-        'Usuarios',
-        'Alta de Funcionario',
-        `Funcionario registrado: ${fullNombre} (${email}) - Cargo: ${cargo} - Área: ${areaObj.nombre} - Sede: ${sedeObj.nombre} - Rol: ${roleObj.nombre}`
-      );
-      setAuditoria(getAuditoria());
-
-      setNewFuncSubmitSuccess(`¡Funcionario ${fullNombre} registrado con éxito en el sistema corporativo y Supabase!`);
-
-      // Limpiar formulario
-      setNewFuncNombres('');
-      setNewFuncApellidos('');
-      setNewFuncDocumento('');
-      setNewFuncTelefono('');
-      setNewFuncCargo('');
-      setNewFuncCorporateEmail('');
-      setIsEmailManuallyEdited(false);
-      setNewFuncPersonalEmail('');
-
-      // Redirigir al Directorio de Personal
-      setTimeout(() => {
-        setIsSubmittingNewFunc(false);
-        setActiveTab('funcionarios');
-      }, 1000);
-
-    } catch (err: any) {
-      console.error('Error registrando funcionario:', err);
-      setIsSubmittingNewFunc(false);
-      setNewFuncSubmitError(err?.message || 'Error registrando funcionario en el sistema.');
-    }
-  };
+  const autoGeneratedCorpEmail = useMemo(
+    () => buildCorporateEmailSlug(newFuncForm.nombres, newFuncForm.apellidos, newFuncForm.corporateDomain),
+    [newFuncForm.nombres, newFuncForm.apellidos, newFuncForm.corporateDomain]
+  );
+  const effectiveCorpEmail = newFuncForm.isEmailManual && newFuncForm.customCorporateEmail.trim()
+    ? newFuncForm.customCorporateEmail.trim().toLowerCase()
+    : autoGeneratedCorpEmail;
 
   // Muro / Comunidad
   const [newPostContent, setNewPostContent] = useState('');
@@ -644,10 +360,14 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
   const [productSizeFilter, setProductSizeFilter] = useState('todos');
   const [productStatusFilter, setProductStatusFilter] = useState<'todos' | 'activos' | 'inactivos' | 'bajo_stock'>('todos');
 
+  // Mercadeo & Reputación
+  const [mercadeoSubTab, setMercadeoSubTab] = useState<'tablero' | 'resenas'>('tablero');
+
   // Navegación en Acordeón para Portal de Funcionarios
   const [accordionOpen, setAccordionOpen] = useState<{ [key: string]: boolean }>({
     logistica: true,
     sac: false,
+    mercadeo: false,
     funcionarios: false,
     tareas: false,
     comunidad: false,
@@ -656,7 +376,7 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
     dashboard: false,
   });
 
-  const toggleAccordion = (sectionKey: string, defaultTab?: 'dashboard' | 'areas' | 'funcionarios' | 'crear_funcionario' | 'tareas' | 'comunidad' | 'logistica' | 'sac' | 'documentos' | 'auditoria') => {
+  const toggleAccordion = (sectionKey: string, defaultTab?: 'dashboard' | 'areas' | 'funcionarios' | 'crear_funcionario' | 'tareas' | 'comunidad' | 'logistica' | 'sac' | 'mercadeo' | 'documentos' | 'auditoria') => {
     setAccordionOpen((prev) => ({
       ...prev,
       [sectionKey]: !prev[sectionKey],
@@ -672,6 +392,8 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
       setAccordionOpen((prev) => ({ ...prev, logistica: true }));
     } else if (activeTab === 'sac') {
       setAccordionOpen((prev) => ({ ...prev, sac: true }));
+    } else if (activeTab === 'mercadeo') {
+      setAccordionOpen((prev) => ({ ...prev, mercadeo: true }));
     } else if (activeTab === 'funcionarios' || activeTab === 'areas' || activeTab === 'crear_funcionario') {
       setAccordionOpen((prev) => ({ ...prev, funcionarios: true }));
     } else if (activeTab === 'tareas') {
@@ -690,41 +412,6 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
   // Subfiltros para comunidad y documentos
   const [comunidadFilter, setComunidadFilter] = useState<'todos' | 'oficiales'>('todos');
   const [docCategoryFilter, setDocCategoryFilter] = useState<'todos' | 'fichas'>('todos');
-  
-  // Sub-pestaña para Documentos: 'archivo' (Archivo & Documentos Legales) | 'manuales' (Manuales Técnicos & NTC 1335)
-  const [documentosSubTab, setDocumentosSubTab] = useState<'archivo' | 'manuales'>(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      const sub = params.get('subtab') || params.get('corpTab') || params.get('docTab');
-      if (sub === 'manuales' || sub === 'ntc1335' || sub === 'fichas' || sub === 'poe' || sub === 'msds') return 'manuales';
-      if (sub === 'archivo' || sub === 'legal' || sub === 'documentos') return 'archivo';
-    }
-    return 'archivo';
-  });
-
-  const [selectedManualId, setSelectedManualId] = useState<ManualId>(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      const m = params.get('manual') || params.get('doc');
-      if (m === 'msds') return 'msds';
-      if (m === 'poe') return 'poe';
-      if (m === 'superficies') return 'superficies';
-    }
-    return 'ntc1335';
-  });
-
-  // Sub-pestaña para Auditoría & Informes: informes | actas | rnc | trazabilidad
-  const [auditoriaSubTab, setAuditoriaSubTab] = useState<'informes' | 'actas' | 'rnc' | 'trazabilidad'>(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      const sub = params.get('subtab') || params.get('corpTab') || params.get('tab');
-      if (sub === 'rnc' || sub === 'noconformidades') return 'rnc';
-      if (sub === 'actas') return 'actas';
-      if (sub === 'trazabilidad' || sub === 'log') return 'trazabilidad';
-      if (sub === 'informes' || sub === 'reportes') return 'informes';
-    }
-    return 'informes';
-  });
 
   // Estado para Recepción de Órdenes de Compra (Compras vs. Logística)
   const [selectedOCForRecepcion, setSelectedOCForRecepcion] = useState<OrdenCompraCorp | null>(null);
@@ -886,7 +573,7 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
     if (tab === 'dashboard' || tab === 'tareas' || tab === 'documentos') return true;
     if (tab === 'areas') return currentRoleConfig.permisos.canManageAreas || activeSimulatedRole === 'director_gerente';
     if (tab === 'funcionarios' || tab === 'crear_funcionario') return currentRoleConfig.permisos.canManageUsers;
-    if (tab === 'comunidad') return true;
+    if (tab === 'comunidad' || tab === 'mercadeo') return true;
     if (tab === 'logistica') return currentRoleConfig.permisos.canManageInventory || activeSimulatedRole === 'director_gerente';
     if (tab === 'sac') return currentRoleConfig.permisos.canAnswerCustomerTickets || activeSimulatedRole === 'director_gerente';
     if (tab === 'auditoria') return currentRoleConfig.permisos.canViewAuditLog;
@@ -1127,6 +814,162 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
     setFuncionarios(getFuncionarios());
     setDeactivatingFunc(null);
     setReassignTargetId('');
+  };
+
+  // -------------------------------------------------------------
+  // ACCIONES: CREAR / REGISTRAR NUEVO FUNCIONARIO
+  // -------------------------------------------------------------
+  const resetNewFuncForm = () => {
+    const baseRole = ROLES_CORPORATIVOS.find((r) => r.id === 'funcionario') || ROLES_CORPORATIVOS[0];
+    setNewFuncForm({
+      nombres: '',
+      apellidos: '',
+      tipoDocumento: 'CC',
+      documento: '',
+      telefono: '',
+      personalEmail: '',
+      cargo: '',
+      corporateDomain: 'pintuco.com',
+      customCorporateEmail: '',
+      isEmailManual: false,
+      tempPassword: generateTempPass(),
+      sendActivationEmail: true,
+      areaId: areas[0]?.id || 'area-5',
+      sedeId: 'bogota',
+      jefeInmediatoId: '',
+      rolId: 'funcionario',
+      permisos: { ...baseRole.permisos },
+    });
+    setNewFuncError(null);
+  };
+
+  const handleSelectRoleForNewFunc = (roleId: RolId) => {
+    const foundRole = ROLES_CORPORATIVOS.find((r) => r.id === roleId);
+    setNewFuncForm((prev) => ({
+      ...prev,
+      rolId: roleId,
+      permisos: foundRole ? { ...foundRole.permisos } : prev.permisos,
+    }));
+  };
+
+  const handleTogglePermisoNewFunc = (permKey: keyof PermisosRol) => {
+    setNewFuncForm((prev) => ({
+      ...prev,
+      permisos: {
+        ...prev.permisos,
+        [permKey]: !prev.permisos[permKey],
+      },
+    }));
+  };
+
+  const handleCreateFuncionarioSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setNewFuncError(null);
+
+    const nombresTrim = newFuncForm.nombres.trim();
+    const apellidosTrim = newFuncForm.apellidos.trim();
+    const docTrim = newFuncForm.documento.trim();
+    const cargoTrim = newFuncForm.cargo.trim();
+    const corpEmailFinal = effectiveCorpEmail.trim().toLowerCase();
+
+    if (!nombresTrim || !apellidosTrim) {
+      setNewFuncError('Por favor ingresa los nombres y apellidos completos del funcionario.');
+      return;
+    }
+    if (!docTrim) {
+      setNewFuncError('Por favor ingresa el número de documento (Cédula / NIT).');
+      return;
+    }
+    if (!cargoTrim) {
+      setNewFuncError('Por favor especifica el cargo oficial del funcionario.');
+      return;
+    }
+    if (!corpEmailFinal || !corpEmailFinal.includes('@')) {
+      setNewFuncError('Por favor verifica que el correo corporativo tenga un formato válido.');
+      return;
+    }
+    if (!newFuncForm.tempPassword || newFuncForm.tempPassword.length < 6) {
+      setNewFuncError('La contraseña temporal debe tener al menos 6 caracteres para Supabase Auth.');
+      return;
+    }
+    if (funcionarios.some((f) => f.email.toLowerCase() === corpEmailFinal)) {
+      setNewFuncError(`Ya existe un funcionario registrado con el correo ${corpEmailFinal}. Personaliza la dirección antes de guardar.`);
+      return;
+    }
+
+    setIsSubmittingNewFunc(true);
+
+    const fullName = `${nombresTrim} ${apellidosTrim}`.trim();
+    const avatarInitials = `${nombresTrim[0] || 'F'}${apellidosTrim[0] || 'C'}`.toUpperCase();
+    const selectedAreaObj = areas.find((a) => a.id === newFuncForm.areaId);
+    const selectedSedeObj = SEDES_CEDI_CONFIG.find((s) => s.id === newFuncForm.sedeId);
+    const selectedRoleObj = ROLES_CORPORATIVOS.find((r) => r.id === newFuncForm.rolId);
+    const selectedJefeObj = funcionarios.find((f) => f.id === newFuncForm.jefeInmediatoId);
+
+    let backendNote = 'Cuenta corporativa registrada';
+    try {
+      if (newFuncForm.sendActivationEmail) {
+        const resp = await fetch('/api/corporate/register-funcionario', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            funcionarioNombre: fullName,
+            corporateEmail: corpEmailFinal,
+            personalEmail: newFuncForm.personalEmail.trim(),
+            tempPassword: newFuncForm.tempPassword,
+            cargo: cargoTrim,
+            areaNombre: selectedAreaObj?.nombre || 'General',
+            sedeNombre: selectedSedeObj?.nombre || 'Nacional',
+            rolId: newFuncForm.rolId,
+            rolNombre: selectedRoleObj?.nombre || 'Funcionario General',
+            documentoIdentidad: `${newFuncForm.tipoDocumento} ${docTrim}`,
+            telefono: newFuncForm.telefono.trim(),
+          }),
+        });
+        const data = await resp.json();
+        if (data?.message) {
+          backendNote = data.message;
+        }
+      }
+    } catch (apiErr) {
+      console.warn('Error llamando a /api/corporate/register-funcionario:', apiErr);
+    }
+
+    createFuncionario({
+      avatar: avatarInitials,
+      nombre: fullName,
+      nombres: nombresTrim,
+      apellidos: apellidosTrim,
+      tipoDocumento: newFuncForm.tipoDocumento,
+      documento: docTrim,
+      email: corpEmailFinal,
+      personalEmail: newFuncForm.personalEmail.trim() || undefined,
+      cargo: cargoTrim,
+      areaId: selectedAreaObj?.id || 'area-5',
+      areaNombre: selectedAreaObj?.nombre || 'Logística y Despachos',
+      sedeId: selectedSedeObj?.id || 'bogota',
+      sedeNombre: selectedSedeObj?.nombre || 'Bogotá - CEDI Principal',
+      rolId: newFuncForm.rolId,
+      rolNombre: selectedRoleObj?.nombre || 'Funcionario General',
+      permisosPersonalizados: { ...newFuncForm.permisos },
+      jefeInmediatoId: selectedJefeObj?.id,
+      jefeInmediatoNombre: selectedJefeObj?.nombre,
+      fechaIngreso: new Date().toISOString().split('T')[0],
+      estado: 'Activo',
+      telefono: newFuncForm.telefono.trim() || '300 000 0000',
+    });
+
+    setFuncionarios(getFuncionarios());
+    setAreas(getAreas());
+    setAuditoria(getAuditoria());
+    setIsSubmittingNewFunc(false);
+    setFuncToastMessage({
+      text: `✅ ${fullName} registrado exitosamente (${corpEmailFinal}). ${backendNote}.`,
+      type: 'success',
+    });
+    setTimeout(() => setFuncToastMessage(null), 6500);
+    resetNewFuncForm();
+    setActiveTab('funcionarios');
   };
 
   // -------------------------------------------------------------
@@ -2311,33 +2154,33 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
             )}
 
             {/* 3. GESTIÓN FUNCIONARIOS */}
-            {(canAccessTab('funcionarios') || canAccessTab('crear_funcionario') || canAccessTab('areas')) && (
+            {(canAccessTab('funcionarios') || canAccessTab('areas')) && (
               <div className="rounded-xl overflow-hidden">
                 <button
                   type="button"
                   onClick={() => toggleAccordion('funcionarios', 'funcionarios')}
                   className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                    activeTab === 'funcionarios' || activeTab === 'crear_funcionario' || activeTab === 'areas'
+                    activeTab === 'funcionarios' || activeTab === 'areas' || activeTab === 'crear_funcionario'
                       ? 'bg-[#001D3D] text-white shadow-sm'
                       : 'text-slate-700 hover:bg-slate-100'
                   }`}
                   title="Gestión de Funcionarios y Áreas"
                 >
                   <div className="flex items-center gap-2.5 truncate">
-                    <Users className={`w-4 h-4 shrink-0 ${activeTab === 'funcionarios' || activeTab === 'crear_funcionario' || activeTab === 'areas' ? 'text-teal-300' : 'text-teal-600'}`} />
+                    <Users className={`w-4 h-4 shrink-0 ${activeTab === 'funcionarios' || activeTab === 'areas' || activeTab === 'crear_funcionario' ? 'text-teal-300' : 'text-teal-600'}`} />
                     {!sidebarCollapsed && <span className="truncate">Gestión Funcionarios</span>}
                   </div>
                   {!sidebarCollapsed && (
                     <div className="flex items-center gap-1.5 shrink-0">
                       <span className={`px-1.5 py-0.2 rounded-full text-[9px] font-black ${
-                        activeTab === 'funcionarios' || activeTab === 'crear_funcionario' || activeTab === 'areas' ? 'bg-teal-500/30 text-teal-200' : 'bg-slate-200 text-slate-700'
+                        activeTab === 'funcionarios' || activeTab === 'areas' || activeTab === 'crear_funcionario' ? 'bg-teal-500/30 text-teal-200' : 'bg-slate-200 text-slate-700'
                       }`}>
                         {funcionarios.length}
                       </span>
                       {accordionOpen.funcionarios ? (
-                        <ChevronDown className={`w-3.5 h-3.5 ${activeTab === 'funcionarios' || activeTab === 'crear_funcionario' || activeTab === 'areas' ? 'text-cyan-300' : 'text-slate-400'}`} />
+                        <ChevronDown className={`w-3.5 h-3.5 ${activeTab === 'funcionarios' || activeTab === 'areas' || activeTab === 'crear_funcionario' ? 'text-cyan-300' : 'text-slate-400'}`} />
                       ) : (
-                        <ChevronRight className={`w-3.5 h-3.5 ${activeTab === 'funcionarios' || activeTab === 'crear_funcionario' || activeTab === 'areas' ? 'text-cyan-300' : 'text-slate-400'}`} />
+                        <ChevronRight className={`w-3.5 h-3.5 ${activeTab === 'funcionarios' || activeTab === 'areas' || activeTab === 'crear_funcionario' ? 'text-cyan-300' : 'text-slate-400'}`} />
                       )}
                     </div>
                   )}
@@ -2369,17 +2212,15 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
                         onClick={() => setActiveTab('crear_funcionario')}
                         className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
                           activeTab === 'crear_funcionario'
-                            ? 'bg-teal-50 text-teal-950 font-black border border-teal-300 shadow-2xs'
+                            ? 'bg-blue-50 text-blue-900 font-black border border-blue-200 shadow-2xs'
                             : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
                         }`}
                       >
                         <div className="flex items-center gap-2 truncate">
-                          <UserPlus className="w-3.5 h-3.5 text-cyan-600 shrink-0" />
+                          <UserPlus className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                           <span className="truncate">Crear Nuevo Funcionario</span>
                         </div>
-                        <span className="px-1.5 py-0.2 rounded-full bg-cyan-100 text-cyan-800 text-[8.5px] font-black uppercase">
-                          Nuevo
-                        </span>
+                        <span className="text-[9px] font-black text-emerald-700 bg-emerald-100 px-1.5 rounded-full">+</span>
                       </button>
                     )}
 
@@ -2545,7 +2386,7 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
               )}
             </div>
 
-            {/* 6. ARCHIVO & DOCUMENTOS LEGALES */}
+            {/* 6. MANUALES & NTC 1335 */}
             <div className="rounded-xl overflow-hidden">
               <button
                 type="button"
@@ -2555,16 +2396,16 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
                     ? 'bg-[#001D3D] text-white shadow-sm'
                     : 'text-slate-700 hover:bg-slate-100'
                 }`}
-                title="Archivo Corporativo y Normativa Legal"
+                title="Normativa y Documentación NTC 1335"
               >
                 <div className="flex items-center gap-2.5 truncate">
                   <FileText className={`w-4 h-4 shrink-0 ${activeTab === 'documentos' ? 'text-cyan-300' : 'text-slate-500'}`} />
-                  {!sidebarCollapsed && <span className="truncate">Archivo & Documentos</span>}
+                  {!sidebarCollapsed && <span className="truncate">Manuales & NTC 1335</span>}
                 </div>
                 {!sidebarCollapsed && (
                   <div className="flex items-center gap-1.5 shrink-0">
                     <span className="px-1.5 py-0.2 rounded-full bg-slate-200 text-slate-700 text-[9px] font-black">
-                      6 Áreas
+                      Normas
                     </span>
                     {accordionOpen.documentos ? (
                       <ChevronDown className={`w-3.5 h-3.5 ${activeTab === 'documentos' ? 'text-cyan-300' : 'text-slate-400'}`} />
@@ -2581,30 +2422,10 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
                     type="button"
                     onClick={() => {
                       setActiveTab('documentos');
-                      setDocumentosSubTab('archivo');
-                    }}
-                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                      activeTab === 'documentos' && documentosSubTab === 'archivo'
-                        ? 'bg-blue-50 text-blue-900 font-black border border-blue-200 shadow-2xs'
-                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
-                    }`}
-                  >
-                    <span className="truncate">Archivo & Documentos Legales</span>
-                    <span className="px-1.5 py-0.2 rounded-full text-[9px] font-black bg-blue-100 text-blue-800">
-                      Corp
-                    </span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveTab('documentos');
-                      setDocumentosSubTab('manuales');
                       setDocCategoryFilter('todos');
-                      setSelectedManualId('ntc1335');
                     }}
                     className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                      activeTab === 'documentos' && documentosSubTab === 'manuales' && selectedManualId === 'ntc1335'
+                      activeTab === 'documentos' && docCategoryFilter === 'todos'
                         ? 'bg-blue-50 text-blue-900 font-black border border-blue-200 shadow-2xs'
                         : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
                     }`}
@@ -2617,36 +2438,85 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
                     type="button"
                     onClick={() => {
                       setActiveTab('documentos');
-                      setDocumentosSubTab('manuales');
                       setDocCategoryFilter('fichas');
-                      setSelectedManualId('msds');
                     }}
                     className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                      activeTab === 'documentos' && documentosSubTab === 'manuales' && selectedManualId === 'msds'
+                      activeTab === 'documentos' && docCategoryFilter === 'fichas'
                         ? 'bg-blue-50 text-blue-900 font-black border border-blue-200 shadow-2xs'
                         : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
                     }`}
                   >
-                    <span className="truncate">Fichas MSDS</span>
-                    <span className="text-[9.5px] font-mono text-slate-500">SGA 2026</span>
+                    <span className="truncate">Fichas MSDS & POE</span>
+                    <span className="text-[9.5px] font-mono text-slate-500">14 Fichas</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* MERCADEO & REPUTACIÓN DE MARCA */}
+            <div className="rounded-xl overflow-hidden">
+              <button
+                type="button"
+                onClick={() => toggleAccordion('mercadeo', 'mercadeo')}
+                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  activeTab === 'mercadeo'
+                    ? 'bg-[#001D3D] text-white shadow-sm'
+                    : 'text-slate-700 hover:bg-slate-100'
+                }`}
+                title="Mercadeo & Reputación de Marca"
+              >
+                <div className="flex items-center gap-2.5 truncate">
+                  <Megaphone className={`w-4 h-4 shrink-0 ${activeTab === 'mercadeo' ? 'text-amber-300' : 'text-rose-600'}`} />
+                  {!sidebarCollapsed && <span className="truncate">Mercadeo & Reputación</span>}
+                </div>
+                {!sidebarCollapsed && (
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className={`px-1.5 py-0.2 rounded-full text-[9px] font-black ${
+                      activeTab === 'mercadeo' ? 'bg-amber-400/25 text-amber-200' : 'bg-amber-100 text-amber-800'
+                    }`}>
+                      {satisfactionReviews.length}
+                    </span>
+                    {accordionOpen.mercadeo ? (
+                      <ChevronDown className={`w-3.5 h-3.5 ${activeTab === 'mercadeo' ? 'text-cyan-300' : 'text-slate-400'}`} />
+                    ) : (
+                      <ChevronRight className={`w-3.5 h-3.5 ${activeTab === 'mercadeo' ? 'text-cyan-300' : 'text-slate-400'}`} />
+                    )}
+                  </div>
+                )}
+              </button>
+
+              {!sidebarCollapsed && accordionOpen.mercadeo && (
+                <div className="ml-3 pl-2.5 border-l-2 border-amber-300 py-1 space-y-0.5 animate-fadeIn">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('mercadeo');
+                      setMercadeoSubTab('tablero');
+                    }}
+                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
+                      activeTab === 'mercadeo' && mercadeoSubTab === 'tablero'
+                        ? 'bg-amber-50 text-amber-950 font-black border border-amber-200 shadow-2xs'
+                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
+                    }`}
+                  >
+                    <span className="truncate">1. Tablero de Satisfacción</span>
+                    <Star className="w-3 h-3 text-amber-500 fill-amber-400 shrink-0" />
                   </button>
 
                   <button
                     type="button"
                     onClick={() => {
-                      setActiveTab('documentos');
-                      setDocumentosSubTab('manuales');
-                      setDocCategoryFilter('fichas');
-                      setSelectedManualId('poe');
+                      setActiveTab('mercadeo');
+                      setMercadeoSubTab('resenas');
                     }}
                     className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                      activeTab === 'documentos' && documentosSubTab === 'manuales' && selectedManualId === 'poe'
-                        ? 'bg-blue-50 text-blue-900 font-black border border-blue-200 shadow-2xs'
+                      activeTab === 'mercadeo' && mercadeoSubTab === 'resenas'
+                        ? 'bg-amber-50 text-amber-950 font-black border border-amber-200 shadow-2xs'
                         : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
                     }`}
                   >
-                    <span className="truncate">Procedimientos POE</span>
-                    <span className="text-[9.5px] font-mono text-slate-500">Tintometría</span>
+                    <span className="truncate">2. Reseñas & Galería</span>
+                    <span className="text-[9.5px] font-mono text-slate-500">{satisfactionReviews.length}</span>
                   </button>
                 </div>
               )}
@@ -2689,64 +2559,9 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
                   <div className="ml-3 pl-2.5 border-l-2 border-violet-200 py-1 space-y-0.5 animate-fadeIn">
                     <button
                       type="button"
-                      onClick={() => {
-                        setActiveTab('auditoria');
-                        setAuditoriaSubTab('informes');
-                      }}
+                      onClick={() => setActiveTab('auditoria')}
                       className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                        activeTab === 'auditoria' && auditoriaSubTab === 'informes'
-                          ? 'bg-violet-50 text-violet-900 font-black border border-violet-200 shadow-2xs'
-                          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
-                      }`}
-                    >
-                      <span className="truncate">Informes y Reportes</span>
-                      <span className="text-[9.5px] font-mono text-slate-500">NTC/ISO</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveTab('auditoria');
-                        setAuditoriaSubTab('actas');
-                      }}
-                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                        activeTab === 'auditoria' && auditoriaSubTab === 'actas'
-                          ? 'bg-violet-50 text-violet-900 font-black border border-violet-200 shadow-2xs'
-                          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
-                      }`}
-                    >
-                      <span className="truncate">Gestión de Actas</span>
-                      <span className="px-1.5 py-0.2 rounded-full text-[9px] font-black bg-violet-100 text-violet-800">
-                        Comités
-                      </span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveTab('auditoria');
-                        setAuditoriaSubTab('rnc');
-                      }}
-                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                        activeTab === 'auditoria' && auditoriaSubTab === 'rnc'
-                          ? 'bg-amber-50 text-amber-900 font-black border border-amber-200 shadow-2xs'
-                          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
-                      }`}
-                    >
-                      <span className="truncate">No Conformidades & Acciones Correctivas (RNC)</span>
-                      <span className="px-1.5 py-0.2 rounded-full text-[9px] font-black bg-amber-100 text-amber-800">
-                        RNC
-                      </span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveTab('auditoria');
-                        setAuditoriaSubTab('trazabilidad');
-                      }}
-                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                        activeTab === 'auditoria' && auditoriaSubTab === 'trazabilidad'
+                        activeTab === 'auditoria'
                           ? 'bg-violet-50 text-violet-900 font-black border border-violet-200 shadow-2xs'
                           : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
                       }`}
@@ -3266,6 +3081,23 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
                 </div>
               </div>
 
+              {funcToastMessage && (
+                <div className={`p-3.5 rounded-2xl border text-xs font-bold flex items-center justify-between gap-3 ${
+                  funcToastMessage.type === 'success'
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                    : 'bg-rose-50 border-rose-200 text-rose-900'
+                }`}>
+                  <span>{funcToastMessage.text}</span>
+                  <button
+                    type="button"
+                    onClick={() => setFuncToastMessage(null)}
+                    className="p-1 rounded-lg hover:bg-white/60 cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+
               {/* Filtros de Tabla */}
               <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-3">
                 <div className="flex-1 min-w-[200px] relative">
@@ -3458,24 +3290,14 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
           )}
 
           {/* =========================================================================
-              MÓDULO 3.1: PANTALLA COMPLETA DE REGISTRO - CREAR NUEVO FUNCIONARIO
+              MÓDULO 3B: CREAR / REGISTRAR NUEVO FUNCIONARIO (PANTALLA COMPLETA)
           ========================================================================= */}
           {activeTab === 'crear_funcionario' && (
             <div className="space-y-6 animate-fadeIn">
-              
-              {/* Encabezado Dinámico: Submódulo Activo + Badge + Botón Volver + Sede/CEDI Activo */}
+              {/* Encabezado Dinámico */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white px-4 py-3 sm:px-5 sm:py-3.5 rounded-2xl border border-slate-200/90 shadow-2xs">
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('funcionarios')}
-                    className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer shrink-0"
-                    title="Volver al Directorio de Personal"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </button>
-
-                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#001D3D] via-[#002D5C] to-[#0A192F] text-cyan-300 flex items-center justify-center shrink-0 shadow-xs ring-1 ring-cyan-500/30">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#001D3D] via-[#002D5C] to-[#0A192F] text-emerald-300 flex items-center justify-center shrink-0 shadow-xs ring-1 ring-emerald-500/30">
                     <UserPlus className="w-4 h-4" />
                   </div>
                   <div>
@@ -3483,741 +3305,445 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
                       <h2 className="text-sm sm:text-base font-black text-slate-900 tracking-tight leading-none">
                         Gestión Funcionarios • Crear Nuevo Funcionario
                       </h2>
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9.5px] font-black bg-cyan-50 text-cyan-800 border border-cyan-200 font-mono">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9.5px] font-black bg-emerald-50 text-emerald-800 border border-emerald-200 font-mono">
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                        Alta ERP & Supabase Auth
+                        Alta en Supabase Auth + Correo Corporativo
                       </span>
                     </div>
                     <p className="text-[10.5px] text-slate-500 font-medium mt-0.5 leading-tight">
-                      Registro de Personal, Asignación de Roles RBAC y Credenciales Oficiales de Acceso
+                      Registro institucional, generación automática de correo corporativo y asignación granular de roles y permisos
                     </p>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
-                  {/* Selector de Sede CEDI activo */}
-                  <div className="flex items-center gap-2 bg-slate-50 hover:bg-slate-100/90 py-1 px-2.5 rounded-md border border-slate-200/90 transition-all shadow-2xs shrink-0">
-                    <div className="w-5 h-5 rounded bg-cyan-50 text-cyan-700 flex items-center justify-center border border-cyan-200/80 shrink-0 shadow-2xs">
-                      <MapPin className="w-3 h-3" />
-                    </div>
-                    <div className="text-left">
-                      <label htmlFor="sedeSelectorCrearFunc" className="text-[8.5px] font-black text-slate-400 uppercase tracking-wider block leading-none">
-                        Sede / CEDI Activo:
-                      </label>
-                      <select
-                        id="sedeSelectorCrearFunc"
-                        value={selectedSede}
-                        onChange={(e) => setSelectedSede(e.target.value)}
-                        className="bg-transparent text-slate-900 font-black text-[11px] focus:outline-none cursor-pointer mt-0.5 pr-1 leading-tight"
-                      >
-                        <option value="todas">🏢 Todas las Sedes (Consolidado Nacional)</option>
-                        {SEDES_CEDI_CONFIG.map((sede) => (
-                          <option key={sede.id} value={sede.id}>
-                            📍 {sede.nombre}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
                   <button
                     type="button"
-                    onClick={() => setActiveTab('funcionarios')}
-                    className="px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
+                    onClick={() => {
+                      resetNewFuncForm();
+                      setActiveTab('funcionarios');
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs flex items-center gap-1.5 cursor-pointer"
                   >
-                    <span>Directorio</span>
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    <span>Volver al Directorio</span>
                   </button>
                 </div>
               </div>
 
-              {/* Formulario Principal de Registro */}
-              <form onSubmit={handleSaveNewFuncionario} className="space-y-6">
+              {newFuncError && (
+                <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-bold flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                  <span>{newFuncError}</span>
+                </div>
+              )}
 
-                {/* Banner de Feedback de Errores o Éxito */}
-                {newFuncSubmitError && (
-                  <div className="p-4 rounded-2xl bg-rose-50 border border-rose-300 text-rose-900 flex items-start gap-3 animate-fadeIn shadow-xs">
-                    <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
-                    <div className="flex-1 text-xs">
-                      <strong className="font-bold block">No se pudo registrar el funcionario:</strong>
-                      <p className="mt-0.5">{newFuncSubmitError}</p>
+              <form onSubmit={handleCreateFuncionarioSubmit} className="space-y-6">
+                {/* BLOQUE 1: DATOS PERSONALES & CONTACTO */}
+                <div className="bg-white rounded-3xl border border-slate-200 shadow-xs p-5 sm:p-6 space-y-4">
+                  <div className="flex items-center gap-2.5 border-b border-slate-100 pb-3">
+                    <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-800 flex items-center justify-center font-black text-xs">
+                      1
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setNewFuncSubmitError(null)}
-                      className="text-rose-500 hover:text-rose-700 p-1"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                )}
-
-                {newFuncSubmitSuccess && (
-                  <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-300 text-emerald-900 flex items-start gap-3 animate-fadeIn shadow-xs">
-                    <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
-                    <div className="flex-1 text-xs">
-                      <strong className="font-bold block">¡Registro Exitoso!</strong>
-                      <p className="mt-0.5">{newFuncSubmitSuccess}</p>
-                      <span className="text-[10px] text-emerald-700 mt-1 block">Redirigiendo al directorio de personal...</span>
+                    <div>
+                      <h3 className="text-sm font-black text-slate-900">Datos Personales & Contacto</h3>
+                      <p className="text-[11px] text-slate-500">Identificación oficial, información de contacto y cargo asignado en la compañía</p>
                     </div>
                   </div>
-                )}
 
-                {/* =========================================================================
-                    SECCIÓN 1: DATOS PERSONALES & CONTACTO
-                ========================================================================= */}
-                <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-xs space-y-4">
-                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-7 h-7 rounded-lg bg-teal-50 text-teal-700 flex items-center justify-center font-bold">
-                        <User className="w-4 h-4" />
-                      </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                        Nombres Completos <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={newFuncForm.nombres}
+                        onChange={(e) => setNewFuncForm((p) => ({ ...p, nombres: e.target.value }))}
+                        placeholder="Ej: Laura Camila"
+                        className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 border border-slate-200 focus:border-blue-500 focus:bg-white outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                        Apellidos Completos <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={newFuncForm.apellidos}
+                        onChange={(e) => setNewFuncForm((p) => ({ ...p, apellidos: e.target.value }))}
+                        placeholder="Ej: Mendoza Restrepo"
+                        className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 border border-slate-200 focus:border-blue-500 focus:bg-white outline-none"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2">
                       <div>
-                        <h3 className="font-black text-sm text-slate-900">1. Datos Personales & Contacto</h3>
-                        <p className="text-[11px] text-slate-500">Información básica de identificación oficial y comunicación del funcionario</p>
+                        <label className="block text-[11px] font-bold text-slate-700 mb-1">Tipo Doc.</label>
+                        <select
+                          value={newFuncForm.tipoDocumento}
+                          onChange={(e) => setNewFuncForm((p) => ({ ...p, tipoDocumento: e.target.value }))}
+                          className="w-full px-2.5 py-2 text-xs rounded-xl bg-slate-50 border border-slate-200 font-semibold outline-none"
+                        >
+                          <option value="CC">CC</option>
+                          <option value="CE">CE</option>
+                          <option value="NIT">NIT</option>
+                          <option value="PAS">PAS</option>
+                        </select>
+                      </div>
+                      <div className="col-span-2">
+                        <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                          Número de Documento <span className="text-rose-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={newFuncForm.documento}
+                          onChange={(e) => setNewFuncForm((p) => ({ ...p, documento: e.target.value }))}
+                          placeholder="Ej: 1020458912"
+                          className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 border border-slate-200 focus:border-blue-500 focus:bg-white outline-none font-mono"
+                        />
                       </div>
                     </div>
-                    <span className="text-[10px] font-bold text-teal-800 bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200">
-                      Obligatorio
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-xs">
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
-                        Nombres Completos <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        placeholder="Ej: Carlos Andrés"
-                        value={newFuncNombres}
-                        onChange={(e) => setNewFuncNombres(e.target.value)}
-                        className="w-full px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 font-semibold focus:bg-white focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500"
-                      />
-                    </div>
 
                     <div>
-                      <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
-                        Apellidos <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        placeholder="Ej: Restrepo Gómez"
-                        value={newFuncApellidos}
-                        onChange={(e) => setNewFuncApellidos(e.target.value)}
-                        className="w-full px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 font-semibold focus:bg-white focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
-                        Cargo Oficial en Pintuco <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        placeholder="Ej: Coordinador de Logística Mamonal"
-                        value={newFuncCargo}
-                        onChange={(e) => setNewFuncCargo(e.target.value)}
-                        className="w-full px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 font-semibold focus:bg-white focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
-                        Tipo de Documento
-                      </label>
-                      <select
-                        value={newFuncTipoDoc}
-                        onChange={(e) => setNewFuncTipoDoc(e.target.value as any)}
-                        className="w-full px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 font-semibold focus:bg-white focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500 cursor-pointer"
-                      >
-                        <option value="CC">Cédula de Ciudadanía (CC)</option>
-                        <option value="NIT">NIT (Empresarial / Contratista)</option>
-                        <option value="CE">Cédula de Extranjería (CE)</option>
-                        <option value="Pasaporte">Pasaporte</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
-                        Número de Documento <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        placeholder="Ej: 1.020.304.506 o 900.845.120-4"
-                        value={newFuncDocumento}
-                        onChange={(e) => setNewFuncDocumento(e.target.value)}
-                        className="w-full px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 font-semibold focus:bg-white focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
-                        Teléfono Móvil / Contacto
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                        Teléfono Personal / Corporativo <span className="text-rose-500">*</span>
                       </label>
                       <input
                         type="tel"
-                        placeholder="Ej: 310 456 7890"
-                        value={newFuncTelefono}
-                        onChange={(e) => setNewFuncTelefono(e.target.value)}
-                        className="w-full px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 font-semibold focus:bg-white focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500"
+                        required
+                        value={newFuncForm.telefono}
+                        onChange={(e) => setNewFuncForm((p) => ({ ...p, telefono: e.target.value }))}
+                        placeholder="Ej: 315 842 9104"
+                        className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 border border-slate-200 focus:border-blue-500 focus:bg-white outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                        Cargo Oficial <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={newFuncForm.cargo}
+                        onChange={(e) => setNewFuncForm((p) => ({ ...p, cargo: e.target.value }))}
+                        placeholder="Ej: Analista de Logística y Despachos"
+                        className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 border border-slate-200 focus:border-blue-500 focus:bg-white outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                        Correo Personal (Copia de Bienvenida)
+                      </label>
+                      <input
+                        type="email"
+                        value={newFuncForm.personalEmail}
+                        onChange={(e) => setNewFuncForm((p) => ({ ...p, personalEmail: e.target.value }))}
+                        placeholder="Opcional: ej. laura.mendoza@gmail.com"
+                        className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 border border-slate-200 focus:border-blue-500 focus:bg-white outline-none"
                       />
                     </div>
                   </div>
                 </div>
 
-                {/* =========================================================================
-                    SECCIÓN 2: CORREO CORPORATIVO & ACCESOS
-                ========================================================================= */}
-                <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-xs space-y-4">
-                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                {/* BLOQUE 2: CORREO CORPORATIVO & CREDENCIALES / ACCESOS */}
+                <div className="bg-white rounded-3xl border border-slate-200 shadow-xs p-5 sm:p-6 space-y-4">
+                  <div className="flex items-center justify-between flex-wrap gap-2 border-b border-slate-100 pb-3">
                     <div className="flex items-center gap-2.5">
-                      <div className="w-7 h-7 rounded-lg bg-blue-50 text-blue-700 flex items-center justify-center font-bold">
-                        <Mail className="w-4 h-4" />
+                      <div className="w-8 h-8 rounded-xl bg-cyan-50 text-cyan-800 flex items-center justify-center font-black text-xs">
+                        2
                       </div>
                       <div>
-                        <h3 className="font-black text-sm text-slate-900">2. Correo Corporativo & Credenciales de Acceso</h3>
-                        <p className="text-[11px] text-slate-500">
-                          Buzón institucional generado automáticamente con opción de edición manual y clave temporal
-                        </p>
+                        <h3 className="text-sm font-black text-slate-900">Correo Corporativo & Accesos Supabase Auth</h3>
+                        <p className="text-[11px] text-slate-500">Generación automática basada en nombre y apellido, credenciales temporales y envío de activación</p>
                       </div>
                     </div>
-                    <span className="text-[10px] font-bold text-blue-800 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
-                      Infraestructura Pintuco
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-bold text-slate-500">Dominio:</span>
+                      <select
+                        value={newFuncForm.corporateDomain}
+                        onChange={(e) => setNewFuncForm((p) => ({ ...p, corporateDomain: e.target.value as 'pintuco.com' | 'colorlink.com' }))}
+                        disabled={newFuncForm.isEmailManual}
+                        className="px-2.5 py-1 text-xs rounded-lg bg-slate-100 border border-slate-200 font-bold text-blue-900"
+                      >
+                        <option value="pintuco.com">@pintuco.com</option>
+                        <option value="colorlink.com">@colorlink.com</option>
+                      </select>
+                    </div>
                   </div>
 
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 text-xs">
-                    {/* Generador de Correo Corporativo */}
-                    <div className="space-y-2 p-4 rounded-2xl bg-blue-50/60 border border-blue-200/80">
-                      <div className="flex items-center justify-between">
-                        <label className="block text-[11px] font-bold text-blue-950 uppercase tracking-wider">
-                          Dirección de Correo Corporativo <span className="text-red-500">*</span>
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                    <div className="p-4 rounded-2xl bg-sky-50/70 border border-sky-200 space-y-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <label className="text-xs font-black text-blue-950 flex items-center gap-1.5">
+                          <Mail className="w-4 h-4 text-blue-700" />
+                          <span>Correo Corporativo Asignado</span>
                         </label>
-                        <div className="flex items-center gap-1 text-[10px]">
-                          <span className="text-slate-500 font-medium">Dominio:</span>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setNewFuncCorporateDomain('@pintuco.com');
-                              setIsEmailManuallyEdited(false);
-                            }}
-                            className={`px-1.5 py-0.5 rounded font-bold cursor-pointer transition-colors ${
-                              newFuncCorporateDomain === '@pintuco.com' ? 'bg-[#001D3D] text-white' : 'bg-white text-slate-700'
-                            }`}
-                          >
-                            @pintuco.com
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setNewFuncCorporateDomain('@colorlink.com');
-                              setIsEmailManuallyEdited(false);
-                            }}
-                            className={`px-1.5 py-0.5 rounded font-bold cursor-pointer transition-colors ${
-                              newFuncCorporateDomain === '@colorlink.com' ? 'bg-[#001D3D] text-white' : 'bg-white text-slate-700'
-                            }`}
-                          >
-                            @colorlink.com
-                          </button>
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setNewFuncForm((p) => ({
+                              ...p,
+                              isEmailManual: !p.isEmailManual,
+                              customCorporateEmail: !p.isEmailManual ? autoGeneratedCorpEmail : p.customCorporateEmail,
+                            }))
+                          }
+                          className="text-[11px] font-bold text-blue-700 hover:underline flex items-center gap-1 cursor-pointer"
+                        >
+                          <Edit3 className="w-3 h-3" />
+                          <span>{newFuncForm.isEmailManual ? 'Usar generación automática' : 'Personalizar dirección'}</span>
+                        </button>
                       </div>
 
-                      <div className="relative">
+                      {newFuncForm.isEmailManual ? (
                         <input
                           type="email"
                           required
-                          value={newFuncCorporateEmail}
-                          onChange={(e) => {
-                            setNewFuncCorporateEmail(e.target.value);
-                            setIsEmailManuallyEdited(true);
-                          }}
+                          value={newFuncForm.customCorporateEmail}
+                          onChange={(e) => setNewFuncForm((p) => ({ ...p, customCorporateEmail: e.target.value }))}
                           placeholder="nombre.apellido@pintuco.com"
-                          className="w-full pl-9 pr-24 py-2.5 rounded-xl bg-white border border-blue-300 text-blue-950 font-bold font-mono focus:border-blue-600 focus:outline-none focus:ring-1 focus:ring-blue-600"
+                          className="w-full px-3 py-2 text-xs font-mono font-bold rounded-xl bg-white border border-blue-300 text-blue-950 outline-none"
                         />
-                        <Mail className="w-4 h-4 text-blue-600 absolute left-3 top-3" />
+                      ) : (
+                        <div className="px-3.5 py-2.5 rounded-xl bg-white border border-sky-200 flex items-center justify-between gap-2">
+                          <span className="font-mono text-xs sm:text-sm font-black text-blue-900 truncate">
+                            {autoGeneratedCorpEmail}
+                          </span>
+                          <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-emerald-100 text-emerald-800 shrink-0">
+                            Auto-generado
+                          </span>
+                        </div>
+                      )}
+                      <p className="text-[10.5px] text-slate-600">
+                        Este correo se utilizará como identificador principal en el directorio y para crear la cuenta en Supabase Auth.
+                      </p>
+                    </div>
+
+                    <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <label className="text-xs font-black text-slate-900 flex items-center gap-1.5">
+                          <KeyRound className="w-4 h-4 text-amber-600" />
+                          <span>Contraseña Temporal de Activación</span>
+                        </label>
                         <button
                           type="button"
-                          onClick={() => {
-                            setIsEmailManuallyEdited(false);
-                            const cleanFirst = newFuncNombres.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
-                            const cleanLast = newFuncApellidos.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
-                            if (cleanFirst && cleanLast) {
-                              setNewFuncCorporateEmail(`${cleanFirst}.${cleanLast}${newFuncCorporateDomain}`);
-                            } else if (cleanFirst) {
-                              setNewFuncCorporateEmail(`${cleanFirst}${newFuncCorporateDomain}`);
-                            }
-                          }}
-                          className="absolute right-2 top-2 px-2 py-1 rounded-lg bg-blue-100 hover:bg-blue-200 text-blue-900 text-[10px] font-bold cursor-pointer flex items-center gap-1 transition-colors"
-                          title="Volver a generar a partir del nombre y apellido"
+                          onClick={() => setNewFuncForm((p) => ({ ...p, tempPassword: generateTempPass() }))}
+                          className="text-[11px] font-bold text-slate-700 hover:text-blue-900 flex items-center gap-1 cursor-pointer"
                         >
                           <RefreshCw className="w-3 h-3" />
-                          <span>Regenerar</span>
+                          <span>Generar nueva</span>
                         </button>
                       </div>
 
-                      <p className="text-[10.5px] text-blue-800 leading-tight">
-                        💡 Este buzón se activará para ingreso al Portal de Funcionarios y sincronización con Microsoft 365 / Google Workspace.
-                      </p>
-                    </div>
+                      <input
+                        type="text"
+                        required
+                        value={newFuncForm.tempPassword}
+                        onChange={(e) => setNewFuncForm((p) => ({ ...p, tempPassword: e.target.value }))}
+                        placeholder="Mínimo 6 caracteres"
+                        className="w-full px-3 py-2 text-xs font-mono font-bold rounded-xl bg-white border border-slate-300 text-slate-900 outline-none"
+                      />
 
-                    {/* Correo Personal para envío de Credenciales */}
-                    <div className="space-y-2 p-4 rounded-2xl bg-slate-50 border border-slate-200">
-                      <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider">
-                        Correo Personal de Respaldo / Notificación
+                      <label className="flex items-center gap-2 text-[11px] text-slate-700 font-semibold cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={newFuncForm.sendActivationEmail}
+                          onChange={(e) => setNewFuncForm((p) => ({ ...p, sendActivationEmail: e.target.checked }))}
+                          className="rounded border-slate-300 text-blue-900"
+                        />
+                        <span>Registrar en Supabase Auth y enviar mensaje de bienvenida con credenciales temporales</span>
                       </label>
-                      <div className="relative">
-                        <input
-                          type="email"
-                          value={newFuncPersonalEmail}
-                          onChange={(e) => setNewFuncPersonalEmail(e.target.value)}
-                          placeholder="Ej: funcionario.personal@gmail.com"
-                          className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-white border border-slate-300 text-slate-900 font-semibold focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                        />
-                        <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-                      </div>
-                      <p className="text-[10.5px] text-slate-500 leading-tight">
-                        Opcional: Se remitirá una copia cifrada de las credenciales oficiales de bienvenida a este buzón personal.
-                      </p>
-                    </div>
-
-                    {/* Contraseña Temporal y Accesos Supabase */}
-                    <div className="space-y-2 p-4 rounded-2xl bg-amber-50/70 border border-amber-200 lg:col-span-2">
-                      <div className="flex items-center justify-between">
-                        <label className="block text-[11px] font-bold text-amber-950 uppercase tracking-wider">
-                          Contraseña Temporal de Acceso (Supabase Auth & ERP) <span className="text-red-500">*</span>
-                        </label>
-                        <button
-                          type="button"
-                          onClick={handleGenerateSecurePassword}
-                          className="px-2 py-1 rounded-lg bg-amber-200 hover:bg-amber-300 text-amber-950 text-[10px] font-black cursor-pointer flex items-center gap-1 transition-colors"
-                        >
-                          <Key className="w-3 h-3" />
-                          <span>Generar Clave Segura</span>
-                        </button>
-                      </div>
-
-                      <div className="relative">
-                        <input
-                          type={showPasswordText ? 'text' : 'password'}
-                          required
-                          value={newFuncTempPassword}
-                          onChange={(e) => setNewFuncTempPassword(e.target.value)}
-                          placeholder="Mínimo 6 caracteres"
-                          className="w-full pl-9 pr-24 py-2.5 rounded-xl bg-white border border-amber-300 text-slate-900 font-mono font-bold focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600"
-                        />
-                        <Lock className="w-4 h-4 text-amber-600 absolute left-3 top-3" />
-                        <button
-                          type="button"
-                          onClick={() => setShowPasswordText(!showPasswordText)}
-                          className="absolute right-2 top-2 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-bold cursor-pointer flex items-center gap-1"
-                        >
-                          {showPasswordText ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                          <span>{showPasswordText ? 'Ocultar' : 'Ver'}</span>
-                        </button>
-                      </div>
-
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1 border-t border-amber-200/80">
-                        <span className="text-[10.5px] text-amber-800 font-medium">
-                          🔒 Se activará la solicitud de cambio obligatorio de contraseña en el primer inicio de sesión (Norma NTC 1335).
-                        </span>
-                        <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-800 shrink-0">
-                          <input
-                            type="checkbox"
-                            checked={sendWelcomeEmail}
-                            onChange={(e) => setSendWelcomeEmail(e.target.checked)}
-                            className="w-4 h-4 text-[#001D3D] rounded cursor-pointer"
-                          />
-                          <span>Enviar credenciales de bienvenida por correo</span>
-                        </label>
-                      </div>
                     </div>
                   </div>
                 </div>
 
-                {/* =========================================================================
-                    SECCIÓN 3: ASIGNACIÓN ORGANIZACIONAL & SEDE
-                ========================================================================= */}
-                <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-xs space-y-4">
-                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-7 h-7 rounded-lg bg-indigo-50 text-indigo-700 flex items-center justify-center font-bold">
-                        <Building2 className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <h3 className="font-black text-sm text-slate-900">3. Asignación Organizacional & Centro Logístico</h3>
-                        <p className="text-[11px] text-slate-500">Definición de Área Corporativa, Sede CEDI y vinculación de fecha de ingreso</p>
-                      </div>
+                {/* BLOQUE 3: ASIGNACIÓN ORGANIZACIONAL */}
+                <div className="bg-white rounded-3xl border border-slate-200 shadow-xs p-5 sm:p-6 space-y-4">
+                  <div className="flex items-center gap-2.5 border-b border-slate-100 pb-3">
+                    <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-800 flex items-center justify-center font-black text-xs">
+                      3
                     </div>
-                    <span className="text-[10px] font-bold text-indigo-800 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-200">
-                      Estructura Pintuco
-                    </span>
+                    <div>
+                      <h3 className="text-sm font-black text-slate-900">Asignación Organizacional</h3>
+                      <p className="text-[11px] text-slate-500">Define el Área Principal, la Sede / CEDI operativo y la línea de reporte</p>
+                    </div>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
-                    {/* Selector de Área */}
-                    <div className="sm:col-span-2">
-                      <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
-                        Área Principal Corporativa (13 Áreas) <span className="text-red-500">*</span>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                        Área Principal <span className="text-rose-500">*</span>
                       </label>
                       <select
-                        value={newFuncAreaId}
-                        onChange={(e) => setNewFuncAreaId(e.target.value)}
-                        className="w-full px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 font-bold focus:bg-white focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                        value={newFuncForm.areaId}
+                        onChange={(e) => setNewFuncForm((p) => ({ ...p, areaId: e.target.value }))}
+                        className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 border border-slate-200 font-semibold text-slate-900 outline-none"
                       >
                         {areas.map((area) => (
                           <option key={area.id} value={area.id}>
-                            🏢 {area.nombre} ({area.codigo}) — Líder: {area.liderNombre}
+                            [{area.codigo}] {area.nombre}
                           </option>
                         ))}
                       </select>
                     </div>
 
-                    {/* Selector de Sede CEDI */}
-                    <div className="sm:col-span-2">
-                      <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
-                        Sede / Centro de Distribución (CEDI) Asignado <span className="text-red-500">*</span>
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                        Sede / CEDI Asignada <span className="text-rose-500">*</span>
                       </label>
                       <select
-                        value={newFuncSedeId}
-                        onChange={(e) => setNewFuncSedeId(e.target.value)}
-                        className="w-full px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 font-bold focus:bg-white focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                        value={newFuncForm.sedeId}
+                        onChange={(e) => setNewFuncForm((p) => ({ ...p, sedeId: e.target.value }))}
+                        className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 border border-slate-200 font-semibold text-slate-900 outline-none"
                       >
                         {SEDES_CEDI_CONFIG.map((sede) => (
                           <option key={sede.id} value={sede.id}>
-                            📍 {sede.nombre} — {sede.ciudad}
+                            {sede.nombre} ({sede.ciudad})
                           </option>
                         ))}
                       </select>
                     </div>
 
                     <div>
-                      <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
-                        Fecha Oficial de Ingreso
-                      </label>
-                      <input
-                        type="date"
-                        value={newFuncFechaIngreso}
-                        onChange={(e) => setNewFuncFechaIngreso(e.target.value)}
-                        className="w-full px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 font-semibold focus:bg-white focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
-                        Estado Inicial del Colaborador
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                        Jefe Inmediato / Líder de Reporte
                       </label>
                       <select
-                        value={newFuncEstado}
-                        onChange={(e) => setNewFuncEstado(e.target.value as any)}
-                        className="w-full px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 font-bold focus:bg-white focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                        value={newFuncForm.jefeInmediatoId}
+                        onChange={(e) => setNewFuncForm((p) => ({ ...p, jefeInmediatoId: e.target.value }))}
+                        className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 border border-slate-200 font-semibold text-slate-900 outline-none"
                       >
-                        <option value="Activo">🟢 Activo Inmediato</option>
-                        <option value="En Inducción">🟡 En Proceso de Inducción</option>
+                        <option value="">-- Sin jefe asignado / Reporta a Dirección --</option>
+                        {funcionarios
+                          .filter((f) => f.estado === 'Activo')
+                          .map((f) => (
+                            <option key={f.id} value={f.id}>
+                              {f.nombre} ({f.cargo})
+                            </option>
+                          ))}
                       </select>
-                    </div>
-
-                    {/* Resumen de Área Seleccionada */}
-                    <div className="sm:col-span-2 p-3 rounded-xl bg-indigo-50/70 border border-indigo-200 text-[11px] text-indigo-950 flex items-center justify-between">
-                      <div>
-                        <span className="font-bold block">
-                          Área: {areas.find((a) => a.id === newFuncAreaId)?.nombre || 'Seleccionada'}
-                        </span>
-                        <span className="text-indigo-800 text-[10px]">
-                          Jefe Inmediato: {areas.find((a) => a.id === newFuncAreaId)?.liderNombre || 'Por asignar'} ({areas.find((a) => a.id === newFuncAreaId)?.liderCargo || 'Líder'})
-                        </span>
-                      </div>
-                      <span className="font-mono text-[10px] font-bold bg-white px-2 py-0.5 rounded text-indigo-900 border border-indigo-200">
-                        {areas.find((a) => a.id === newFuncAreaId)?.empleadosCount || 0} Miembros
-                      </span>
                     </div>
                   </div>
                 </div>
 
-                {/* =========================================================================
-                    SECCIÓN 4: MATRIZ DE ROLES Y PERMISOS EN LA PLATAFORMA
-                ========================================================================= */}
-                <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-xs space-y-5">
-                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                {/* BLOQUE 4: MATRIZ DE ROLES Y PERMISOS GRANULARES */}
+                <div className="bg-white rounded-3xl border border-slate-200 shadow-xs p-5 sm:p-6 space-y-5">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
                     <div className="flex items-center gap-2.5">
-                      <div className="w-7 h-7 rounded-lg bg-violet-50 text-violet-700 flex items-center justify-center font-bold">
-                        <ShieldCheck className="w-4 h-4" />
+                      <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-800 flex items-center justify-center font-black text-xs">
+                        4
                       </div>
                       <div>
-                        <h3 className="font-black text-sm text-slate-900">4. Matriz de Roles & Permisos en la Plataforma</h3>
-                        <p className="text-[11px] text-slate-500">Selección del nivel jerárquico y concesión granular de privilegios modulares</p>
+                        <h3 className="text-sm font-black text-slate-900">Matriz de Roles y Permisos Granulares (RBAC)</h3>
+                        <p className="text-[11px] text-slate-500">Selecciona un rol base y ajusta permisos específicos de lectura, edición o gestión</p>
                       </div>
                     </div>
-                    <span className="text-[10px] font-bold text-violet-800 bg-violet-50 px-2 py-0.5 rounded-full border border-violet-200">
-                      RBAC NTC 1335
+
+                    <div className="min-w-[240px]">
+                      <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">
+                        Plantilla de Rol Base:
+                      </label>
+                      <select
+                        value={newFuncForm.rolId}
+                        onChange={(e) => handleSelectRoleForNewFunc(e.target.value as RolId)}
+                        className="w-full px-3 py-2 text-xs rounded-xl bg-[#001D3D] text-white font-bold outline-none cursor-pointer"
+                      >
+                        {ROLES_CORPORATIVOS.map((rol) => (
+                          <option key={rol.id} value={rol.id}>
+                            {rol.nombre} (Nivel {rol.nivel})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Descripción del rol seleccionado */}
+                  <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 text-xs text-slate-600 flex items-center gap-2">
+                    <Shield className="w-4 h-4 text-blue-800 shrink-0" />
+                    <span>
+                      <strong className="text-slate-900">
+                        {ROLES_CORPORATIVOS.find((r) => r.id === newFuncForm.rolId)?.nombre}:
+                      </strong>{' '}
+                      {ROLES_CORPORATIVOS.find((r) => r.id === newFuncForm.rolId)?.descripcion}
                     </span>
                   </div>
 
-                  {/* Selector de Rol Principal */}
-                  <div className="space-y-2">
-                    <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider">
-                      Rol Funcional Asignado <span className="text-red-500">*</span>
-                    </label>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-                      {ROLES_CORPORATIVOS.map((r) => {
-                        const isSelected = newFuncRolId === r.id;
-                        return (
-                          <div
-                            key={r.id}
-                            onClick={() => handleRoleSelectionChange(r.id)}
-                            className={`p-3 rounded-2xl border-2 transition-all cursor-pointer flex flex-col justify-between ${
-                              isSelected
-                                ? 'border-[#001D3D] bg-blue-50/80 shadow-xs'
-                                : 'border-slate-200 hover:border-slate-300 bg-white'
-                            }`}
-                          >
-                            <div className="flex items-center justify-between">
-                              <span className="font-black text-xs text-slate-900">{r.nombre}</span>
-                              <span className={`text-[9px] font-mono px-1.5 py-0.2 rounded font-bold ${
-                                r.nivel === 1 ? 'bg-red-100 text-red-800' :
-                                r.nivel <= 3 ? 'bg-amber-100 text-amber-800' :
-                                'bg-slate-100 text-slate-700'
+                  {/* Grilla de Permisos Granulares */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {[
+                      { key: 'canManageUsers' as keyof PermisosRol, modulo: 'Gestión Funcionarios', nivel: 'Gestión Total', desc: 'Crear, editar y desactivar funcionarios y accesos.' },
+                      { key: 'canManageAreas' as keyof PermisosRol, modulo: 'Estructura & Áreas', nivel: 'Edición / Gestión', desc: 'Administrar las 13 áreas corporativas y sus líderes.' },
+                      { key: 'canManageInventory' as keyof PermisosRol, modulo: 'Logística & Bodega', nivel: 'Edición / Despachos', desc: 'Ajustar stock, recibir OCs, traslados y despachos.' },
+                      { key: 'canManageProducts' as keyof PermisosRol, modulo: 'Catálogo & Precios', nivel: 'Edición', desc: 'Crear variantes, referencias y matrices de pintura.' },
+                      { key: 'canAnswerCustomerTickets' as keyof PermisosRol, modulo: 'Atención al Cliente (SAC)', nivel: 'Edición / Respuesta', desc: 'Responder PQRS, tickets web y cerrar casos.' },
+                      { key: 'canManageAllTasks' as keyof PermisosRol, modulo: 'Tareas por Área', nivel: 'Gestión Global', desc: 'Crear, reasignar y supervisar tareas entre áreas.' },
+                      { key: 'canApproveTasks' as keyof PermisosRol, modulo: 'Aprobación de Tareas', nivel: 'Aprobación', desc: 'Validar evidencias y aprobar entregables cerrados.' },
+                      { key: 'canPostOfficialNews' as keyof PermisosRol, modulo: 'Comunidad ColorLink', nivel: 'Publicación Oficial', desc: 'Fijar comunicados oficiales y reconocimientos.' },
+                      { key: 'canViewAuditLog' as keyof PermisosRol, modulo: 'Auditoría & Informes', nivel: 'Lectura / Trazabilidad', desc: 'Consultar historial de auditoría y bitácoras.' },
+                      { key: 'canExportReports' as keyof PermisosRol, modulo: 'Exportación de Datos', nivel: 'Lectura / Exportación', desc: 'Descargar reportes CSV de inventario, SAC y personal.' },
+                      { key: 'canManageSettings' as keyof PermisosRol, modulo: 'Configuración Sistema', nivel: 'Supervisión / Admin', desc: 'Modificar políticas críticas del portal.' },
+                    ].map((permItem) => {
+                      const active = Boolean(newFuncForm.permisos[permItem.key]);
+                      return (
+                        <label
+                          key={permItem.key}
+                          className={`p-3 rounded-2xl border transition-all cursor-pointer flex items-start gap-2.5 ${
+                            active
+                              ? 'bg-blue-50/70 border-blue-300 shadow-2xs'
+                              : 'bg-white border-slate-200 hover:bg-slate-50'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={active}
+                            onChange={() => handleTogglePermisoNewFunc(permItem.key)}
+                            className="mt-0.5 rounded border-slate-300 text-blue-900"
+                          />
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <strong className="text-xs text-slate-900">{permItem.modulo}</strong>
+                              <span className={`px-1.5 py-0.2 rounded text-[9px] font-black ${
+                                active ? 'bg-blue-900 text-white' : 'bg-slate-100 text-slate-500'
                               }`}>
-                                Nivel {r.nivel}
+                                {permItem.nivel}
                               </span>
                             </div>
-                            <p className="text-[10.5px] text-slate-500 mt-1 line-clamp-2 leading-relaxed">
-                              {r.descripcion}
-                            </p>
+                            <p className="text-[10.5px] text-slate-500 mt-0.5 leading-snug">{permItem.desc}</p>
                           </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Matriz Modular de Casillas de Verificación (Checkboxes) */}
-                  <div className="space-y-3 pt-2">
-                    <div className="flex items-center justify-between">
-                      <label className="block text-[11px] font-bold text-slate-800 uppercase tracking-wider">
-                        Privilegios Específicos por Módulo (Casillas de Verificación):
-                      </label>
-                      <span className="text-[10px] text-slate-500">
-                        Marca o desmarca permisos para personalizar el acceso de este funcionario
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
-                      
-                      {/* Módulo Logística */}
-                      <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
-                        <div className="flex items-center gap-2 pb-1 border-b border-slate-200">
-                          <Truck className="w-3.5 h-3.5 text-indigo-600" />
-                          <span className="font-black text-slate-900">Módulo Logística & Bodega</span>
-                        </div>
-                        <div className="space-y-1.5 pt-1">
-                          <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700">
-                            <input
-                              type="checkbox"
-                              checked={newFuncPermisos.logistica_ver}
-                              onChange={(e) => setNewFuncPermisos((prev) => ({ ...prev, logistica_ver: e.target.checked }))}
-                              className="w-3.5 h-3.5 text-[#001D3D] rounded cursor-pointer"
-                            />
-                            <span>Visualizar inventario y stock</span>
-                          </label>
-                          <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700">
-                            <input
-                              type="checkbox"
-                              checked={newFuncPermisos.logistica_movimientos}
-                              onChange={(e) => setNewFuncPermisos((prev) => ({ ...prev, logistica_movimientos: e.target.checked }))}
-                              className="w-3.5 h-3.5 text-[#001D3D] rounded cursor-pointer"
-                            />
-                            <span>Registrar entradas, salidas y ajustes</span>
-                          </label>
-                          <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700">
-                            <input
-                              type="checkbox"
-                              checked={newFuncPermisos.logistica_ocs}
-                              onChange={(e) => setNewFuncPermisos((prev) => ({ ...prev, logistica_ocs: e.target.checked }))}
-                              className="w-3.5 h-3.5 text-[#001D3D] rounded cursor-pointer"
-                            />
-                            <span>Recepción de órdenes de compra (OC)</span>
-                          </label>
-                          <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700">
-                            <input
-                              type="checkbox"
-                              checked={newFuncPermisos.logistica_traslados}
-                              onChange={(e) => setNewFuncPermisos((prev) => ({ ...prev, logistica_traslados: e.target.checked }))}
-                              className="w-3.5 h-3.5 text-[#001D3D] rounded cursor-pointer"
-                            />
-                            <span>Crear y recibir traslados inter-sedes</span>
-                          </label>
-                        </div>
-                      </div>
-
-                      {/* Módulo SAC */}
-                      <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
-                        <div className="flex items-center gap-2 pb-1 border-b border-slate-200">
-                          <HeadphonesIcon className="w-3.5 h-3.5 text-emerald-600" />
-                          <span className="font-black text-slate-900">Módulo Atención al Cliente (SAC)</span>
-                        </div>
-                        <div className="space-y-1.5 pt-1">
-                          <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700">
-                            <input
-                              type="checkbox"
-                              checked={newFuncPermisos.sac_responder}
-                              onChange={(e) => setNewFuncPermisos((prev) => ({ ...prev, sac_responder: e.target.checked }))}
-                              className="w-3.5 h-3.5 text-[#001D3D] rounded cursor-pointer"
-                            />
-                            <span>Responder radicados y chats web</span>
-                          </label>
-                          <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700">
-                            <input
-                              type="checkbox"
-                              checked={newFuncPermisos.sac_cerrar}
-                              onChange={(e) => setNewFuncPermisos((prev) => ({ ...prev, sac_cerrar: e.target.checked }))}
-                              className="w-3.5 h-3.5 text-[#001D3D] rounded cursor-pointer"
-                            />
-                            <span>Resolver y cerrar tickets PQRS</span>
-                          </label>
-                          <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700">
-                            <input
-                              type="checkbox"
-                              checked={newFuncPermisos.sac_notas_internas}
-                              onChange={(e) => setNewFuncPermisos((prev) => ({ ...prev, sac_notas_internas: e.target.checked }))}
-                              className="w-3.5 h-3.5 text-[#001D3D] rounded cursor-pointer"
-                            />
-                            <span>Redactar notas internas privadas</span>
-                          </label>
-                        </div>
-                      </div>
-
-                      {/* Módulo Tareas */}
-                      <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
-                        <div className="flex items-center gap-2 pb-1 border-b border-slate-200">
-                          <Kanban className="w-3.5 h-3.5 text-amber-500" />
-                          <span className="font-black text-slate-900">Módulo Tareas & Compromisos</span>
-                        </div>
-                        <div className="space-y-1.5 pt-1">
-                          <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700">
-                            <input
-                              type="checkbox"
-                              checked={newFuncPermisos.tareas_crear}
-                              onChange={(e) => setNewFuncPermisos((prev) => ({ ...prev, tareas_crear: e.target.checked }))}
-                              className="w-3.5 h-3.5 text-[#001D3D] rounded cursor-pointer"
-                            />
-                            <span>Crear y autoasignar tareas</span>
-                          </label>
-                          <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700">
-                            <input
-                              type="checkbox"
-                              checked={newFuncPermisos.tareas_aprobar}
-                              onChange={(e) => setNewFuncPermisos((prev) => ({ ...prev, tareas_aprobar: e.target.checked }))}
-                              className="w-3.5 h-3.5 text-[#001D3D] rounded cursor-pointer"
-                            />
-                            <span>Aprobar o rechazar entregables</span>
-                          </label>
-                          <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700">
-                            <input
-                              type="checkbox"
-                              checked={newFuncPermisos.tareas_kanban_all}
-                              onChange={(e) => setNewFuncPermisos((prev) => ({ ...prev, tareas_kanban_all: e.target.checked }))}
-                              className="w-3.5 h-3.5 text-[#001D3D] rounded cursor-pointer"
-                            />
-                            <span>Modificar tableros de todas las áreas</span>
-                          </label>
-                        </div>
-                      </div>
-
-                      {/* Módulo Personal */}
-                      <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
-                        <div className="flex items-center gap-2 pb-1 border-b border-slate-200">
-                          <Users className="w-3.5 h-3.5 text-teal-600" />
-                          <span className="font-black text-slate-900">Módulo Personal & Estructura</span>
-                        </div>
-                        <div className="space-y-1.5 pt-1">
-                          <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700">
-                            <input
-                              type="checkbox"
-                              checked={newFuncPermisos.personal_administrar}
-                              onChange={(e) => setNewFuncPermisos((prev) => ({ ...prev, personal_administrar: e.target.checked }))}
-                              className="w-3.5 h-3.5 text-[#001D3D] rounded cursor-pointer"
-                            />
-                            <span>Crear y desactivar funcionarios</span>
-                          </label>
-                          <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700">
-                            <input
-                              type="checkbox"
-                              checked={newFuncPermisos.personal_organigrama}
-                              onChange={(e) => setNewFuncPermisos((prev) => ({ ...prev, personal_organigrama: e.target.checked }))}
-                              className="w-3.5 h-3.5 text-[#001D3D] rounded cursor-pointer"
-                            />
-                            <span>Modificar áreas y jefaturas</span>
-                          </label>
-                        </div>
-                      </div>
-
-                      {/* Módulo Auditoría */}
-                      <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
-                        <div className="flex items-center gap-2 pb-1 border-b border-slate-200">
-                          <ShieldCheck className="w-3.5 h-3.5 text-violet-600" />
-                          <span className="font-black text-slate-900">Módulo Auditoría & Informes</span>
-                        </div>
-                        <div className="space-y-1.5 pt-1">
-                          <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700">
-                            <input
-                              type="checkbox"
-                              checked={newFuncPermisos.auditoria_ver}
-                              onChange={(e) => setNewFuncPermisos((prev) => ({ ...prev, auditoria_ver: e.target.checked }))}
-                              className="w-3.5 h-3.5 text-[#001D3D] rounded cursor-pointer"
-                            />
-                            <span>Ver registro inmutable de trazabilidad</span>
-                          </label>
-                          <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700">
-                            <input
-                              type="checkbox"
-                              checked={newFuncPermisos.auditoria_exportar}
-                              onChange={(e) => setNewFuncPermisos((prev) => ({ ...prev, auditoria_exportar: e.target.checked }))}
-                              className="w-3.5 h-3.5 text-[#001D3D] rounded cursor-pointer"
-                            />
-                            <span>Exportar informes gerenciales CSV/Excel</span>
-                          </label>
-                        </div>
-                      </div>
-
-                    </div>
+                        </label>
+                      );
+                    })}
                   </div>
                 </div>
 
-                {/* =========================================================================
-                    BOTONES DE ACCIÓN PRINCIPALES
-                ========================================================================= */}
-                <div className="flex flex-col-reverse sm:flex-row items-center justify-between gap-3 pt-4 border-t border-slate-200">
+                {/* BOTONES FINALES DE ACCIÓN */}
+                <div className="flex flex-col sm:flex-row items-center justify-end gap-3 bg-white p-4 sm:p-5 rounded-3xl border border-slate-200 shadow-xs">
                   <button
                     type="button"
-                    onClick={() => setActiveTab('funcionarios')}
+                    onClick={() => {
+                      resetNewFuncForm();
+                      setActiveTab('funcionarios');
+                    }}
                     disabled={isSubmittingNewFunc}
-                    className="w-full sm:w-auto px-6 py-3 rounded-2xl border border-slate-300 hover:bg-slate-100 text-slate-700 font-bold text-xs transition-colors cursor-pointer text-center"
+                    className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition-all cursor-pointer"
                   >
-                    Cancelar y Volver al Directorio
+                    Cancelar
                   </button>
-
                   <button
                     type="submit"
                     disabled={isSubmittingNewFunc}
-                    className="w-full sm:w-auto px-8 py-3.5 rounded-2xl bg-[#001D3D] hover:bg-[#002D5C] active:bg-[#001124] text-white font-extrabold text-xs sm:text-sm shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+                    className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-[#001D3D] hover:bg-blue-900 disabled:opacity-60 text-white font-black text-xs shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer"
                   >
-                    {isSubmittingNewFunc ? (
-                      <>
-                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                        <span>Guardando y Registrando Funcionario en Supabase...</span>
-                      </>
-                    ) : (
-                      <>
-                        <UserPlus className="w-4 h-4 text-cyan-300" />
-                        <span>Guardar y Registrar Funcionario</span>
-                      </>
-                    )}
+                    <UserPlus className="w-4 h-4 text-cyan-300" />
+                    <span>{isSubmittingNewFunc ? 'Registrando en Supabase Auth...' : 'Guardar y Registrar Funcionario'}</span>
                   </button>
                 </div>
-
               </form>
             </div>
           )}
@@ -8831,96 +8357,208 @@ export const CorporateIntranetView: React.FC<CorporateIntranetViewProps> = ({
           )}
 
           {/* =========================================================================
-              MÓDULO 8: ARCHIVO CORPORATIVO & DOCUMENTOS LEGALES (6 CATEGORÍAS) Y NTC 1335
+              MÓDULO 8: DOCUMENTOS & NORMAS NTC 1335
           ========================================================================= */}
           {activeTab === 'documentos' && (
-            <div className="space-y-6">
-              {/* Selector de subpestañas superiores: Archivo Corporativo vs. Manuales Técnicos */}
-              <div className="bg-white p-2 sm:p-2.5 rounded-2xl border border-slate-200/90 shadow-2xs flex items-center justify-between gap-3 flex-wrap">
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setDocumentosSubTab('archivo')}
-                    className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
-                      documentosSubTab === 'archivo'
-                        ? 'bg-[#001D3D] text-white shadow-xs'
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                    }`}
-                  >
-                    <FolderOpen className="w-4 h-4 text-cyan-300" />
-                    <span>Archivo & Documentos Legales</span>
-                    <span className="px-1.5 py-0.2 rounded-full text-[9px] font-black bg-cyan-500/20 text-cyan-200">
-                      6 Áreas
-                    </span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setDocumentosSubTab('manuales')}
-                    className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
-                      documentosSubTab === 'manuales'
-                        ? 'bg-[#001D3D] text-white shadow-xs'
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                    }`}
-                  >
-                    <BookOpen className="w-4 h-4 text-blue-300" />
-                    <span>Manuales Técnicos & NTC 1335</span>
-                    <span className="px-1.5 py-0.2 rounded-full text-[9px] font-black bg-emerald-500/20 text-emerald-200">
-                      ICONTEC
-                    </span>
-                  </button>
+            <div className="space-y-6 animate-fadeIn">
+              {/* Encabezado Dinámico: Submódulo Activo + Badge + Sede/CEDI Activo */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white px-4 py-3 sm:px-5 sm:py-3.5 rounded-2xl border border-slate-200/90 shadow-2xs">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#001D3D] via-[#002D5C] to-[#0A192F] text-cyan-300 flex items-center justify-center shrink-0 shadow-xs ring-1 ring-cyan-500/30">
+                    <FileText className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h2 className="text-sm sm:text-base font-black text-slate-900 tracking-tight leading-none">
+                        Manuales & NTC 1335 • {docCategoryFilter === 'fichas' ? 'Fichas MSDS & POE' : 'Repositorio Normativo'}
+                      </h2>
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9.5px] font-black bg-cyan-50 text-cyan-800 border border-cyan-200 font-mono">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                        Normativa ICONTEC NTC 1335 • Vigente 2026
+                      </span>
+                    </div>
+                    <p className="text-[10.5px] text-slate-500 font-medium mt-0.5 leading-tight">
+                      Ensayos de Laboratorio, Hojas de Seguridad MSDS y Procedimientos Oficiales
+                    </p>
+                  </div>
                 </div>
 
-                <div className="text-[11px] text-slate-500 font-medium px-2 hidden lg:block">
-                  Sistema Integrado de Gestión • Calidad, SST, Legal, Talento, Logística & Comercial
+                {/* Selector de Sede CEDI activo */}
+                <div className="flex items-center gap-2 bg-slate-50 hover:bg-slate-100/90 py-1 px-2.5 rounded-md border border-slate-200/90 transition-all shadow-2xs self-start sm:self-auto shrink-0">
+                  <div className="w-5 h-5 rounded bg-cyan-50 text-cyan-700 flex items-center justify-center border border-cyan-200/80 shrink-0 shadow-2xs">
+                    <MapPin className="w-3 h-3" />
+                  </div>
+                  <div className="text-left">
+                    <label htmlFor="sedeSelectorDocs" className="text-[8.5px] font-black text-slate-400 uppercase tracking-wider block leading-none">
+                      Sede / CEDI Activo:
+                    </label>
+                    <select
+                      id="sedeSelectorDocs"
+                      value={selectedSede}
+                      onChange={(e) => setSelectedSede(e.target.value)}
+                      className="bg-transparent text-slate-900 font-black text-[11px] focus:outline-none cursor-pointer mt-0.5 pr-1 leading-tight"
+                    >
+                      <option value="todas">🏢 Todas las Sedes (Consolidado Nacional)</option>
+                      {SEDES_CEDI_CONFIG.map((sede) => (
+                        <option key={sede.id} value={sede.id}>
+                          📍 {sede.nombre}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
               </div>
 
-              {/* Render de la subvista seleccionada */}
-              {documentosSubTab === 'archivo' ? (
-                <ArchivoDocumentosManager
-                  userSession={userSession}
-                  selectedSede={selectedSede}
-                  onChangeSede={setSelectedSede}
-                  onRegistrarAuditoria={(mod, acc, det) => {
-                    registrarAuditoria(mod, acc, det);
-                    setAuditoria(getAuditoria());
-                  }}
-                />
-              ) : (
-                <DocumentViewerNTC1335
-                  selectedManualId={selectedManualId}
-                  onSelectManualId={setSelectedManualId}
-                  docCategoryFilter={docCategoryFilter}
-                  onSelectCategoryFilter={setDocCategoryFilter}
-                  selectedSede={selectedSede}
-                  onSelectSede={setSelectedSede}
-                  onRegistrarAuditoria={(mod, acc, det) => {
-                    registrarAuditoria(mod, acc, det);
-                    setAuditoria(getAuditoria());
-                  }}
-                />
-              )}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                {(docCategoryFilter === 'todos' || docCategoryFilter === 'fichas') && (
+                  <div className="p-5 rounded-3xl bg-white border border-slate-200 shadow-xs space-y-3">
+                    <div className="w-10 h-10 rounded-2xl bg-cyan-100 text-cyan-900 flex items-center justify-center font-bold">
+                      <FileText className="w-5 h-5" />
+                    </div>
+                    <h3 className="font-bold text-sm text-slate-900">Norma ICONTEC NTC 1335 (Tipo 1)</h3>
+                    <p className="text-xs text-slate-500 leading-relaxed">
+                      Especificaciones técnicas obligatorias de lavabilidad, abrasión húmeda y poder de cubrimiento para recubrimientos arquitectónicos.
+                    </p>
+                    <span className="text-[10px] font-black text-emerald-700 block">Vigente 2026 • Verificado</span>
+                  </div>
+                )}
+
+                <div className="p-5 rounded-3xl bg-white border border-slate-200 shadow-xs space-y-3">
+                  <div className="w-10 h-10 rounded-2xl bg-blue-100 text-blue-900 flex items-center justify-center font-bold">
+                    <ShieldCheck className="w-5 h-5" />
+                  </div>
+                  <h3 className="font-bold text-sm text-slate-900">Fichas de Seguridad MSDS (SGA)</h3>
+                  <p className="text-xs text-slate-500 leading-relaxed">
+                    Hojas técnicas de manejo de pigmentos, biocidas y solventes bajo el Sistema Globalmente Armonizado de clasificación.
+                  </p>
+                  <span className="text-[10px] font-black text-emerald-700 block">14 Fichas Disponibles</span>
+                </div>
+
+                <div className="p-5 rounded-3xl bg-white border border-slate-200 shadow-xs space-y-3">
+                  <div className="w-10 h-10 rounded-2xl bg-purple-100 text-purple-900 flex items-center justify-center font-bold">
+                    <FlaskConical className="w-5 h-5" />
+                  </div>
+                  <h3 className="font-bold text-sm text-slate-900">Procedimientos Operativos POE</h3>
+                  <p className="text-xs text-slate-500 leading-relaxed">
+                    Protocolos de calibración de dosificadoras tintométricas y toma de muestras en cuarentena para despachos B2B.
+                  </p>
+                  <span className="text-[10px] font-black text-emerald-700 block">Aprobado por Dirección</span>
+                </div>
+              </div>
             </div>
           )}
 
           {/* =========================================================================
-              MÓDULO 9: AUDITORÍA & INFORMES (INFORMES, ACTAS DE REUNIÓN Y TRAZABILIDAD)
+              MÓDULO 9: AUDITORÍA & INFORMES
           ========================================================================= */}
           {activeTab === 'auditoria' && (
-            <AuditoriaActasManager
-              activeSubTab={auditoriaSubTab}
-              onChangeSubTab={setAuditoriaSubTab}
-              selectedSede={selectedSede}
-              onChangeSede={setSelectedSede}
-              userSession={userSession}
-              funcionarios={funcionarios}
-              auditoria={auditoria}
-              onExportCSV={handleExportCSV}
-              onRegistrarAuditoria={(mod, acc, det) => {
-                registrarAuditoria(mod, acc, det);
-                setAuditoria(getAuditoria());
-              }}
+            <div className="space-y-6 animate-fadeIn">
+              {/* Encabezado Dinámico: Submódulo Activo + Badge + Sede/CEDI Activo */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white px-4 py-3 sm:px-5 sm:py-3.5 rounded-2xl border border-slate-200/90 shadow-2xs">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#001D3D] via-[#002D5C] to-[#0A192F] text-violet-300 flex items-center justify-center shrink-0 shadow-xs ring-1 ring-violet-500/30">
+                    <ShieldCheck className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h2 className="text-sm sm:text-base font-black text-slate-900 tracking-tight leading-none">
+                        Auditoría & Informes • Registro de Trazabilidad
+                      </h2>
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9.5px] font-black bg-violet-50 text-violet-800 border border-violet-200 font-mono">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                        {auditoria.length} Registros Inmutables
+                      </span>
+                    </div>
+                    <p className="text-[10.5px] text-slate-500 font-medium mt-0.5 leading-tight">
+                      Historial Inmutable de Acciones Administrativas, Movimientos de Inventario y Respuestas
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+                  {/* Selector de Sede CEDI activo */}
+                  <div className="flex items-center gap-2 bg-slate-50 hover:bg-slate-100/90 py-1 px-2.5 rounded-md border border-slate-200/90 transition-all shadow-2xs shrink-0">
+                    <div className="w-5 h-5 rounded bg-cyan-50 text-cyan-700 flex items-center justify-center border border-cyan-200/80 shrink-0 shadow-2xs">
+                      <MapPin className="w-3 h-3" />
+                    </div>
+                    <div className="text-left">
+                      <label htmlFor="sedeSelectorAuditoria" className="text-[8.5px] font-black text-slate-400 uppercase tracking-wider block leading-none">
+                        Sede / CEDI Activo:
+                      </label>
+                      <select
+                        id="sedeSelectorAuditoria"
+                        value={selectedSede}
+                        onChange={(e) => setSelectedSede(e.target.value)}
+                        className="bg-transparent text-slate-900 font-black text-[11px] focus:outline-none cursor-pointer mt-0.5 pr-1 leading-tight"
+                      >
+                        <option value="todas">🏢 Todas las Sedes (Consolidado Nacional)</option>
+                        {SEDES_CEDI_CONFIG.map((sede) => (
+                          <option key={sede.id} value={sede.id}>
+                            📍 {sede.nombre}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleExportCSV('auditoria')}
+                    className="px-3.5 py-1.5 rounded-xl bg-[#001D3D] hover:bg-blue-900 text-white font-bold text-xs shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5 text-cyan-300" />
+                    <span>Exportar CSV</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-3xl border border-slate-200 shadow-xs overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold text-[11px]">
+                        <th className="py-3 px-4">Fecha y Hora</th>
+                        <th className="py-3 px-4">Usuario Responsable</th>
+                        <th className="py-3 px-4">Módulo</th>
+                        <th className="py-3 px-4">Acción</th>
+                        <th className="py-3 px-4">Detalle Técnico</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {auditoria.map((a) => (
+                        <tr key={a.id} className="hover:bg-slate-50">
+                          <td className="py-3 px-4 font-mono text-slate-500 text-[11px]">{a.fecha}</td>
+                          <td className="py-3 px-4">
+                            <strong className="text-slate-900 block">{a.usuarioNombre}</strong>
+                            <span className="text-[10px] text-slate-400">{a.usuarioRol}</span>
+                          </td>
+                          <td className="py-3 px-4">
+                            <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-800 text-[10px] font-bold">
+                              {a.modulo}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 font-bold text-slate-800">{a.accion}</td>
+                          <td className="py-3 px-4 text-slate-600 text-[11px] max-w-xs truncate">{a.detalle}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* =========================================================================
+              MÓDULO MERCADEO & REPUTACIÓN DE MARCA
+          ========================================================================= */}
+          {activeTab === 'mercadeo' && (
+            <MercadeoReputacionModule
+              reviews={satisfactionReviews}
+              subTab={mercadeoSubTab}
+              onChangeSubTab={setMercadeoSubTab}
+              staffName={activeUserName}
+              onReviewsUpdated={setSatisfactionReviews}
+              onNavigateToModule={(mod) => setActiveTab(mod)}
             />
           )}
 

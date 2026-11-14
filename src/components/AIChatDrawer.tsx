@@ -282,7 +282,12 @@ export function isCityOrSedeQuery(query: string): boolean {
 
 export function parseSquareMeters(text: string): number | null {
   if (!text) return null;
-  const clean = text.toLowerCase().replace(',', '.');
+  const clean = text.toLowerCase().replace(',', '.').trim();
+
+  // Ignorar preguntas teóricas, de comparación o de cómo medir
+  if (/c[oó]mo\s+(?:mido|medir|calculo|calcular|saco|sacar)|diferencia\s+entre|qu[eé]\s+diferencia|tipo\s*\d|ntc\s*1335|para\s+qu[eé]\s+sirve|cu[aá]ntos?\s+(?:m2|m²|metros|galones|manos)\s+rinde/i.test(clean)) {
+    return null;
+  }
 
   const multiMatch = clean.match(/(\d+(?:\.\d+)?)\s*(?:x|\*|por)\s*(\d+(?:\.\d+)?)/i);
   if (multiMatch) {
@@ -299,17 +304,23 @@ export function parseSquareMeters(text: string): number | null {
     if (!isNaN(val) && val > 0) return Math.round(val * 10) / 10;
   }
 
-  const numMatch = clean.match(/\b(\d+(?:\.\d+)?)\b/);
-  if (numMatch) {
-    const val = parseFloat(numMatch[1]);
-    if (!isNaN(val) && val > 0 && val < 5000) return Math.round(val * 10) / 10;
+  // Solo interpretar un número suelto como m² si es una respuesta corta numérica y no menciona manos, grano, galones, ciclos, horas, etc.
+  const hasNonAreaNumericContext = /\b(?:tipo|ntc|mano|manos|paso|capa|capas|grano|lija|gal[oó]n|galones|cu[nñ]ete|cu[nñ]etes|ciclos?|horas?|d[ií]as?|meses?|a[nñ]os?|pesos?|cop)\b/i.test(clean);
+  if (!hasNonAreaNumericContext && clean.split(/\s+/).length <= 5) {
+    const numMatch = clean.match(/\b(\d+(?:\.\d+)?)\b/);
+    if (numMatch) {
+      const val = parseFloat(numMatch[1]);
+      if (!isNaN(val) && val > 0 && val < 5000) return Math.round(val * 10) / 10;
+    }
   }
 
   return null;
 }
 
 export function generateDualRecommendations(sqmValue: number, surfaceType: string): CartAction[] {
-  const isExterior = /exterior|fachada|terraza|patio|cerca|reja/i.test(surfaceType);
+  const isExterior = /exterior|fachada|terraza|patio|cerca/i.test(surfaceType);
+  const isWoodOrMetal = /metal|madera|reja|porton|portón|puerta|mueble/i.test(surfaceType);
+  const isWetZone = /húmeda|humeda|baño|bano|cocina/i.test(surfaceType);
 
   if (isExterior) {
     const galonesPrem = Math.max(1, Math.ceil((sqmValue / 28) * 1.10));
@@ -343,6 +354,72 @@ export function generateDualRecommendations(sqmValue: number, surfaceType: strin
         precioGalon: 84900,
         precioCunete: 369000,
         imagenUrl: '/src/assets/images/koraza_bucket_studio_1790894419359.jpg',
+      }
+    ];
+  }
+
+  if (isWoodOrMetal) {
+    const galonesMetal = Math.max(1, Math.ceil((sqmValue / 26) * 1.10));
+    const isCuneteMetal = galonesMetal >= 5;
+    return [
+      {
+        tipo: 'recomendada',
+        badge: '⭐ Especial Metal y Madera',
+        productName: 'Pintulux Esmalte Sintético 3 en 1',
+        descripcion: 'Acabado brillante/satinado de alta adherencia y resistencia al roce para rejas, puertas y mobiliario.',
+        sku: 'PIN-LUX-01',
+        cantidad: isCuneteMetal ? Math.ceil(galonesMetal / 5) : galonesMetal,
+        presentacion: isCuneteMetal ? 'Cuñete (5 Gal)' : 'Galón',
+        precioUnitario: isCuneteMetal ? 410000 : 92900,
+        precioGalon: 92900,
+        precioCunete: 410000,
+        imagenUrl: '/src/assets/images/pintulux_enamel_can_1790894428353.jpg',
+      },
+      {
+        tipo: 'alternativa',
+        badge: '🛡️ Protección Base',
+        productName: 'Anticorrosivo Pintuco Base Aceite',
+        descripcion: 'Imprimante protector antioxidante para estructuras ferrosas antes del esmalte.',
+        sku: 'PIN-ANT-01',
+        cantidad: Math.max(1, Math.ceil(galonesMetal / 2)),
+        presentacion: 'Galón',
+        precioUnitario: 78500,
+        precioGalon: 78500,
+        precioCunete: 345000,
+        imagenUrl: '/src/assets/images/viniltex_can_studio_1790894409491.jpg',
+      }
+    ];
+  }
+
+  if (isWetZone) {
+    const galonesWet = Math.max(1, Math.ceil((sqmValue / 30) * 1.10));
+    const isCuneteWet = galonesWet >= 5;
+    return [
+      {
+        tipo: 'recomendada',
+        badge: '⭐ Zonas Húmedas & Cocinas (NTC 1335)',
+        productName: 'Viniltex Baños y Cocinas Antibacterial',
+        descripcion: 'Barrera activa antihongos, resistente a vapor, grasa y limpieza constante.',
+        sku: 'PIN-VTX-BC',
+        cantidad: isCuneteWet ? Math.ceil(galonesWet / 5) : galonesWet,
+        presentacion: isCuneteWet ? 'Cuñete (5 Gal)' : 'Galón',
+        precioUnitario: isCuneteWet ? 379000 : 86900,
+        precioGalon: 86900,
+        precioCunete: 379000,
+        imagenUrl: '/src/assets/images/viniltex_can_studio_1790894409491.jpg',
+      },
+      {
+        tipo: 'alternativa',
+        badge: '💡 Opción Interior Alto Tráfico',
+        productName: 'Viniltex Avanzado Máxima Lavabilidad',
+        descripcion: 'Tipo 1 NTC 1335 (+20.000 ciclos de lavado), ultra cubriente y bajo olor.',
+        sku: 'PIN-VTX-01',
+        cantidad: isCuneteWet ? Math.ceil(galonesWet / 5) : galonesWet,
+        presentacion: isCuneteWet ? 'Cuñete (5 Gal)' : 'Galón',
+        precioUnitario: isCuneteWet ? 349000 : 79900,
+        precioGalon: 79900,
+        precioCunete: 349000,
+        imagenUrl: '/src/assets/images/viniltex_can_studio_1790894409491.jpg',
       }
     ];
   }
@@ -469,10 +546,10 @@ export const AIChatDrawer: React.FC<AIChatDrawerProps> = ({
   const chatStorageKey = `colorlink_chat_${activeUserEmail || 'guest'}`;
   const chatStateKey = `colorlink_chat_state_${activeUserEmail || 'guest'}`;
 
-  // Saludo oficial con contexto del usuario autenticado en Supabase
+  // Saludo oficial con identidad de Linky y contexto del usuario autenticado en Supabase
   const OFFICIAL_GREETING = isUserAuthenticated && activeUserName
-    ? `¡Hola, ${activeUserName}! Soy tu Asistente IA de Pintuco / ColorLink. Tu cuenta (${activeUserEmail}) está sincronizada. ¿En qué puedo ayudarte hoy?`
-    : '¡Hola! Soy tu Asistente IA de Pintuco/ColorLink. ¿En qué puedo ayudarte hoy?';
+    ? `¡Hola, ${activeUserName}! Soy Linky, tu asesor técnico oficial de ColorLink / Pintuco. Tu cuenta (${activeUserEmail}) está sincronizada. Cuéntame qué espacio, mueble o superficie deseas pintar y cuántos m² aproximados tiene para recomendarte el producto ideal bajo norma NTC 1335 y cotizarlo al instante.`
+    : '¡Hola! Soy Linky, tu asesor técnico oficial de ColorLink / Pintuco. Cuéntame qué espacio, mueble o superficie deseas pintar y cuántos m² aproximados tiene para recomendarte el producto ideal bajo norma NTC 1335 y cotizarlo al instante.';
 
   const getInitialMessages = (): Message[] => [
     {
@@ -988,19 +1065,55 @@ export const AIChatDrawer: React.FC<AIChatDrawerProps> = ({
     if (isOpen) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [messages, isOpen, attachedImage]);
+  }, [messages, isOpen, attachedImage, isLoading]);
 
   if (!isOpen) return null;
+
+  const optimizeImageDataUrl = (dataUrl: string): Promise<string> => {
+    if (!dataUrl.startsWith('data:image/') || dataUrl.length <= 650000) {
+      return Promise.resolve(dataUrl);
+    }
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const maxDim = 1280;
+          let { width, height } = img;
+          if (width > maxDim || height > maxDim) {
+            const scale = Math.min(maxDim / width, maxDim / height);
+            width = Math.round(width * scale);
+            height = Math.round(height * scale);
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            resolve(dataUrl);
+            return;
+          }
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressed = canvas.toDataURL('image/jpeg', 0.85);
+          resolve(compressed && compressed.length < dataUrl.length ? compressed : dataUrl);
+        } catch {
+          resolve(dataUrl);
+        }
+      };
+      img.onerror = () => resolve(dataUrl);
+      img.src = dataUrl;
+    });
+  };
 
   // Manejo de carga de imagen y disparo inmediato de simulación + cotización
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
-      reader.onload = (event) => {
+      reader.onload = async (event) => {
         const dataUrl = event.target?.result as string;
         if (dataUrl) {
-          handleProcessUploadedImageDirectly(dataUrl);
+          const optimized = await optimizeImageDataUrl(dataUrl);
+          handleProcessUploadedImageDirectly(optimized);
         }
       };
       reader.readAsDataURL(file);
@@ -1013,10 +1126,11 @@ export const AIChatDrawer: React.FC<AIChatDrawerProps> = ({
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
-      reader.onload = (event) => {
+      reader.onload = async (event) => {
         const dataUrl = event.target?.result as string;
         if (dataUrl) {
-          handleProcessUploadedImageDirectly(dataUrl);
+          const optimized = await optimizeImageDataUrl(dataUrl);
+          handleProcessUploadedImageDirectly(optimized);
         }
       };
       reader.readAsDataURL(file);
@@ -1436,13 +1550,29 @@ ${notaRegional ? `\n💡 ${notaRegional}\n` : ''}
 
     setIsLoading(true);
 
+    // Detectar intención de superficie/espacio del mensaje actual para mantener contexto
+    const inferredSurfaceFromQuery = /exterior|fachada|terraza|patio|balc[oó]n|azotea/i.test(query)
+      ? 'fachada exterior'
+      : /madera|metal|hierro|reja|port[oó]n|puerta|mueble|mobiliario/i.test(query)
+      ? 'metal o madera'
+      : /ba[nñ]o|cocina|lavadero|humedad|hongo/i.test(query)
+      ? 'área húmeda'
+      : /cafeter|restaurante|local|comercio|oficina|bodega|hotel|colegio/i.test(query)
+      ? 'espacio comercial / alto tráfico'
+      : null;
+
+    if (inferredSurfaceFromQuery) {
+      setDetectedSurface(inferredSurfaceFromQuery);
+      setChatState((prev) => ({ ...prev, tipoEspacio: inferredSurfaceFromQuery }));
+    }
+
     if (parsedM2 !== null) {
       const confirmedM2 = parsedM2;
       setSqm(confirmedM2);
       setChatState((prev) => ({ ...prev, metrosCuadrados: confirmedM2 }));
       setChatStep('SHOW_RECOMMENDATIONS');
 
-      const surfaceToUse = detectedSurface || 'muro interior';
+      const surfaceToUse = inferredSurfaceFromQuery || detectedSurface || 'muro interior';
       const dualActions = generateDualRecommendations(confirmedM2, surfaceToUse);
 
       try {
@@ -1505,7 +1635,7 @@ ${notaRegional ? `\n💡 ${notaRegional}\n` : ''}
       return;
     }
 
-    // Consultas generales con filtro de restricción de alcance
+    // Consultas generales con asesoría proactiva y seguimiento de área/superficie
     try {
       const response = await fetch('/api/ai/chat-advisor', {
         method: 'POST',
@@ -1525,26 +1655,45 @@ ${notaRegional ? `\n💡 ${notaRegional}\n` : ''}
       if (data.chatState?.metrosCuadrados) {
         setSqm(data.chatState.metrosCuadrados);
       }
-      if (data.chatState?.tipoEspacio) {
-        setDetectedSurface(data.chatState.tipoEspacio);
+      const resolvedSurface = data.chatState?.tipoEspacio || data.superficieIdentificada;
+      if (resolvedSurface && resolvedSurface !== 'consulta general') {
+        setDetectedSurface(resolvedSurface);
+        setChatState((prev) => ({ ...prev, tipoEspacio: resolvedSurface }));
       }
+
+      const actionsArray = Array.isArray(data.cartActions) && data.cartActions.length > 0 ? data.cartActions : undefined;
+      const toolsArray = actionsArray && Array.isArray(data.toolsKit) && data.toolsKit.length > 0
+        ? data.toolsKit
+        : (actionsArray ? DEFAULT_TOOLS_KIT : undefined);
 
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         sender: 'assistant',
-        text: data.reply || '¿Podrías indicarme qué área específica deseas pintar o cuántos m² aproximados tiene tu espacio?',
+        text: data.reply || '¿Podrías indicarme cuántos m² aproximados tiene tu espacio y en qué estado está la superficie?',
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        cartAction: data.cartAction || undefined,
-        cartActions: Array.isArray(data.cartActions) && data.cartActions.length > 0 ? data.cartActions : undefined,
-        toolsKit: Array.isArray(data.toolsKit) && data.toolsKit.length > 0 ? data.toolsKit : undefined,
-        totalCotizacionCOP: data.toolsKit && data.cartAction ? (data.cartAction.cantidad * data.cartAction.precioUnitario) + 60000 : undefined,
+        cartAction: actionsArray ? (data.cartAction || actionsArray[0]) : undefined,
+        cartActions: actionsArray,
+        toolsKit: toolsArray,
+        areaM2: data.areaEstimadaM2 || undefined,
+        spaceType: resolvedSurface || undefined,
+        totalCotizacionCOP: actionsArray && toolsArray
+          ? (actionsArray[0].cantidad * actionsArray[0].precioUnitario) + toolsArray.reduce((acc: number, t: ToolItem) => acc + (t.cantidad * t.precioUnitario), 0)
+          : undefined,
       };
       setMessages((prev) => [...prev, assistantMessage]);
     } catch (err) {
       console.warn('Network catch in AIChatDrawer, using fluid response:', err);
       const queryLower = query.toLowerCase();
-      let fallbackText = 'Soy el Asesor Técnico Oficial de Pintuco / ColorLink. Te asesoro en pinturas, preparación de superficies bajo norma NTC 1335 y cotizaciones de nuestra tienda. ¿En qué espacio o proyecto estás trabajando?';
-      if (queryLower.includes('blanco') || queryLower.includes('blanca')) {
+      let fallbackText = 'Soy Linky, tu asesor técnico oficial de ColorLink / Pintuco. Te asesoro en pinturas, preparación de superficies bajo norma NTC 1335 y cotizaciones de nuestra tienda. ¿Qué superficie deseas pintar y cuántos m² aproximados tiene?';
+      if (/cafeter|restaurante|local|comercio|oficina|bodega|tienda|hotel/i.test(queryLower)) {
+        fallbackText = '¡Excelente proyecto! Para un espacio comercial o de alto tráfico te recomiendo Viniltex Avanzado Máxima Lavabilidad (Tipo 1 NTC 1335) en muros interiores y Pintulux Esmalte Sintético para muebles o estructuras metálicas. ¿Cuántos m² aproximados (o alto x ancho) deseas pintar y en qué estado están las paredes?';
+      } else if (/madera|metal|hierro|reja|porton|portón|puerta|mueble/i.test(queryLower)) {
+        fallbackText = 'Para superficies en madera o metal te recomiendo Pintulux Esmalte Sintético 3 en 1 por su adherencia y durabilidad (y Anticorrosivo Pintuco si es metal ferroso exterior). ¿Cuántos m² aproximados tiene el proyecto?';
+      } else if (/baño|bano|cocina|humedad/i.test(queryLower)) {
+        fallbackText = 'Para baños o cocinas te recomiendo Viniltex Baños y Cocinas Antibacterial (NTC 1335), resistente a vapor, grasa y hongos. ¿Cuántos m² aproximados deseas cubrir?';
+      } else if (/exterior|fachada|terraza/i.test(queryLower)) {
+        fallbackText = 'Para fachadas y exteriores te recomiendo Koraza Doble Vida Protección Clima Extremo por su impermeabilidad y protección UV. ¿Cuántos m² aproximados tiene la fachada?';
+      } else if (queryLower.includes('blanco') || queryLower.includes('blanca')) {
         fallbackText = 'Para pintura blanca en interiores te recomiendo Viniltex Avanzado Máxima Lavabilidad en Blanco Puro (NTC 1335) por su ultra cubrimiento. Si la aplicación es para fachadas exteriores, te sugiero Koraza Doble Vida Blanco Nieve. ¿Cuántos metros cuadrados deseas pintar?';
       } else if (/prepar|superficie|ntc 1335|resane/i.test(queryLower)) {
         fallbackText = 'Bajo la norma NTC 1335, la preparación requiere limpiar polvo y grasa, resanar fisuras con Estuco Profesional Pintuco y lijar con grano 180-220 antes de pintar. Luego aplica 2 manos de Viniltex Avanzado o Koraza respetando de 2 a 4 horas entre manos.';
@@ -1582,7 +1731,7 @@ ${notaRegional ? `\n💡 ${notaRegional}\n` : ''}
           <div className="relative w-11 h-11 rounded-full overflow-hidden border-2 border-sky-400 shadow-md bg-[#002244] shrink-0 p-0.5 flex items-center justify-center">
             <img 
               src={PINTUCO_AI_AVATAR_URL} 
-              alt="Asesor Técnico IA ColorLink" 
+              alt="Linky • Asesor Técnico ColorLink" 
               className="w-full h-full object-contain" 
             />
             <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-emerald-500 border-2 border-white shadow-xs"></span>
@@ -1590,7 +1739,7 @@ ${notaRegional ? `\n💡 ${notaRegional}\n` : ''}
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <h3 className="text-sm sm:text-base font-black tracking-tight text-slate-900 truncate">
-                Asesor Técnico IA • ColorLink
+                Linky • Asesor Técnico ColorLink
               </h3>
               <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-50 text-teal-800 border border-teal-200 shrink-0">
                 <span className="w-1.5 h-1.5 rounded-full bg-teal-500 animate-pulse" />
@@ -1600,7 +1749,7 @@ ${notaRegional ? `\n💡 ${notaRegional}\n` : ''}
             <p className="text-[11px] text-slate-500 truncate">
               {isUserAuthenticated && userSession?.nombre 
                 ? `Asesorando a: ${userSession.nombre}` 
-                : 'Asesoría Oficial Pintuco / ColorLink'}
+                : 'Linky • Asesoría Oficial Pintuco / ColorLink'}
             </p>
           </div>
         </div>
@@ -1931,13 +2080,13 @@ ${notaRegional ? `\n💡 ${notaRegional}\n` : ''}
                 {/* RECOMENDACIÓN DE PINTURA (Paso 3) - RESUMEN COMPACTO CON BOTÓN [VER COTIZACIÓN DETALLADA] */}
                 {((msg.cartActions && msg.cartActions.length > 0) || msg.cartAction) && (() => {
                   const allActions = msg.cartActions && msg.cartActions.length > 0 ? msg.cartActions : [msg.cartAction!];
-                  const primaryAction = simulatedProduct || allActions[0];
+                  const isMsgSimulationActive = Boolean(isMsgActiveForSimulation && simulatedProduct);
+                  const primaryAction = isMsgSimulationActive ? simulatedProduct! : allActions[0];
                   const toolsKitToUse = msg.toolsKit || DEFAULT_TOOLS_KIT;
                   const toolsCost = toolsKitToUse.reduce((acc, t) => acc + (t.cantidad * t.precioUnitario), 0);
                   const paintCost = primaryAction.cantidad * primaryAction.precioUnitario;
                   const totalCotizacion = paintCost + toolsCost;
                   const isDetailed = Boolean(expandedQuotes[msg.id]);
-                  const isMsgSimulationActive = isMsgActiveForSimulation && simulatedProduct;
 
                   return (
                     <div className="mt-3.5 pt-3 border-t border-slate-200 space-y-3">
@@ -1959,7 +2108,7 @@ ${notaRegional ? `\n💡 ${notaRegional}\n` : ''}
                                   NTC 1335
                                 </span>
                                 <span className="text-[10px] text-teal-800 font-bold bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200">
-                                  {msg.areaM2 || sqm || 24} m²
+                                  {msg.areaM2 ? `${msg.areaM2} m²` : `Ref. ${primaryAction.presentacion}`}
                                 </span>
                                 <span className="text-[10px] text-slate-500 font-mono">
                                   SKU: {primaryAction.sku}
@@ -2270,17 +2419,30 @@ ${notaRegional ? `\n💡 ${notaRegional}\n` : ''}
         })}
 
         {isLoading && (
-          <div className="flex items-start gap-2.5">
-            <div className="w-8 h-8 rounded-full overflow-hidden border border-sky-300 shadow-xs shrink-0 bg-[#002244] mt-0.5 animate-pulse flex items-center justify-center p-0.5">
+          <div
+            className="flex items-start gap-2.5 animate-fadeIn"
+            role="status"
+            aria-live="polite"
+            aria-label="Linky está escribiendo"
+          >
+            <div className="w-8 h-8 rounded-full overflow-hidden border border-sky-300 shadow-xs shrink-0 bg-[#002244] mt-0.5 flex items-center justify-center p-0.5">
               <img
                 src={PINTUCO_AI_AVATAR_URL}
-                alt="Asesor Técnico IA"
+                alt="Linky • Asesor Técnico ColorLink"
                 className="w-full h-full object-contain"
               />
             </div>
-            <div className="flex items-center gap-2.5 text-xs text-slate-600 bg-white p-3.5 rounded-2xl rounded-tl-none border border-slate-200 shadow-xs animate-pulse">
-              <Loader2 className="w-4 h-4 animate-spin text-teal-600" />
-              <span>Procesando espacio, aplicando norma NTC 1335 y calculando cotización oficial...</span>
+            <div className="bg-white text-slate-700 px-4 py-3 rounded-2xl rounded-tl-none border border-slate-200/90 shadow-xs inline-flex items-center">
+              <span className="text-xs sm:text-sm font-semibold tracking-tight select-none text-slate-700">
+                {'Linky está escribiendo...'.split('').map((char, idx) => (
+                  <span
+                    key={idx}
+                    className={`linky-wave-char ${char === '.' ? 'text-teal-600 font-black ml-0.5' : ''}`}
+                  >
+                    {char === ' ' ? '\u00A0' : char}
+                  </span>
+                ))}
+              </span>
             </div>
           </div>
         )}
@@ -2421,7 +2583,7 @@ ${notaRegional ? `\n💡 ${notaRegional}\n` : ''}
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder={attachedImage ? "Añade un comentario sobre tu foto (opcional)..." : "¿Qué proyecto de pintura deseas cotizar?"}
+          placeholder={attachedImage ? "Añade un comentario sobre tu foto para Linky (opcional)..." : "Pregúntale a Linky qué proyecto deseas pintar o cotizar..."}
           className="flex-1 px-4 py-2.5 text-xs sm:text-sm rounded-xl bg-slate-50 text-slate-900 border border-slate-200 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-900"
         />
 

@@ -74,6 +74,43 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
     ? precioCuarto
     : precioGalon;
 
+  const explicitOriginal = Number(product.originalPrice ?? product.precioAnterior ?? 0);
+  const badgeMatch = String(product.badgeOferta || '').match(/(\d+(?:\.\d+)?)\s*%/);
+  const parsedBadgePct = badgeMatch ? Number(badgeMatch[1]) : 0;
+  const discountPct =
+    product.descuentoPorcentaje && product.descuentoPorcentaje > 0
+      ? product.descuentoPorcentaje
+      : parsedBadgePct > 0
+      ? parsedBadgePct
+      : product.enOferta || Boolean(product.badgeOferta?.trim())
+      ? 10
+      : 0;
+
+  const hasOffer = Boolean(
+    product.enOferta ||
+      product.badgeOferta?.trim() ||
+      discountPct > 0 ||
+      (explicitOriginal > 0 && explicitOriginal > precioGalon)
+  );
+
+  const computeOriginalFor = (price: number) => {
+    if (!hasOffer) return price;
+    if (explicitOriginal > 0 && precioGalon > 0) {
+      const scaled =
+        price === precioGalon
+          ? explicitOriginal
+          : Math.round((explicitOriginal * (price / precioGalon)) / 100) * 100;
+      if (scaled > price) return scaled;
+    }
+    const effectivePct = discountPct > 0 && discountPct < 95 ? discountPct : 10;
+    return Math.round(price / (1 - effectivePct / 100) / 100) * 100;
+  };
+
+  const originalCuarto = computeOriginalFor(precioCuarto);
+  const originalGalon = computeOriginalFor(precioGalon);
+  const originalCunete = computeOriginalFor(precioCunete);
+  const originalUnitario = computeOriginalFor(precioUnitario);
+
   const handleAdd = () => {
     const isCun = selectedPresentacion.includes('Cuñete');
     const isCua = selectedPresentacion.includes('Cuarto') || selectedPresentacion.includes('1/4');
@@ -172,8 +209,15 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                   }
                 }}
               />
-              <div className="absolute top-3 left-3 bg-white/90 backdrop-blur-xs text-slate-800 px-2.5 py-1 rounded-lg text-[11px] font-bold border border-slate-200 shadow-2xs">
-                {product.linea}
+              <div className="absolute top-3 left-3 flex items-center gap-1.5 flex-wrap">
+                <div className="bg-white/90 backdrop-blur-xs text-slate-800 px-2.5 py-1 rounded-lg text-[11px] font-bold border border-slate-200 shadow-2xs">
+                  {product.linea}
+                </div>
+                {product.badgeOferta && (
+                  <span className="px-2.5 py-1 rounded-lg text-[11px] font-black uppercase tracking-wider bg-red-600 text-white shadow-2xs">
+                    {product.badgeOferta}
+                  </span>
+                )}
               </div>
               <div className="absolute bottom-3 right-3 bg-white/90 backdrop-blur-xs text-slate-700 px-2 py-0.5 rounded text-[10px] font-mono border border-slate-200 shadow-2xs">
                 {selectedPresentacion}
@@ -233,6 +277,33 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                 </div>
               </div>
 
+              {/* Price Banner when product is on offer */}
+              {hasOffer && originalUnitario > precioUnitario && (
+                <div className="p-3 rounded-2xl bg-red-50/70 border border-red-200 flex items-center justify-between gap-3 flex-wrap">
+                  <div className="space-y-0.5">
+                    <div className="text-xs font-bold text-black">
+                      Antes:{' '}
+                      <span className="line-through decoration-black decoration-2">
+                        ${originalUnitario.toLocaleString('es-CO')} COP
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="px-2 py-0.5 rounded bg-red-600 text-white text-[10px] font-extrabold uppercase tracking-wide shadow-2xs">
+                        Oferta
+                      </span>
+                      <span className="text-xl sm:text-2xl font-extrabold text-red-600 tracking-tight">
+                        ${precioUnitario.toLocaleString('es-CO')} COP
+                      </span>
+                    </div>
+                  </div>
+                  {product.badgeOferta && (
+                    <span className="px-2.5 py-1 rounded-full bg-red-600 text-white text-[11px] font-black uppercase tracking-wider shadow-xs">
+                      {product.badgeOferta}
+                    </span>
+                  )}
+                </div>
+              )}
+
               {/* Presentation Selector */}
               <div className="pt-2">
                 <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-2">
@@ -249,9 +320,20 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                     }`}
                   >
                     <span className="text-[11px] sm:text-xs font-bold text-slate-900 block">Cuarto (1/4 GL)</span>
-                    <span className="text-xs sm:text-sm font-black text-blue-900 mt-0.5 block">
-                      ${precioCuarto.toLocaleString('es-CO')}
-                    </span>
+                    {hasOffer && originalCuarto > precioCuarto ? (
+                      <div className="mt-0.5 space-y-0.5">
+                        <span className="text-[10px] font-bold text-black line-through decoration-black decoration-2 block">
+                          Antes: ${originalCuarto.toLocaleString('es-CO')}
+                        </span>
+                        <span className="text-xs sm:text-sm font-extrabold text-red-600 block">
+                          ${precioCuarto.toLocaleString('es-CO')}
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="text-xs sm:text-sm font-black text-blue-900 mt-0.5 block">
+                        ${precioCuarto.toLocaleString('es-CO')}
+                      </span>
+                    )}
                     <span className="text-[9px] text-slate-500 block truncate">Retoques / 7 m²</span>
                   </button>
 
@@ -265,9 +347,20 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                     }`}
                   >
                     <span className="text-[11px] sm:text-xs font-bold text-slate-900 block">Galón (1 GL)</span>
-                    <span className="text-xs sm:text-sm font-black text-blue-900 mt-0.5 block">
-                      ${precioGalon.toLocaleString('es-CO')}
-                    </span>
+                    {hasOffer && originalGalon > precioGalon ? (
+                      <div className="mt-0.5 space-y-0.5">
+                        <span className="text-[10px] font-bold text-black line-through decoration-black decoration-2 block">
+                          Antes: ${originalGalon.toLocaleString('es-CO')}
+                        </span>
+                        <span className="text-xs sm:text-sm font-extrabold text-red-600 block">
+                          ${precioGalon.toLocaleString('es-CO')}
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="text-xs sm:text-sm font-black text-blue-900 mt-0.5 block">
+                        ${precioGalon.toLocaleString('es-CO')}
+                      </span>
+                    )}
                     <span className="text-[9px] text-slate-500 block truncate">Cubre ~30 m²</span>
                   </button>
 
@@ -281,9 +374,20 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                     }`}
                   >
                     <span className="text-[11px] sm:text-xs font-bold text-slate-900 block">Cuñete (5 GL)</span>
-                    <span className="text-xs sm:text-sm font-black text-blue-900 mt-0.5 block">
-                      ${precioCunete.toLocaleString('es-CO')}
-                    </span>
+                    {hasOffer && originalCunete > precioCunete ? (
+                      <div className="mt-0.5 space-y-0.5">
+                        <span className="text-[10px] font-bold text-black line-through decoration-black decoration-2 block">
+                          Antes: ${originalCunete.toLocaleString('es-CO')}
+                        </span>
+                        <span className="text-xs sm:text-sm font-extrabold text-red-600 block">
+                          ${precioCunete.toLocaleString('es-CO')}
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="text-xs sm:text-sm font-black text-blue-900 mt-0.5 block">
+                        ${precioCunete.toLocaleString('es-CO')}
+                      </span>
+                    )}
                     <span className="text-[9px] text-teal-700 font-semibold block truncate">Mayorista ~150 m²</span>
                   </button>
                 </div>
@@ -361,9 +465,25 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
 
                 <div className="text-right ml-auto">
                   <span className="text-[10px] text-slate-500 block">Subtotal ítem:</span>
-                  <span className="text-base font-black text-slate-900">
-                    ${(precioUnitario * cantidad).toLocaleString('es-CO')} COP
-                  </span>
+                  {hasOffer && originalUnitario > precioUnitario ? (
+                    <div className="space-y-0.5">
+                      <span className="text-[11px] font-bold text-black line-through decoration-black decoration-2 block">
+                        Antes: ${(originalUnitario * cantidad).toLocaleString('es-CO')} COP
+                      </span>
+                      <div className="inline-flex items-center gap-1.5">
+                        <span className="px-1.5 py-0.5 rounded bg-red-600 text-white text-[9px] font-extrabold uppercase tracking-wide">
+                          Oferta
+                        </span>
+                        <span className="text-base font-extrabold text-red-600">
+                          ${(precioUnitario * cantidad).toLocaleString('es-CO')} COP
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <span className="text-base font-black text-slate-900">
+                      ${(precioUnitario * cantidad).toLocaleString('es-CO')} COP
+                    </span>
+                  )}
                 </div>
               </div>
             </div>

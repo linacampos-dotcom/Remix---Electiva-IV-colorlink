@@ -105,6 +105,51 @@ export const ProductCard: React.FC<ProductCardProps> = ({
     return priceGalon;
   }, [hasVariants, selectedVariant, isCunete, isMedio, isCuarto, priceCunete, priceMedio, priceCuarto, priceGalon]);
 
+  // Cálculo de precio anterior ("Antes") si el producto tiene oferta o descuento activo
+  const { hasOffer, originalCurrentPrice } = useMemo(() => {
+    const explicitOriginal = Number(product.originalPrice ?? product.precioAnterior ?? 0);
+    const badgeMatch = String(product.badgeOferta || '').match(/(\d+(?:\.\d+)?)\s*%/);
+    const parsedBadgePct = badgeMatch ? Number(badgeMatch[1]) : 0;
+    const discountPct =
+      product.descuentoPorcentaje && product.descuentoPorcentaje > 0
+        ? product.descuentoPorcentaje
+        : parsedBadgePct > 0
+        ? parsedBadgePct
+        : product.enOferta || Boolean(product.badgeOferta?.trim())
+        ? 10
+        : 0;
+
+    const activeOffer = Boolean(
+      product.enOferta ||
+        product.badgeOferta?.trim() ||
+        discountPct > 0 ||
+        (explicitOriginal > 0 && explicitOriginal > currentPrice)
+    );
+
+    if (!activeOffer) {
+      return { hasOffer: false, originalCurrentPrice: currentPrice };
+    }
+
+    if (explicitOriginal > 0) {
+      if (!hasVariants && priceGalon > 0 && currentPrice !== priceGalon && explicitOriginal > priceGalon) {
+        const scaled = Math.round((explicitOriginal * (currentPrice / priceGalon)) / 100) * 100;
+        if (scaled > currentPrice) {
+          return { hasOffer: true, originalCurrentPrice: scaled };
+        }
+      }
+      if (explicitOriginal > currentPrice) {
+        return { hasOffer: true, originalCurrentPrice: explicitOriginal };
+      }
+    }
+
+    const effectivePct = discountPct > 0 && discountPct < 95 ? discountPct : 10;
+    const computedOriginal = Math.round(currentPrice / (1 - effectivePct / 100) / 100) * 100;
+    return {
+      hasOffer: computedOriginal > currentPrice,
+      originalCurrentPrice: computedOriginal,
+    };
+  }, [product, currentPrice, hasVariants, priceGalon]);
+
   const handleAddToCart = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!onAddToCart) return;
@@ -318,15 +363,37 @@ export const ProductCard: React.FC<ProductCardProps> = ({
             </div>
           )}
 
-          {/* 4. PRECIO GRANDE Y CLARO ($89.900 COP) */}
+          {/* 4. PRECIO GRANDE Y CLARO (CON "ANTES" TACHADO EN NEGRO Y "OFERTA" EN PROMO) */}
           <div className="pt-1.5 border-t border-slate-100">
-            <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block">
-              Precio
-            </span>
-            <div className="text-lg sm:text-xl font-black text-slate-900 tracking-tight">
-              ${currentPrice.toLocaleString('es-CO')}
-              <span className="text-[11px] font-bold text-slate-500 ml-1">COP</span>
-            </div>
+            {hasOffer && originalCurrentPrice > currentPrice ? (
+              <div className="space-y-0.5">
+                <div className="text-xs font-bold text-black">
+                  Antes:{' '}
+                  <span className="line-through decoration-black decoration-2">
+                    ${originalCurrentPrice.toLocaleString('es-CO')} COP
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="px-1.5 py-0.5 rounded bg-red-600 text-white text-[10px] font-extrabold uppercase tracking-wide shadow-2xs">
+                    Oferta
+                  </span>
+                  <div className="text-lg sm:text-xl font-extrabold text-red-600 tracking-tight leading-none">
+                    ${currentPrice.toLocaleString('es-CO')}
+                    <span className="text-[11px] font-bold text-red-600/90 ml-1">COP</span>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <>
+                <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block">
+                  Precio
+                </span>
+                <div className="text-lg sm:text-xl font-black text-slate-900 tracking-tight">
+                  ${currentPrice.toLocaleString('es-CO')}
+                  <span className="text-[11px] font-bold text-slate-500 ml-1">COP</span>
+                </div>
+              </>
+            )}
           </div>
 
         </div>

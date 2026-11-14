@@ -158,9 +158,25 @@ export const resolveInitialCustomerData = (
     if (activeSession.telefono) telefono = activeSession.telefono;
     if (activeSession.email) email = activeSession.email;
 
-    const defAddr = activeSession.direcciones?.find(d => d.esPredeterminada) || activeSession.direcciones?.[0];
-    if (defAddr?.direccion || activeSession.direccion || activeSession.address) {
-      direccion = defAddr?.direccion || activeSession.direccion || activeSession.address || '';
+    let savedList = Array.isArray(activeSession.direcciones) ? activeSession.direcciones : [];
+    if (savedList.length === 0) {
+      try {
+        const emailNorm = (activeSession.email || '').trim().toLowerCase();
+        const rawScoped = emailNorm
+          ? localStorage.getItem(`colorlink_user_addresses_${emailNorm}`)
+          : null;
+        const rawGlobal = localStorage.getItem('colorlink_user_addresses');
+        const parsed = JSON.parse(rawScoped || rawGlobal || '[]');
+        if (Array.isArray(parsed)) savedList = parsed;
+      } catch {}
+    }
+
+    const defAddr = savedList.find(d => d.esPredeterminada) || savedList[0];
+    const formattedDefDir = defAddr?.direccion
+      ? (defAddr.barrio ? `${defAddr.direccion}, Barrio ${defAddr.barrio}` : defAddr.direccion)
+      : '';
+    if (formattedDefDir || activeSession.direccion || activeSession.address) {
+      direccion = formattedDefDir || activeSession.direccion || activeSession.address || '';
     }
     if (defAddr?.ciudad || activeSession.ciudad) {
       ciudad = defAddr?.ciudad || activeSession.ciudad || '';
@@ -430,7 +446,7 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
 
   // Sync userSession values when opening or when userSession changes
   // Sincronización Integral y Automática de Datos del Cliente y Despacho
-  const syncAllCustomerAndDeliveryData = useCallback(() => {
+  const syncAllCustomerAndDeliveryData = useCallback((forceAddressSync = false) => {
     const resolved = resolveInitialCustomerData(userSession, formData);
 
     // 1. Capturar de inmediato los datos del perfil activo (Nombre, Doc, TipoDoc, Teléfono y Correo)
@@ -484,7 +500,11 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
       setCheckoutDireccion(pickupText);
     } else {
       if (resolved.direccion && !resolved.direccion.startsWith('Retiro en Tienda')) {
-        setCheckoutDireccion((prev) => (prev.trim() && !prev.startsWith('Retiro en Tienda') ? prev : resolved.direccion));
+        setCheckoutDireccion((prev) =>
+          forceAddressSync || !prev.trim() || prev.startsWith('Retiro en Tienda')
+            ? resolved.direccion
+            : prev
+        );
       }
     }
 
@@ -502,7 +522,7 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
   // Ejecutar sincronización al abrir el drawer o al cambiar a la vista de checkout
   useEffect(() => {
     if (isOpen) {
-      syncAllCustomerAndDeliveryData();
+      syncAllCustomerAndDeliveryData(false);
 
       try {
         if (sessionStorage.getItem('colorlink_open_checkout_step') === 'true') {
@@ -513,7 +533,7 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
     }
 
     const handleExternalUpdate = () => {
-      syncAllCustomerAndDeliveryData();
+      syncAllCustomerAndDeliveryData(true);
     };
 
     window.addEventListener('colorlink_quote_delivery_updated', handleExternalUpdate);
@@ -1408,6 +1428,39 @@ export const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({
 
                 {modalidad === 'domicilio' ? (
                   <div className="space-y-2">
+                    {userSession?.direcciones && userSession.direcciones.length > 0 && (
+                      <div className="space-y-1">
+                        <span className="block text-[10px] font-bold text-slate-600 uppercase">
+                          Mis Direcciones Guardadas:
+                        </span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {userSession.direcciones.map((savedAddr) => {
+                            const formatted = savedAddr.barrio
+                              ? `${savedAddr.direccion}, Barrio ${savedAddr.barrio}`
+                              : savedAddr.direccion;
+                            const isSelected = checkoutDireccion.trim() === formatted.trim();
+                            return (
+                              <button
+                                key={savedAddr.id}
+                                type="button"
+                                onClick={() => {
+                                  handleAddressChange(formatted);
+                                  if (savedAddr.departamento) setSelectedDepto(savedAddr.departamento);
+                                  if (savedAddr.ciudad) setSelectedCiudad(savedAddr.ciudad);
+                                }}
+                                className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-colors cursor-pointer ${
+                                  isSelected
+                                    ? 'bg-blue-900 text-white border-blue-900'
+                                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                                }`}
+                              >
+                                {savedAddr.etiqueta}{savedAddr.esPredeterminada ? ' ★' : ''}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                     <div>
                       <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
                         Dirección de Residencia / Obra <span className="text-red-600">*</span>

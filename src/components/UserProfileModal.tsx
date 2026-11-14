@@ -10,8 +10,15 @@ import {
 } from '../utils/userDatabase';
 import { COLOR_PALETTE } from '../data/pintucoData';
 import { SectorPaintAvatar } from './UserProfileDropdown';
-import { supabase } from '../lib/supabaseClient';
-import { fetchPendingOrdersFromSupabase } from '../services/ordersService';
+import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
+import { fetchUserOrdersFromDatabase, isMockOrder } from '../services/ordersService';
+import { OrderSatisfactionSurveyModal } from './OrderSatisfactionSurveyModal';
+import {
+  OrderSatisfactionReview,
+  getSatisfactionReviews,
+  fetchSatisfactionReviewsFromSupabase,
+  findReviewForOrder,
+} from '../services/reviewsService';
 import { 
   User, 
   Mail, 
@@ -48,7 +55,8 @@ import {
   MessageSquare,
   Send,
   CheckCircle2,
-  HeadphonesIcon
+  HeadphonesIcon,
+  Star
 } from 'lucide-react';
 import { getTicketsSAC, TicketSAC, radicarConsultaWeb } from '../services/corporateService';
 
@@ -320,8 +328,20 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
     (initialTab as any) === 'orders' ? 'orders' : (initialTab as any) === 'solicitudes' ? 'solicitudes' : initialTab
   );
 
-  const [supabasePendingOrders, setSupabasePendingOrders] = useState<COLORLINKOrder[]>([]);
+  const [supabaseUserOrders, setSupabaseUserOrders] = useState<COLORLINKOrder[]>([]);
   const [isLoadingSupabase, setIsLoadingSupabase] = useState<boolean>(false);
+
+  // Encuestas de satisfacción para pedidos entregados
+  const [reviews, setReviews] = useState<OrderSatisfactionReview[]>(() => getSatisfactionReviews());
+  const [surveyOrder, setSurveyOrder] = useState<COLORLINKOrder | null>(null);
+
+  useEffect(() => {
+    const handleReviewsUpdated = () => {
+      setReviews(getSatisfactionReviews());
+    };
+    window.addEventListener('colorlink_reviews_updated', handleReviewsUpdated);
+    return () => window.removeEventListener('colorlink_reviews_updated', handleReviewsUpdated);
+  }, []);
 
   // Sincronización de tickets de SAC / PQRS
   const [profileTickets, setProfileTickets] = useState<TicketSAC[]>(() => {
@@ -348,70 +368,48 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   const [newProfilePqrsMensaje, setNewProfilePqrsMensaje] = useState('');
   const [isSubmittingProfilePqrs, setIsSubmittingProfilePqrs] = useState(false);
 
-  // Sincronizar tab inicial cuando cambie
+  // Sincronizar tab inicial al abrir o cambiar initialTab
   useEffect(() => {
-    if (initialTab) {
+    if (isOpen && initialTab) {
       setActiveTab((initialTab as any) === 'orders' ? 'orders' : (initialTab as any) === 'solicitudes' ? 'solicitudes' : initialTab);
     }
-  }, [initialTab]);
+  }, [isOpen, initialTab]);
 
-  // Consulta de 'Pedidos Pendientes' en Supabase para el usuario activo
+  // Consulta unificada de TODOS los pedidos del usuario (En curso + Entregados) en Supabase
   useEffect(() => {
     if (!isOpen) return;
-    if (activeTab === 'pedidos' || activeTab === 'orders') {
-      let isMounted = true;
-      async function querySupabasePendingOrders() {
-        setIsLoadingSupabase(true);
-        const userEmail = (userSession?.email || '').trim().toLowerCase();
-        try {
-          if (userEmail) {
-            // Consulta exacta solicitada en Supabase:
-            const { data: dbOrders, error } = await supabase
-              .from('orders')
-              .select('*')
-              .eq('user_email', userEmail)
-              .in('status', ['pending', 'processing', 'preparing', 'pendiente', 'en_proceso', 'en_preparacion', 'Pendiente Alistamiento', 'En Bodega'])
-              .order('created_at', { ascending: false });
+    let isMounted = true;
 
-            if (!error && Array.isArray(dbOrders) && isMounted) {
-              const mapped: COLORLINKOrder[] = dbOrders.map((row: any) => ({
-                id: row.id || `ord-${Date.now()}`,
-                numeroOrden: row.order_number || row.numeroOrden || row.numero_orden || `#CLK-${row.id?.slice(0, 6)}`,
-                fechaCreacion: row.created_at || row.fecha_creacion || new Date().toISOString(),
-                customerName: row.customer_name || userSession.nombre || 'Cliente Pintuco',
-                customerEmail: row.user_email || userEmail,
-                customerPhone: row.customer_phone || userSession.telefono || '',
-                customerDocument: row.customer_document || userSession.documento || '',
-                direccionEntrega: row.shipping_address || row.direccionEntrega || 'Dirección de obra',
-                ciudadEntrega: row.city || row.ciudadEntrega || 'Colombia',
-                departamentoEntrega: row.department || row.departamentoEntrega || '',
-                estado: row.status === 'pending' ? 'Pendiente Alistamiento' : row.status === 'processing' ? 'En Bodega' : row.status || 'Pendiente Alistamiento',
-                total: Number(row.total) || 0,
-                items: Array.isArray(row.items) ? row.items : [],
-              }));
-              setSupabasePendingOrders(mapped);
-            } else {
-              const fallback = await fetchPendingOrdersFromSupabase(userEmail);
-              if (isMounted) setSupabasePendingOrders(fallback.data);
-            }
-          } else {
-            const fallback = await fetchPendingOrdersFromSupabase('');
-            if (isMounted) setSupabasePendingOrders(fallback.data);
-          }
-        } catch (err) {
-          console.warn('Error cargando pedidos pendientes en Supabase:', err);
-          const fallback = await fetchPendingOrdersFromSupabase(userEmail);
-          if (isMounted) setSupabasePendingOrders(fallback.data);
-        } finally {
-          if (isMounted) setIsLoadingSupabase(false);
+    setReviews(getSatisfactionReviews());
+    fetchSatisfactionReviewsFromSupabase()
+      .then((res) => {
+        if (isMounted) setReviews(res);
+      })
+      .catch(() => {});
+
+    async function queryAllUserOrdersFromSupabase() {
+      setIsLoadingSupabase(true);
+      try {
+        const fetched = await fetchUserOrdersFromDatabase(
+          userSession?.id || null,
+          userSession?.email || null,
+          userSession?.documento || userSession?.cedula || null
+        );
+        if (isMounted) {
+          setSupabaseUserOrders(fetched);
         }
+      } catch (err) {
+        console.warn('Error cargando pedidos del usuario en Supabase:', err);
+      } finally {
+        if (isMounted) setIsLoadingSupabase(false);
       }
-      querySupabasePendingOrders();
-      return () => {
-        isMounted = false;
-      };
     }
-  }, [isOpen, activeTab, userSession?.email]);
+
+    queryAllUserOrdersFromSupabase();
+    return () => {
+      isMounted = false;
+    };
+  }, [isOpen, userSession?.id, userSession?.email, userSession?.documento, userSession?.cedula]);
 
   // Filtros de la pestaña "Mis Pedidos / Proyectos Radicados"
   const [orderFilterQuery, setOrderFilterQuery] = useState('');
@@ -463,7 +461,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   // Helper para renderizar la etiqueta de estado con el color correspondiente (Dark Theme)
   const renderStatusBadge = (estado?: string) => {
     const st = (estado || 'Cotización').toLowerCase();
-    if (st.includes('entregado')) {
+    if (st.includes('entregad') || st.includes('delivered') || st.includes('completad')) {
       return (
         <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full border bg-emerald-950/80 text-emerald-300 border-emerald-600/70 inline-flex items-center gap-1 shadow-xs">
           <Check className="w-3 h-3 text-emerald-400" />
@@ -510,84 +508,142 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
     }
   };
 
-  // Carga automática de órdenes del usuario combinando Supabase, props.orders y localStorage
+  // Carga automática unificada de TODOS los pedidos del usuario (En Procesamiento + Entregados)
   const userOrders = useMemo<COLORLINKOrder[]>(() => {
-    const list: COLORLINKOrder[] = [];
-    const seen = new Set<string>();
-    const userEmail = (userSession?.email || '').trim().toLowerCase();
+    const orderMap = new Map<string, COLORLINKOrder>();
+    const supabaseVerifiedKeys = new Set<string>();
 
-    const isPendingStatus = (statusStr?: string) => {
-      const s = String(statusStr || '').toLowerCase();
-      return (
-        s.includes('pend') ||
-        s.includes('proces') ||
-        s.includes('prepar') ||
-        s.includes('alistamiento') ||
-        s.includes('bodega')
-      );
+    const userEmail = (userSession?.email || '').trim().toLowerCase();
+    const userDoc = normalizeDocument(userSession?.documento || userSession?.cedula || '');
+    const userName = (userSession?.nombre || '').trim().toLowerCase();
+    const userId = (userSession?.id || '').trim().toLowerCase();
+
+    const isDeliveredStatus = (status?: string): boolean => {
+      const s = String(status || '').toLowerCase();
+      return s.includes('entregad') || s.includes('delivered') || s.includes('completad');
     };
 
-    // 1. Agregar órdenes en tiempo real desde Supabase (tabla 'orders')
-    if (Array.isArray(supabasePendingOrders)) {
-      supabasePendingOrders.forEach((o) => {
-        if (!o) return;
-        const key = o.id || o.numeroOrden;
-        if (key && !seen.has(key)) {
-          seen.add(key);
-          list.push(o);
-        }
-      });
-    }
+    const belongsToCurrentUser = (o: COLORLINKOrder): boolean => {
+      if (!userEmail && !userDoc && !userId && !userName) return false;
 
-    // 2. Agregar órdenes en tiempo real desde el estado global (props.orders)
-    if (Array.isArray(orders)) {
-      orders.forEach((o) => {
-        if (!o) return;
-        const oEmail = (o.customerEmail || o.form?.responsable_contacto || '').trim().toLowerCase();
-        if (userEmail && oEmail && oEmail !== userEmail && !oEmail.includes(userEmail)) return;
-        if (!isPendingStatus(o.estado)) return;
+      const emailCandidates = [
+        o.customerEmail,
+        (o as any).user_email,
+        (o as any).email,
+        (o as any).customer_email,
+        o.form?.correo_electronico,
+        o.form?.responsable_contacto,
+      ]
+        .filter(Boolean)
+        .map((e) => String(e).trim().toLowerCase());
 
-        const key = o.id || o.numeroOrden;
-        if (key && !seen.has(key)) {
-          seen.add(key);
-          list.push(o);
-        }
-      });
-    }
+      const oDoc = normalizeDocument(o.customerDocument || (o as any).customer_document || o.form?.documento || '');
+      const oName = (o.customerName || (o as any).customer_name || o.form?.nombre_razon_social || '').trim().toLowerCase();
+      const oUserId = String((o as any).userId || (o as any).user_id || (o as any).customerId || (o as any).clienteId || '').trim().toLowerCase();
 
-    // 3. Agregar órdenes almacenadas en localStorage si pertenecen a este usuario y están pendientes
-    try {
-      const stored = localStorage.getItem('colorlink_orders');
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed)) {
-          parsed.forEach((o) => {
-            if (!o) return;
-            const oEmail = (o.customerEmail || o.form?.responsable_contacto || '').trim().toLowerCase();
-            if (userEmail && oEmail && oEmail !== userEmail && !oEmail.includes(userEmail)) return;
-            if (!isPendingStatus(o.estado)) return;
+      const matchEmail = Boolean(userEmail && emailCandidates.some((e) => e === userEmail || e.includes(userEmail)));
+      const matchDoc = Boolean(userDoc && oDoc && oDoc === userDoc);
+      const matchId = Boolean(userId && oUserId && oUserId === userId);
+      const matchName = Boolean(
+        userName &&
+        oName &&
+        (oName === userName || oName.includes(userName) || (oName.length >= 3 && userName.includes(oName)))
+      );
 
-            const key = o.id || o.numeroOrden;
-            if (key && !seen.has(key)) {
-              seen.add(key);
-              list.push(o);
-            }
-          });
-        }
-      }
-    } catch {}
+      return matchEmail || matchDoc || matchId || matchName;
+    };
 
-    // Filtrar posibles restos inválidos si los hubiera
-    const cleanedOrders = list.filter((o) => {
+    const getOrderKey = (o: COLORLINKOrder): string =>
+      (o.numeroOrden || o.id || '').replace(/^#/, '').trim().toLowerCase();
+
+    const addIfValid = (o: COLORLINKOrder, fromSupabaseUserQuery = false) => {
+      if (!o) return;
+      if (isMockOrder(o)) return;
       const id = String(o.id || '').toLowerCase();
       const num = String(o.numeroOrden || '').toLowerCase();
-      if (id === 'ord-init-1' || id === 'ord-init-2') return false;
-      if (id.includes('a93ec3fe') || num.includes('a93ec3fe') || num.includes('sb-a93ec3fe')) return false;
-      return true;
-    });
+      if (id === 'ord-init-1' || id === 'ord-init-2') return;
+      if (id.includes('a93ec3fe') || num.includes('a93ec3fe') || num.includes('sb-a93ec3fe')) return;
 
-    return cleanedOrders;
-  }, [orders, supabasePendingOrders, isOpen, userSession?.email, activeTab]);
+      const key = getOrderKey(o);
+      if (!key) return;
+
+      const alreadyVerified = supabaseVerifiedKeys.has(key);
+      if (!fromSupabaseUserQuery && !alreadyVerified && !belongsToCurrentUser(o)) return;
+
+      if (fromSupabaseUserQuery) {
+        supabaseVerifiedKeys.add(key);
+      }
+
+      const existing = orderMap.get(key);
+      if (!existing) {
+        orderMap.set(key, o);
+      } else {
+        // Preservar estado "Entregado" o más actualizado si alguno de los orígenes ya fue marcado como entregado
+        const nextOrder =
+          isDeliveredStatus(existing.estado) && !isDeliveredStatus(o.estado)
+            ? { ...o, ...existing, estado: existing.estado }
+            : { ...existing, ...o };
+        orderMap.set(key, nextOrder);
+      }
+    };
+
+    // 1. Órdenes desde Supabase (todos los estados: pendientes, en camino, entregados)
+    if (Array.isArray(supabaseUserOrders)) {
+      supabaseUserOrders.forEach((o) => addIfValid(o, true));
+    }
+
+    // 2. Órdenes almacenadas en localStorage ('colorlink_user_orders' y 'colorlink_orders')
+    try {
+      const rawA = localStorage.getItem('colorlink_user_orders');
+      const rawB = localStorage.getItem('colorlink_orders');
+      [rawA, rawB].forEach((raw) => {
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          parsed.forEach((o) => addIfValid(o));
+        }
+      });
+    } catch {}
+
+    // 3. Estado global reactivo (props.orders) que alimenta a Logística y al Panel de Notificaciones
+    if (Array.isArray(orders)) {
+      orders.forEach((o) => addIfValid(o));
+    }
+
+    return Array.from(orderMap.values()).sort((a, b) => {
+      const ta = new Date(a.fechaCreacion || 0).getTime();
+      const tb = new Date(b.fechaCreacion || 0).getTime();
+      return tb - ta;
+    });
+  }, [orders, supabaseUserOrders, isOpen, userSession?.id, userSession?.email, userSession?.documento, userSession?.cedula, userSession?.nombre, activeTab]);
+
+  const isProcessingStatus = (estado?: string): boolean => {
+    const st = (estado || '').toLowerCase();
+    return (
+      st.includes('pend') ||
+      st.includes('proces') ||
+      st.includes('prepar') ||
+      st.includes('bodega') ||
+      st.includes('alistamiento') ||
+      st.includes('producci') ||
+      st.includes('despach') ||
+      st.includes('camino') ||
+      st.includes('tránsito') ||
+      st.includes('transito') ||
+      st.includes('radicado') ||
+      st.includes('listo') ||
+      st.includes('aprobado') ||
+      st.includes('ruta') ||
+      st.includes('shipped') ||
+      st.includes('processing') ||
+      st.includes('preparing')
+    );
+  };
+
+  const isDeliveredOrderStatus = (estado?: string): boolean => {
+    const st = (estado || '').toLowerCase();
+    return st.includes('entregad') || st.includes('delivered') || st.includes('completad');
+  };
 
   // Filtro dinámico e instantáneo en la barra de búsqueda y botones de filtro rápido
   const filteredUserOrders = useMemo(() => {
@@ -596,16 +652,9 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
       if (statusFilter !== 'Todos') {
         const st = (order.estado || '').toLowerCase();
         if (statusFilter === 'En Procesamiento') {
-          const isProc =
-            st.includes('bodega') ||
-            st.includes('procesamiento') ||
-            st.includes('alistamiento') ||
-            st.includes('producción') ||
-            st.includes('despacho') ||
-            st.includes('radicado');
-          if (!isProc) return false;
+          if (!isProcessingStatus(order.estado)) return false;
         } else if (statusFilter === 'Entregados') {
-          if (!st.includes('entregado')) return false;
+          if (!isDeliveredOrderStatus(order.estado)) return false;
         } else if (statusFilter === 'Cotizaciones') {
           if (!st.includes('cotiz')) return false;
         }
@@ -644,17 +693,8 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
     if (chip === 'Todos') return userOrders.length;
     return userOrders.filter((order) => {
       const st = (order.estado || '').toLowerCase();
-      if (chip === 'En Procesamiento') {
-        return (
-          st.includes('bodega') ||
-          st.includes('procesamiento') ||
-          st.includes('alistamiento') ||
-          st.includes('producción') ||
-          st.includes('despacho') ||
-          st.includes('radicado')
-        );
-      }
-      if (chip === 'Entregados') return st.includes('entregado');
+      if (chip === 'En Procesamiento') return isProcessingStatus(order.estado);
+      if (chip === 'Entregados') return isDeliveredOrderStatus(order.estado);
       if (chip === 'Cotizaciones') return st.includes('cotiz');
       return false;
     }).length;
@@ -766,55 +806,101 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   const [passwordSuccess, setPasswordSuccess] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
 
-  // Libreta de Direcciones: estrictamente vacía [] por defecto para usuario nuevo
-  const [addresses, setAddresses] = useState<UserAddress[]>(() => {
+  const filterCleanAddresses = (rawList: any[]): UserAddress[] => {
+    if (!Array.isArray(rawList)) return [];
+    return rawList.filter(
+      (a: any) =>
+        a &&
+        typeof a === 'object' &&
+        a.direccion &&
+        a.id !== 'addr-1' &&
+        a.id !== 'addr-2' &&
+        a.id !== 'addr-3' &&
+        !a.etiqueta?.includes('Santa Marta') &&
+        !a.etiqueta?.includes('Bodega Principal')
+    );
+  };
+
+  const getScopedAddressKey = (userEmail?: string) => {
+    const norm = normalizeEmail(userEmail || '');
+    return norm ? `colorlink_user_addresses_${norm}` : 'colorlink_user_addresses';
+  };
+
+  const resolveSavedAddresses = (session: UserSession): UserAddress[] => {
+    const normEmail = normalizeEmail(session.email || '');
+    const scopedKey = getScopedAddressKey(session.email);
+
     try {
-      const saved = localStorage.getItem('colorlink_user_addresses');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          // Filtrar direcciones de prueba antiguas si existían
-          const clean = parsed.filter(
-            (a: any) =>
-              a.id !== 'addr-1' &&
-              a.id !== 'addr-2' &&
-              a.id !== 'addr-3' &&
-              !a.etiqueta?.includes('Santa Marta') &&
-              !a.etiqueta?.includes('Bodega Principal')
-          );
-          if (clean.length > 0) return clean;
-        }
+      const scopedRaw = localStorage.getItem(scopedKey);
+      if (scopedRaw) {
+        const clean = filterCleanAddresses(JSON.parse(scopedRaw));
+        if (clean.length > 0) return clean;
       }
     } catch {}
-    if (userSession.direcciones && Array.isArray(userSession.direcciones)) {
-      const clean = userSession.direcciones.filter(
-        (a: any) =>
-          a.id !== 'addr-1' &&
-          a.id !== 'addr-2' &&
-          a.id !== 'addr-3' &&
-          !a.etiqueta?.includes('Santa Marta') &&
-          !a.etiqueta?.includes('Bodega Principal')
-      );
+
+    if (session.direcciones && Array.isArray(session.direcciones)) {
+      const clean = filterCleanAddresses(session.direcciones);
       if (clean.length > 0) return clean;
     }
-    // Si sólo había direcciones demo anteriores en localStorage, limpiarlas
-    localStorage.removeItem('colorlink_user_addresses');
+
+    try {
+      const usersDb = getPintucoUsersDb();
+      const normDoc = normalizeDocument(session.documento || session.cedula || '');
+      const dbUser = usersDb.find(
+        (u) =>
+          (normEmail && normalizeEmail(u.email) === normEmail) ||
+          (normDoc && normalizeDocument(u.cedula) === normDoc)
+      );
+      if (dbUser?.direcciones && Array.isArray(dbUser.direcciones)) {
+        const clean = filterCleanAddresses(dbUser.direcciones);
+        if (clean.length > 0) return clean;
+      }
+    } catch {}
+
+    try {
+      const globalRaw = localStorage.getItem('colorlink_user_addresses');
+      if (globalRaw) {
+        const clean = filterCleanAddresses(JSON.parse(globalRaw));
+        if (clean.length > 0) return clean;
+      }
+    } catch {}
+
     return [];
-  });
+  };
+
+  // Libreta de Direcciones: cargada por usuario autenticado y sincronizada con Supabase/localStorage
+  const [addresses, setAddresses] = useState<UserAddress[]>(() =>
+    resolveSavedAddresses(userSession)
+  );
 
   // Modal / Formulario para agregar o editar dirección
   const [isAddingAddress, setIsAddingAddress] = useState(false);
   const [editingAddressId, setEditingAddressId] = useState<string | null>(null);
   const [addrEtiqueta, setAddrEtiqueta] = useState('');
   const [addrDireccion, setAddrDireccion] = useState('');
+  const [addrBarrio, setAddrBarrio] = useState('');
   const [addrDepartamento, setAddrDepartamento] = useState('Cundinamarca');
   const [addrCiudad, setAddrCiudad] = useState('Bogotá D.C.');
   const [addrDetalles, setAddrDetalles] = useState('');
   const [addrEsPredeterminada, setAddrEsPredeterminada] = useState(false);
+  const [isSavingAddress, setIsSavingAddress] = useState(false);
+  const [addressSuccessMsg, setAddressSuccessMsg] = useState<string | null>(null);
+  const [addressErrorMsg, setAddressErrorMsg] = useState<string | null>(null);
+
+  const resetAddressForm = (defaultPrimary = false) => {
+    setEditingAddressId(null);
+    setAddrEtiqueta('');
+    setAddrDireccion('');
+    setAddrBarrio('');
+    setAddrDepartamento('Cundinamarca');
+    setAddrCiudad('Bogotá D.C.');
+    setAddrDetalles('');
+    setAddrEsPredeterminada(defaultPrimary);
+    setAddressErrorMsg(null);
+  };
 
   useEffect(() => {
     if (isOpen) {
-      if (initialTab) setActiveTab(initialTab);
       setNombre(userSession.nombre || '');
       setTelefono(userSession.telefono || '');
       setEmail(userSession.email || '');
@@ -826,13 +912,145 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
       setNewPassword('');
       setConfirmPassword('');
       setIsAddingAddress(false);
-      setEditingAddressId(null);
+      resetAddressForm(false);
+      setAddressSuccessMsg(null);
       setOrderFilterQuery('');
       setStatusFilter('Todos');
+
+      const localResolved = resolveSavedAddresses(userSession);
+      setAddresses(localResolved);
+
+      // Re-sincronizar desde Supabase Auth metadata si hay sesión activa
+      if (isSupabaseConfigured && supabase) {
+        supabase.auth
+          .getUser()
+          .then(({ data }: any) => {
+            const metaAddrs = data?.user?.user_metadata?.direcciones;
+            if (Array.isArray(metaAddrs)) {
+              const cleanMeta = filterCleanAddresses(metaAddrs);
+              if (cleanMeta.length > 0 && localResolved.length === 0) {
+                setAddresses(cleanMeta);
+                try {
+                  localStorage.setItem(getScopedAddressKey(userSession.email), JSON.stringify(cleanMeta));
+                  localStorage.setItem('colorlink_user_addresses', JSON.stringify(cleanMeta));
+                } catch {}
+              }
+            }
+          })
+          .catch(() => {});
+      }
     }
   }, [isOpen, userSession, initialTab]);
 
   if (!isOpen) return null;
+
+  const persistAddressesEverywhere = async (updated: UserAddress[]) => {
+    setAddresses(updated);
+
+    const scopedKey = getScopedAddressKey(userSession.email || email);
+    const defaultAddr = updated.find((a) => a.esPredeterminada) || updated[0];
+
+    // 1. Persistencia en localStorage (scoped por usuario + clave global + dirección activa checkout)
+    try {
+      localStorage.setItem(scopedKey, JSON.stringify(updated));
+      localStorage.setItem('colorlink_user_addresses', JSON.stringify(updated));
+      if (defaultAddr) {
+        localStorage.setItem(
+          'colorlink_user_address',
+          defaultAddr.barrio ? `${defaultAddr.direccion}, Barrio ${defaultAddr.barrio}` : defaultAddr.direccion
+        );
+        localStorage.setItem('colorlink_shipping_city', defaultAddr.ciudad);
+        if (defaultAddr.departamento) {
+          localStorage.setItem('colorlink_shipping_depto', defaultAddr.departamento);
+        }
+      } else {
+        localStorage.removeItem('colorlink_user_address');
+      }
+    } catch (err) {
+      console.error('Error guardando direcciones en localStorage:', err);
+    }
+
+    // 2. Actualizar sesión activa (currentUser + App state)
+    const updatedSession: UserSession = {
+      ...userSession,
+      direcciones: updated,
+      ciudad: defaultAddr ? defaultAddr.ciudad : userSession.ciudad,
+      departamento: defaultAddr?.departamento || userSession.departamento,
+      direccion: defaultAddr ? defaultAddr.direccion : '',
+    };
+    syncActiveSession(updatedSession);
+    onUpdateUserSession(updatedSession);
+
+    // 3. Actualizar 'pintuco_users_db' para recargas de página sin pérdida
+    try {
+      const usersDb = getPintucoUsersDb();
+      const normEmail = normalizeEmail(userSession.email || email);
+      const normDoc = normalizeDocument(userSession.documento || documento);
+      const userIdx = usersDb.findIndex(
+        (u) =>
+          (normEmail && normalizeEmail(u.email) === normEmail) ||
+          (normDoc && normalizeDocument(u.cedula) === normDoc)
+      );
+      if (userIdx !== -1) {
+        usersDb[userIdx] = {
+          ...usersDb[userIdx],
+          direcciones: updated,
+          ciudad: defaultAddr ? defaultAddr.ciudad : usersDb[userIdx].ciudad,
+          direccion: defaultAddr ? defaultAddr.direccion : '',
+        };
+        savePintucoUsersDb(usersDb);
+      } else if (normEmail || normDoc) {
+        usersDb.push({
+          id: userSession.id || `usr-${Date.now()}`,
+          nombre: (userSession.nombre || nombre || 'Cliente').trim(),
+          email: (userSession.email || email).trim(),
+          cedula: (userSession.documento || documento || '').trim(),
+          telefono: (userSession.telefono || telefono || '').trim(),
+          password: 'pintuco_saved',
+          direcciones: updated,
+          tipoDocumento: userSession.tipoDocumento || 'CC',
+          ciudad: defaultAddr ? defaultAddr.ciudad : userSession.ciudad,
+          direccion: defaultAddr ? defaultAddr.direccion : '',
+        });
+        savePintucoUsersDb(usersDb);
+      }
+    } catch (err) {
+      console.error('Error actualizando pintuco_users_db con direcciones:', err);
+    }
+
+    // Notificar al Drawer del Carrito y demás módulos suscritos
+    try {
+      window.dispatchEvent(new CustomEvent('colorlink_shipping_address_updated'));
+      window.dispatchEvent(new CustomEvent('colorlink_user_session_updated'));
+    } catch {}
+
+    // 4. Persistencia Real en Supabase (Auth user_metadata y tabla clientes/user_addresses si aplica)
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        if (sessionData?.session?.user) {
+          await supabase.auth.updateUser({
+            data: {
+              direcciones: updated,
+              ciudad: defaultAddr ? defaultAddr.ciudad : userSession.ciudad,
+              direccion: defaultAddr ? defaultAddr.direccion : '',
+            },
+          });
+        }
+      } catch (sbErr) {
+        console.debug('Supabase auth metadata address sync:', sbErr);
+      }
+
+      if (defaultAddr && (userSession.documento || documento)) {
+        try {
+          await supabase
+            .from('clientes')
+            .update({ ciudad: defaultAddr.ciudad })
+            .eq('numero_documento', (userSession.documento || documento).trim());
+        } catch {}
+      }
+    }
+  };
 
   const handleSavePersonalData = (e: React.FormEvent) => {
     e.preventDefault();
@@ -947,116 +1165,97 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
     onShowToast('Contraseña de seguridad actualizada');
   };
 
-  const handleSetDefaultAddress = (id: string) => {
+  const handleSetDefaultAddress = async (id: string) => {
     const updated = addresses.map((a) => ({
       ...a,
       esPredeterminada: a.id === id,
     }));
-    setAddresses(updated);
-    localStorage.setItem('colorlink_user_addresses', JSON.stringify(updated));
-    
-    // Also update main user session default address
-    const defaultAddr = updated.find((a) => a.id === id);
-    if (defaultAddr) {
-      const updatedSession: UserSession = {
-        ...userSession,
-        ciudad: defaultAddr.ciudad,
-        direccion: defaultAddr.direccion,
-        direcciones: updated,
-      };
-      onUpdateUserSession(updatedSession);
-    }
-    onShowToast('Dirección predeterminada actualizada');
+    await persistAddressesEverywhere(updated);
+    setAddressErrorMsg(null);
+    setAddressSuccessMsg('Dirección principal de entrega actualizada');
+    onShowToast('Dirección principal actualizada');
   };
 
-  const handleDeleteAddress = (id: string) => {
-    const filtered = addresses.filter((a) => a.id !== id);
-    // If we deleted the default one, make the first one default
+  const handleDeleteAddress = async (id: string) => {
+    const filtered = addresses.filter((a) => a.id !== id).map((a) => ({ ...a }));
     if (filtered.length > 0 && !filtered.some((a) => a.esPredeterminada)) {
       filtered[0].esPredeterminada = true;
     }
-    setAddresses(filtered);
-    localStorage.setItem('colorlink_user_addresses', JSON.stringify(filtered));
-
-    const defaultAddr = filtered.find((a) => a.esPredeterminada) || filtered[0];
-    const updatedSession: UserSession = {
-      ...userSession,
-      direcciones: filtered,
-      ciudad: defaultAddr ? defaultAddr.ciudad : userSession.ciudad,
-      direccion: defaultAddr ? defaultAddr.direccion : '',
-    };
-    onUpdateUserSession(updatedSession);
+    await persistAddressesEverywhere(filtered);
+    setAddressErrorMsg(null);
+    setAddressSuccessMsg('Dirección eliminada de tu libreta');
     onShowToast('Dirección eliminada');
   };
 
-  const handleSaveAddress = (e: React.FormEvent) => {
+  const handleSaveAddress = async (e: React.FormEvent) => {
     e.preventDefault();
+    setAddressErrorMsg(null);
+    setAddressSuccessMsg(null);
+
     if (!addrEtiqueta.trim() || !addrDireccion.trim()) {
-      onShowToast('Ingresa el nombre o alias y la dirección');
+      const errMsg = 'Por favor ingresa el alias (ej. Casa, Obra, Oficina) y la dirección exacta.';
+      setAddressErrorMsg(errMsg);
+      onShowToast(errMsg);
       return;
     }
 
-    let updated: UserAddress[];
+    setIsSavingAddress(true);
+    try {
+      const wasEditing = Boolean(editingAddressId);
+      let updated: UserAddress[];
 
-    if (editingAddressId) {
-      // Editar existente
-      updated = addresses.map((a) => {
-        if (a.id === editingAddressId) {
-          return {
-            ...a,
-            etiqueta: addrEtiqueta.trim(),
-            direccion: addrDireccion.trim(),
-            departamento: addrDepartamento.trim(),
-            ciudad: addrCiudad.trim(),
-            detalles: addrDetalles.trim(),
-            esPredeterminada: addrEsPredeterminada || a.esPredeterminada,
-          };
-        }
-        return addrEsPredeterminada ? { ...a, esPredeterminada: false } : a;
-      });
-    } else {
-      // Nueva dirección
-      const newAddr: UserAddress = {
-        id: `addr-${Date.now()}`,
-        etiqueta: addrEtiqueta.trim(),
-        direccion: addrDireccion.trim(),
-        departamento: addrDepartamento.trim(),
-        ciudad: addrCiudad.trim(),
-        detalles: addrDetalles.trim(),
-        esPredeterminada: addrEsPredeterminada || addresses.length === 0,
-      };
-      updated = (addrEsPredeterminada || addresses.length === 0)
-        ? [...addresses.map((a) => ({ ...a, esPredeterminada: false })), newAddr]
-        : [...addresses, newAddr];
+      if (editingAddressId) {
+        updated = addresses.map((a) => {
+          if (a.id === editingAddressId) {
+            return {
+              ...a,
+              etiqueta: addrEtiqueta.trim(),
+              direccion: addrDireccion.trim(),
+              barrio: addrBarrio.trim(),
+              departamento: addrDepartamento.trim(),
+              ciudad: addrCiudad.trim(),
+              detalles: addrDetalles.trim(),
+              esPredeterminada: addrEsPredeterminada || a.esPredeterminada,
+            };
+          }
+          return addrEsPredeterminada ? { ...a, esPredeterminada: false } : a;
+        });
+      } else {
+        const makePrimary = addrEsPredeterminada || addresses.length === 0;
+        const newAddr: UserAddress = {
+          id: `addr-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          etiqueta: addrEtiqueta.trim(),
+          direccion: addrDireccion.trim(),
+          barrio: addrBarrio.trim(),
+          departamento: addrDepartamento.trim(),
+          ciudad: addrCiudad.trim(),
+          detalles: addrDetalles.trim(),
+          esPredeterminada: makePrimary,
+        };
+        updated = makePrimary
+          ? [...addresses.map((a) => ({ ...a, esPredeterminada: false })), newAddr]
+          : [...addresses, newAddr];
+      }
+
+      await persistAddressesEverywhere(updated);
+
+      setIsAddingAddress(false);
+      resetAddressForm(false);
+      const okMsg = wasEditing ? 'Dirección actualizada correctamente' : 'Dirección guardada correctamente';
+      setAddressSuccessMsg(okMsg);
+      onShowToast(okMsg);
+    } finally {
+      setIsSavingAddress(false);
     }
-
-    setAddresses(updated);
-    localStorage.setItem('colorlink_user_addresses', JSON.stringify(updated));
-
-    const defaultAddr = updated.find((a) => a.esPredeterminada) || updated[0];
-    const updatedSession: UserSession = {
-      ...userSession,
-      direcciones: updated,
-      ciudad: defaultAddr ? defaultAddr.ciudad : userSession.ciudad,
-      direccion: defaultAddr ? defaultAddr.direccion : userSession.direccion,
-    };
-    onUpdateUserSession(updatedSession);
-
-    setIsAddingAddress(false);
-    setEditingAddressId(null);
-    setAddrEtiqueta('');
-    setAddrDireccion('');
-    setAddrDepartamento('Cundinamarca');
-    setAddrCiudad('Bogotá D.C.');
-    setAddrDetalles('');
-    setAddrEsPredeterminada(false);
-    onShowToast(editingAddressId ? 'Dirección actualizada con éxito' : 'Dirección guardada correctamente');
   };
 
   const handleOpenEditAddress = (addr: UserAddress) => {
+    setAddressErrorMsg(null);
+    setAddressSuccessMsg(null);
     setEditingAddressId(addr.id);
     setAddrEtiqueta(addr.etiqueta);
     setAddrDireccion(addr.direccion);
+    setAddrBarrio(addr.barrio || '');
     setAddrDepartamento(addr.departamento || 'Cundinamarca');
     setAddrCiudad(addr.ciudad);
     setAddrDetalles(addr.detalles || '');
@@ -1183,7 +1382,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
             }`}
           >
             <Truck className="w-4 h-4 text-teal-600" />
-            <span>Pedidos Pendientes ({userOrders.length})</span>
+            <span>Mis Pedidos ({userOrders.length})</span>
           </button>
 
           <button
@@ -1468,7 +1667,9 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                     <h4 className="font-black text-slate-900 text-base">
                       {orderFilterQuery
                         ? `No se encontraron pedidos con "${orderFilterQuery}".`
-                        : 'No tienes pedidos pendientes en este momento'}
+                        : statusFilter === 'Entregados'
+                        ? 'Aún no tienes pedidos entregados registrados'
+                        : 'No tienes pedidos registrados en este momento'}
                     </h4>
                     <p className="text-xs text-slate-500 mt-1 leading-relaxed">
                       {orderFilterQuery
@@ -1513,7 +1714,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                     const colorName = order.form?.color_acabado || 'Color Pintuco Estándar';
                     const projectName = order.form?.tipo_obra || (order as any).proyectoNombre || 'Proyecto de Pintura';
                     const totalQty = formatQuantity(order);
-                    const totalCOP = order.total || order.calculo?.costo_total_estimado || 320000;
+                    const totalCOP = order.total ?? order.calculo?.costo_total_estimado ?? 0;
                     const dateFormatted = formatDate(order.fechaCreacion);
 
                     return (
@@ -1650,6 +1851,27 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
 
                         {/* ACCIONES DE LA TARJETA */}
                         <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center justify-end gap-2">
+                          {(() => {
+                            const isDelivered = isDeliveredOrderStatus(order.estado);
+                            if (!isDelivered) return null;
+                            const reviewed =
+                              findReviewForOrder(order.numeroOrden || order.id, reviews) ||
+                              findReviewForOrder(order.id, reviews);
+                            return reviewed ? (
+                              <span className="px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-extrabold flex items-center gap-1">
+                                ✓ Experiencia Calificada
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setSurveyOrder(order)}
+                                className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-500 hover:to-yellow-500 text-slate-950 text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
+                              >
+                                <span>⭐ Calificar Experiencia</span>
+                              </button>
+                            );
+                          })()}
+
                           <button
                             type="button"
                             onClick={() => handleViewDetailPDF(order)}
@@ -1784,39 +2006,59 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
           {/* 4. LIBRETA DE DIRECCIONES MÚLTIPLES (Brisa Marina) */}
           {activeTab === 'direcciones' && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-2">
                 <div>
                   <h4 className="text-xs font-extrabold uppercase text-slate-800 tracking-wider">
                     Direcciones de Entrega y Despacho
                   </h4>
                   <p className="text-[11px] text-slate-500">
-                    Registra y selecciona la dirección predeterminada para el despacho de materiales a tus obras.
+                    Registra y selecciona la dirección principal para el despacho de materiales a tus obras.
                   </p>
                 </div>
                 {!isAddingAddress && addresses.length > 0 && (
                   <button
                     type="button"
                     onClick={() => {
-                      setEditingAddressId(null);
-                      setAddrEtiqueta('');
-                      setAddrDireccion('');
-                      setAddrDepartamento('Cundinamarca');
-                      setAddrCiudad('Bogotá D.C.');
-                      setAddrDetalles('');
-                      setAddrEsPredeterminada(false);
+                      setAddressSuccessMsg(null);
+                      resetAddressForm(false);
                       setIsAddingAddress(true);
                     }}
-                    className="px-3.5 py-2 rounded-xl bg-blue-900 hover:bg-blue-800 text-white font-extrabold text-xs transition-all flex items-center gap-1.5 cursor-pointer shadow-sm hover:scale-102"
+                    className="px-3.5 py-2 rounded-xl bg-blue-900 hover:bg-blue-800 text-white font-extrabold text-xs transition-all flex items-center gap-1.5 cursor-pointer shadow-sm hover:scale-102 shrink-0"
                   >
                     <Plus className="w-3.5 h-3.5" />
-                    <span>+ Agregar Nueva Dirección</span>
+                    <span>Agregar Nueva Dirección</span>
                   </button>
                 )}
               </div>
 
+              {/* Banner de confirmación o error dentro de Libreta de Direcciones */}
+              {addressSuccessMsg && (
+                <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold flex items-center justify-between gap-2 animate-fadeIn">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>{addressSuccessMsg}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setAddressSuccessMsg(null)}
+                    className="text-emerald-600 hover:text-emerald-800 p-0.5 rounded cursor-pointer"
+                    aria-label="Cerrar aviso"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+
+              {addressErrorMsg && (
+                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-bold flex items-center gap-2 animate-fadeIn">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>{addressErrorMsg}</span>
+                </div>
+              )}
+
               {/* Formulario para registrar o editar dirección */}
               {isAddingAddress && (
-                <form onSubmit={handleSaveAddress} className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200 space-y-3.5 shadow-sm animate-fadeIn">
+                <form noValidate onSubmit={handleSaveAddress} className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200 space-y-3.5 shadow-sm animate-fadeIn">
                   <div className="flex items-center justify-between pb-2 border-b border-slate-100">
                     <span className="text-xs font-extrabold text-slate-900 flex items-center gap-2">
                       <MapPin className="w-4 h-4 text-teal-600" />
@@ -1824,40 +2066,74 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                     </span>
                     <button
                       type="button"
-                      onClick={() => setIsAddingAddress(false)}
+                      onClick={() => {
+                        setIsAddingAddress(false);
+                        setAddressErrorMsg(null);
+                      }}
                       className="text-slate-400 hover:text-slate-700 p-1 rounded-lg hover:bg-slate-100 cursor-pointer"
                     >
                       <X className="w-4 h-4" />
                     </button>
                   </div>
 
+                  {/* Chips de alias rápidos + campo editable */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <label className="block text-[11px] font-bold text-slate-700 uppercase">
+                        Alias de la dirección <span className="text-rose-600">*</span>
+                      </label>
+                      <div className="flex items-center gap-1.5">
+                        {['Casa', 'Obra', 'Oficina'].map((preset) => (
+                          <button
+                            key={preset}
+                            type="button"
+                            onClick={() => setAddrEtiqueta(preset)}
+                            className={`px-2.5 py-0.5 rounded-lg text-[10px] font-extrabold border transition-colors cursor-pointer ${
+                              addrEtiqueta.trim().toLowerCase() === preset.toLowerCase()
+                                ? 'bg-blue-900 text-white border-blue-900'
+                                : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                            }`}
+                          >
+                            {preset}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <input
+                      type="text"
+                      autoComplete="off"
+                      placeholder='Ej: "Casa", "Obra", "Oficina"'
+                      value={addrEtiqueta}
+                      onChange={(e) => setAddrEtiqueta(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-900 shadow-2xs"
+                    />
+                  </div>
+
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
-                        Nombre / Alias de la dirección
+                        Dirección exacta (Calle/Carrera, número) <span className="text-rose-600">*</span>
                       </label>
                       <input
                         type="text"
-                        required
                         autoComplete="off"
-                        placeholder='Ej: "Casa", "Oficina", "Obra"'
-                        value={addrEtiqueta}
-                        onChange={(e) => setAddrEtiqueta(e.target.value)}
+                        placeholder="Ej: Carrera 15 # 93-60, Edificio Torre A"
+                        value={addrDireccion}
+                        onChange={(e) => setAddrDireccion(e.target.value)}
                         className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-900 shadow-2xs"
                       />
                     </div>
 
                     <div>
                       <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
-                        Dirección completa (Calle/Carrera, número)
+                        Barrio / Sector
                       </label>
                       <input
                         type="text"
-                        required
                         autoComplete="off"
-                        placeholder="Ej: Carrera 15 # 93-60, Edificio Torre A"
-                        value={addrDireccion}
-                        onChange={(e) => setAddrDireccion(e.target.value)}
+                        placeholder="Ej: El Chicó, Laureles, Chapinero"
+                        value={addrBarrio}
+                        onChange={(e) => setAddrBarrio(e.target.value)}
                         className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-900 shadow-2xs"
                       />
                     </div>
@@ -1923,7 +2199,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
 
                   <div>
                     <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
-                      Nota / Indicaciones adicionales
+                      Indicaciones adicionales
                     </label>
                     <input
                       type="text"
@@ -1943,23 +2219,28 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                       className="w-4 h-4 rounded text-blue-900 focus:ring-blue-900 cursor-pointer"
                     />
                     <span className="text-xs font-bold text-slate-700">
-                      Marcar como dirección predeterminada de entrega
+                      Marcar como dirección principal de entrega
                     </span>
                   </label>
 
                   <div className="flex justify-end gap-2.5 pt-2 border-t border-slate-100">
                     <button
                       type="button"
-                      onClick={() => setIsAddingAddress(false)}
+                      onClick={() => {
+                        setIsAddingAddress(false);
+                        setAddressErrorMsg(null);
+                      }}
                       className="px-4 py-2 rounded-xl border border-slate-300 text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer transition-colors"
                     >
                       Cancelar
                     </button>
                     <button
                       type="submit"
-                      className="px-5 py-2 rounded-xl bg-blue-900 hover:bg-blue-800 text-white font-extrabold text-xs shadow-sm cursor-pointer transition-colors"
+                      disabled={isSavingAddress}
+                      className="px-5 py-2 rounded-xl bg-blue-900 hover:bg-blue-800 disabled:opacity-60 text-white font-extrabold text-xs shadow-sm cursor-pointer transition-colors flex items-center gap-1.5"
                     >
-                      Guardar Dirección
+                      <Save className="w-3.5 h-3.5" />
+                      <span>{isSavingAddress ? 'Guardando...' : 'Guardar Dirección'}</span>
                     </button>
                   </div>
                 </form>
@@ -1982,19 +2263,14 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                   <button
                     type="button"
                     onClick={() => {
-                      setEditingAddressId(null);
-                      setAddrEtiqueta('');
-                      setAddrDireccion('');
-                      setAddrDepartamento('Cundinamarca');
-                      setAddrCiudad('Bogotá D.C.');
-                      setAddrDetalles('');
-                      setAddrEsPredeterminada(true);
+                      setAddressSuccessMsg(null);
+                      resetAddressForm(true);
                       setIsAddingAddress(true);
                     }}
                     className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-900 hover:bg-blue-800 text-white font-extrabold text-xs shadow-sm transition-all hover:scale-102 cursor-pointer"
                   >
                     <Plus className="w-4 h-4" />
-                    <span>+ Agregar Nueva Dirección</span>
+                    <span>Agregar Nueva Dirección</span>
                   </button>
                 </div>
               )}
@@ -2031,16 +2307,18 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                             </h5>
                             {addr.esPredeterminada && (
                               <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-teal-100 text-teal-800 border border-teal-300 flex items-center gap-1 shrink-0">
-                                <Check className="w-2.5 h-2.5" /> Predeterminada
+                                <Check className="w-2.5 h-2.5" /> Principal
                               </span>
                             )}
                           </div>
                           <p className="text-xs text-slate-600 mt-0.5 font-medium">
-                            {addr.direccion}, {addr.ciudad}{addr.departamento ? `, ${addr.departamento}` : ''}
+                            {addr.direccion}
+                            {addr.barrio ? `, Barrio ${addr.barrio}` : ''}, {addr.ciudad}
+                            {addr.departamento ? `, ${addr.departamento}` : ''}
                           </p>
                           {addr.detalles && (
                             <p className="text-[11px] text-slate-400 mt-0.5">
-                              Nota: {addr.detalles}
+                              Indicaciones: {addr.detalles}
                             </p>
                           )}
                         </div>
@@ -2052,9 +2330,9 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                             type="button"
                             onClick={() => handleSetDefaultAddress(addr.id)}
                             className="px-2.5 py-1 text-[11px] font-bold text-teal-700 hover:bg-teal-50 rounded-lg transition-colors cursor-pointer"
-                            title="Marcar como predeterminada"
+                            title="Marcar como dirección principal"
                           >
-                            Hacer Predeterminada
+                            Marcar como Principal
                           </button>
                         )}
                         <button
@@ -2441,6 +2719,18 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
         </div>
 
       </div>
+
+      {/* Modal de Encuesta de Satisfacción en Pedidos Entregados */}
+      <OrderSatisfactionSurveyModal
+        isOpen={Boolean(surveyOrder)}
+        onClose={() => setSurveyOrder(null)}
+        order={surveyOrder}
+        userSession={userSession}
+        onSubmitted={() => {
+          setReviews(getSatisfactionReviews());
+        }}
+        onShowToast={onShowToast}
+      />
     </div>
   );
 

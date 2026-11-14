@@ -502,8 +502,9 @@ export default function App() {
         if (session?.user && isMounted) {
           const authUser = session.user;
           setUserSession((prev) => {
+            const meta = authUser.user_metadata || {};
+            const metaAddresses = Array.isArray(meta.direcciones) ? meta.direcciones : [];
             if (!prev) {
-              const meta = authUser.user_metadata || {};
               const email = authUser.email || '';
               return {
                 id: authUser.id,
@@ -512,13 +513,23 @@ export default function App() {
                 documento: meta.cedula || meta.documento || '',
                 tipoDocumento: meta.tipoDocumento || 'CC',
                 ciudad: meta.ciudad || 'Bogotá D.C.',
+                direccion: meta.direccion || '',
                 telefono: meta.telefono || '',
                 userType: 'cliente',
                 isLoggedIn: true,
+                direcciones: metaAddresses,
               };
             }
-            if (!prev.id || prev.id !== authUser.id) {
-              return { ...prev, id: authUser.id, email: authUser.email || prev.email };
+            const nextDirecciones = (prev.direcciones && prev.direcciones.length > 0)
+              ? prev.direcciones
+              : metaAddresses;
+            if (!prev.id || prev.id !== authUser.id || (nextDirecciones.length > 0 && (!prev.direcciones || prev.direcciones.length === 0))) {
+              return {
+                ...prev,
+                id: authUser.id,
+                email: authUser.email || prev.email,
+                direcciones: nextDirecciones,
+              };
             }
             return prev;
           });
@@ -529,8 +540,9 @@ export default function App() {
         if (session?.user && isMounted) {
           const authUser = session.user;
           setUserSession((prev) => {
+            const meta = authUser.user_metadata || {};
+            const metaAddresses = Array.isArray(meta.direcciones) ? meta.direcciones : [];
             if (!prev) {
-              const meta = authUser.user_metadata || {};
               const email = authUser.email || '';
               return {
                 id: authUser.id,
@@ -539,12 +551,22 @@ export default function App() {
                 documento: meta.cedula || meta.documento || '',
                 tipoDocumento: meta.tipoDocumento || 'CC',
                 ciudad: meta.ciudad || 'Bogotá D.C.',
+                direccion: meta.direccion || '',
                 telefono: meta.telefono || '',
                 userType: 'cliente',
                 isLoggedIn: true,
+                direcciones: metaAddresses,
               };
             }
-            return { ...prev, id: authUser.id, email: authUser.email || prev.email };
+            const nextDirecciones = (prev.direcciones && prev.direcciones.length > 0)
+              ? prev.direcciones
+              : metaAddresses;
+            return {
+              ...prev,
+              id: authUser.id,
+              email: authUser.email || prev.email,
+              direcciones: nextDirecciones,
+            };
           });
         }
       });
@@ -688,13 +710,22 @@ export default function App() {
     const userId = (userSession.id || '').trim().toLowerCase();
 
     return orders.filter((o) => {
-      const oEmail = (o.customerEmail || o.form?.responsable_contacto || '').trim().toLowerCase();
-      const oDoc = (o.customerDocument || o.form?.documento || '').replace(/[\.\-\s]/g, '').toLowerCase();
+      const emailCandidates = [
+        o.customerEmail,
+        (o as any).user_email,
+        (o as any).email,
+        (o as any).customer_email,
+        o.form?.correo_electronico,
+        o.form?.responsable_contacto,
+      ]
+        .filter(Boolean)
+        .map((e) => String(e).trim().toLowerCase());
+      const oDoc = (o.customerDocument || (o as any).customer_document || o.form?.documento || '').replace(/[\.\-\s]/g, '').toLowerCase();
       const oName = (o.customerName || o.form?.nombre_razon_social || '').trim().toLowerCase();
-      const oUserId = String((o as any).userId || (o as any).customerId || (o as any).clienteId || '').trim().toLowerCase();
+      const oUserId = String((o as any).userId || (o as any).user_id || (o as any).customerId || (o as any).clienteId || '').trim().toLowerCase();
 
       return (
-        (userEmail && oEmail && (oEmail === userEmail || oEmail.includes(userEmail))) ||
+        (userEmail && emailCandidates.some((e) => e === userEmail || e.includes(userEmail))) ||
         (userDoc && oDoc && oDoc === userDoc) ||
         (userId && oUserId && oUserId === userId) ||
         (userName && oName && (oName === userName || oName.includes(userName)))
@@ -748,14 +779,37 @@ export default function App() {
       localStorage.setItem('colorlink_cart', '[]');
     }
 
-    // Al iniciar sesión, consultar los pedidos reales del usuario desde Supabase
+    // Al iniciar sesión, consultar y fusionar los pedidos reales del usuario desde Supabase sin perder estados actualizados en memoria
     fetchUserOrdersFromDatabase(sessionWithToken.id, sessionWithToken.email, sessionWithToken.documento)
       .then((realOrders) => {
-        setOrders(realOrders);
+        if (!Array.isArray(realOrders) || realOrders.length === 0) return;
+        setOrders((prev) => {
+          const map = new Map<string, COLORLINKOrder>();
+          const getKey = (o: COLORLINKOrder) =>
+            String(o.numeroOrden || o.id || '').replace(/^#/, '').trim().toLowerCase();
+          const isDeliv = (st?: string) => {
+            const s = String(st || '').toLowerCase();
+            return s.includes('entregad') || s.includes('delivered') || s.includes('completad');
+          };
+          prev.forEach((o) => {
+            const k = getKey(o);
+            if (k) map.set(k, o);
+          });
+          realOrders.forEach((ro) => {
+            const k = getKey(ro);
+            if (!k) return;
+            const existing = map.get(k);
+            if (!existing) {
+              map.set(k, ro);
+            } else if (!isDeliv(existing.estado) && isDeliv(ro.estado)) {
+              map.set(k, { ...existing, ...ro });
+            }
+          });
+          return Array.from(map.values());
+        });
       })
       .catch((e) => {
         console.error('Error cargando pedidos al iniciar sesión:', e);
-        setOrders([]);
       });
 
     setFormData((prev) => ({
@@ -1252,10 +1306,29 @@ export default function App() {
     newStatus: COLORLINKOrder['estado'],
     updates?: Partial<COLORLINKOrder>
   ) => {
+    const targetOrder = orders.find((o) => o.id === id);
+
     try {
       // Sync update with Supabase if ID matches a UUID
       if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
         await updateSupabaseProjectStatus(id, newStatus);
+      }
+
+      // Sync update with Supabase 'orders' table (por order_number o id)
+      if (isSupabaseConfigured && supabase) {
+        try {
+          if (targetOrder?.numeroOrden) {
+            await supabase
+              .from('orders')
+              .update({ status: newStatus })
+              .eq('order_number', targetOrder.numeroOrden);
+          } else if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+            await supabase
+              .from('orders')
+              .update({ status: newStatus })
+              .eq('id', id);
+          }
+        } catch {}
       }
 
       await fetch(`/api/orders/${id}/status`, {
@@ -1350,7 +1423,7 @@ export default function App() {
         <div 
           role="alert"
           aria-live="assertive"
-          className="fixed bottom-6 right-6 z-50 bg-white text-slate-800 text-xs sm:text-sm font-semibold px-4 py-3.5 rounded-2xl shadow-xl border border-slate-200 flex items-center gap-3 animate-bounce max-w-md backdrop-blur-md"
+          className="fixed bottom-6 right-6 z-[10050] bg-white text-slate-800 text-xs sm:text-sm font-semibold px-4 py-3.5 rounded-2xl shadow-xl border border-slate-200 flex items-center gap-3 animate-bounce max-w-md backdrop-blur-md"
         >
           <div className="w-7 h-7 rounded-xl bg-teal-50 border border-teal-200 flex items-center justify-center shrink-0">
             <CheckCircle2 className="w-4 h-4 text-teal-600" />

@@ -333,7 +333,7 @@ export const DraggableAIChatButton: React.FC<DraggableAIChatButtonProps> = ({
           : 'transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.35s ease',
       }}
       className="touch-none select-none flex items-center justify-center group"
-      title="Asesor Técnico IA ColorLink • Clic para consultar o arrastra para reubicar"
+      title="Linky • Asesor Técnico ColorLink • Clic para consultar o arrastra para reubicar"
     >
       {/* =========================================================================
           GLOBO DE MENSAJE FLOTANTE: "¿Puedo ayudarte?"
@@ -352,7 +352,7 @@ export const DraggableAIChatButton: React.FC<DraggableAIChatButtonProps> = ({
               ? 'left-[100%] ml-2.5 top-1/2 -translate-y-1/2'
               : 'right-[100%] mr-2.5 top-1/2 -translate-y-1/2'
           }`}
-          title="Clic para abrir el Asesor Técnico Virtual"
+          title="Clic para abrir a Linky, Asesor Técnico ColorLink"
         >
           {/* Indicador de estado online verde */}
           <span className="flex h-2.5 w-2.5 relative shrink-0">
@@ -361,7 +361,7 @@ export const DraggableAIChatButton: React.FC<DraggableAIChatButtonProps> = ({
           </span>
 
           <span className="text-xs font-black tracking-tight text-[#002244] whitespace-nowrap">
-            ¿Puedo ayudarte?
+            Soy Linky, ¿te ayudo?
           </span>
 
           <Sparkles className="w-3.5 h-3.5 text-amber-500 animate-pulse shrink-0" />
@@ -503,7 +503,7 @@ export const DraggableAIChatButton: React.FC<DraggableAIChatButtonProps> = ({
         >
           <img
             src={PINTUCO_AI_AVATAR_URL}
-            alt="Asesor Técnico IA ColorLink"
+            alt="Linky • Asesor Técnico ColorLink"
             className="w-full h-full object-contain pointer-events-none select-none filter drop-shadow-[0_8px_14px_rgba(0,34,68,0.3)] transition-transform duration-300"
             loading="eager"
             draggable={false}

@@ -221,7 +221,7 @@ export const Home: React.FC<HomeProps> = ({
             </div>
             <div>
               <h3 className="text-base font-bold text-slate-900 group-hover:text-cyan-900 transition-colors">
-                Asesor Técnico IA
+                Linky • Asesor Técnico IA
               </h3>
               <p className="text-xs text-slate-500 mt-1 leading-relaxed">
                 Diagnóstico de humedad, recomendaciones de resinas y preparación de muros.

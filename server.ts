@@ -79,7 +79,7 @@ const SUPABASE_ANON_KEY =
 const supabase = createClient(SUPABASE_PROJECT_URL, SUPABASE_ANON_KEY);
 const isSupabaseConfigured = Boolean(SUPABASE_PROJECT_URL && SUPABASE_ANON_KEY);
 
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '20mb' }));
 
 // Lazy initialize GenAI client
 let genAIClient: GoogleGenAI | null = null;
@@ -1154,7 +1154,7 @@ Genera la respuesta estrictamente en formato JSON con la siguiente estructura:
 }`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+      model: 'gemini-4-hydrogen',
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
@@ -1243,7 +1243,7 @@ Extrae el JSON exacto con estas claves:
 - color_acabado: Color deseado y tipo de acabado`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+      model: 'gemini-4-hydrogen',
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
@@ -1400,10 +1400,13 @@ Responde ÚNICAMENTE en JSON con la siguiente estructura:
   ]
 }`;
 
-        const candidateModels = ['gemini-2.5-flash', 'gemini-flash-latest', 'gemini-3.8-flash'];
+        const candidateModels = ['gemini-4-hydrogen', 'gemini-3.1-flash-lite'];
         for (const model of candidateModels) {
+          let segTimer: ReturnType<typeof setTimeout> | null = null;
           try {
-            const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 4500));
+            const timeoutPromise = new Promise((_, reject) => {
+              segTimer = setTimeout(() => reject(new Error('Timeout')), 20000);
+            });
             const genPromise = ai.models.generateContent({
               model,
               contents: [
@@ -1416,7 +1419,6 @@ Responde ÚNICAMENTE en JSON con la siguiente estructura:
                 },
               ],
               config: {
-                temperature: 0.1,
                 responseMimeType: 'application/json',
               },
             });
@@ -1432,6 +1434,8 @@ Responde ÚNICAMENTE en JSON con la siguiente estructura:
             }
           } catch (e: any) {
             console.warn(`Segmentation model ${model} unavailable, trying next...`);
+          } finally {
+            if (segTimer) clearTimeout(segTimer);
           }
         }
       }
@@ -1535,27 +1539,148 @@ app.post(['/api/chat', '/api/ai/chat', '/api/ai/chat-advisor'], async (req, res)
     },
   ];
 
+  // Clasificadores de intención y coherencia compartidos entre fallback local y post-procesamiento Gemini
+  const textLower = userQuery.toLowerCase().trim();
+  const recentHistoryText = Array.isArray(history)
+    ? history.map((h: any) => String(h?.text || '')).join(' ').toLowerCase()
+    : '';
+  const combinedContext = `${recentHistoryText} ${textLower}`;
+
+  const isGreetingOnly = /^(?:hola|buen(?:os|as)\s*(?:d[ií]as|tardes|noches)?|saludos|hey|alo|al[oó]|mucho\s+gusto|qu[eé]\s+tal|c[oó]mo\s+est[aá]s?)(?:\s+linky)?[\s!.,?]*$/i.test(textLower);
+  const isMeasurementOrTheoryQuestion = /c[oó]mo\s+(?:mido|medir|calculo|calcular|saco|sacar)|diferencia\s+entre|qu[eé]\s+diferencia|tipo\s*1\s*(?:y|o|vs|versus|contra)\s*tipo\s*2|qu[eé]\s+es\b|para\s+qu[eé]\s+sirve|cu[aá]ntas\s+manos|tiempo\s+de\s+secado|rendimiento\s+por\s+gal[oó]n|qu[eé]\s+significa\s+ntc|norma\s+ntc\s*1335|c[oó]mo\s+(?:preparo|preparar|lijo|lijar|resano|resanar|aplico|aplicar|pinto|pintar)/i.test(textLower);
+  const isExplicitQuoteOrPriceRequest = /\b(?:precio|precios|cu[aá]nto\s+(?:cuesta|vale|sale|saldr[ií]a)|valor\s+(?:del?|de\s+la)|cotiz(?:ar|ame|aci[oó]n)?|presupuesto|recomi[eé]ndame\s+(?:una\s+)?pintura\s+para\s+comprar|qu[eé]\s+pintura\s+(?:me\s+recomiendas\s+)?(?:comprar|llevo|llev[oó])|quiero\s+comprar|agregar\s+al\s+carrito|enlace\s+de\s+compra)\b/i.test(textLower);
+
+  const hasExplicitSurfaceInCurrent = /exterior|fachada|intemperie|terraza|patio|balc[oó]n|azotea|madera|metal|hierro|reja|port[oó]n|puerta|ventana|mueble|mobiliario|baranda|ba[nñ]o|\bcocinas?\b|lavadero|humedad|hongo|ducha|vapor|cafeter|restaurante|local|comercio|comercial|oficina|consultorio|colegio|hotel|tienda|cl[ií]nica|bodega|garaje|muro|pared|sala|habitaci|cuarto|apartamento|casa|techo|cielo|pasillo|comedor/i.test(textLower);
+  const surfaceContext = hasExplicitSurfaceInCurrent ? textLower : combinedContext;
+
+  const isExteriorCtx = /exterior|fachada|intemperie|terraza|patio|balcon|balcón|azotea|concreto exterior/i.test(surfaceContext);
+  const isWoodOrMetalCtx = /madera|metal|hierro|reja|porton|portón|puerta|ventana|mueble|mobiliario|estructura met|baranda/i.test(surfaceContext);
+  const hasInteriorWallCtx = /muro|pared|sala|habitaci|cuarto|oficina|cafeter|restaurante|local|comercio|bodega|apartamento|casa|techo|cielo|pasillo|comedor/i.test(surfaceContext);
+  const isPureWoodOrMetalCtx = isWoodOrMetalCtx && !isExteriorCtx && !hasInteriorWallCtx;
+  const isWetZoneCtx = /baño|bano|\bcocinas?\b|lavadero|humedad|hongo|ducha|vapor/i.test(surfaceContext);
+  const isCommercialCtx = /cafeter|restaurante|local|comercio|comercial|oficina|consultorio|colegio|hotel|tienda|clinica|clínica|bodega|garaje/i.test(surfaceContext);
+
+  const extractRequestedAreaM2 = (): number | null => {
+    if (!isMeasurementOrTheoryQuestion) {
+      const areaMultiMatch = textLower.match(/(\d+(?:[.,]\d+)?)\s*(?:x|\*|por)\s*(\d+(?:[.,]\d+)?)/i);
+      if (areaMultiMatch) {
+        const w = parseFloat(areaMultiMatch[1].replace(',', '.'));
+        const h = parseFloat(areaMultiMatch[2].replace(',', '.'));
+        if (!isNaN(w) && !isNaN(h) && w > 0 && h > 0) return Math.round(w * h * 10) / 10;
+      }
+      const areaUnitMatch = textLower.match(/(\d+(?:[.,]\d+)?)\s*(?:m2|m²|mts2|metros\s*cuadrados|metros|mts|m\b)/i);
+      if (areaUnitMatch) {
+        const val = parseFloat(areaUnitMatch[1].replace(',', '.'));
+        if (!isNaN(val) && val > 0) return Math.round(val * 10) / 10;
+      }
+      const hasNonAreaNumericContext = /\b(?:tipo|ntc|mano|manos|paso|capa|capas|grano|lija|gal[oó]n|galones|cu[nñ]ete|cu[nñ]etes|ciclos?|horas?|d[ií]as?|meses?|a[nñ]os?|pesos?|cop)\b/i.test(textLower);
+      if (!isGreetingOnly && !hasNonAreaNumericContext && textLower.split(/\s+/).length <= 6) {
+        const areaNumberMatch = textLower.match(/\b(\d{1,4}(?:[.,]\d+)?)\b/);
+        if (areaNumberMatch) {
+          const val = parseFloat(areaNumberMatch[1].replace(',', '.'));
+          if (!isNaN(val) && val > 0 && val < 5000) return Math.round(val * 10) / 10;
+        }
+      }
+    }
+    if (imageUrl) {
+      return isExteriorCtx ? 60 : 24;
+    }
+    return null;
+  };
+
+  const buildCoherentProductAction = (
+    m2Val: number | null,
+    exteriorFlag: boolean = isExteriorCtx,
+    pureWoodOrMetalFlag: boolean = isPureWoodOrMetalCtx,
+    wetZoneFlag: boolean = isWetZoneCtx
+  ) => {
+    const areaForCalc = m2Val && m2Val > 0 ? m2Val : 1;
+    const coverage = exteriorFlag ? 28 : (pureWoodOrMetalFlag ? 26 : (wetZoneFlag ? 30 : 32));
+    const gallonsNeeded = m2Val && m2Val > 0 ? Math.max(1, Math.ceil((areaForCalc / coverage) * 1.10)) : 1;
+    const isCunete = gallonsNeeded >= 5;
+
+    if (exteriorFlag) {
+      return {
+        tipo: 'recomendada',
+        badge: '⭐ Fachadas Exteriores (NTC 1335)',
+        productName: 'Koraza Doble Vida Protección Clima Extremo',
+        descripcion: 'Hidrófuga, elástica y resistente a rayos UV, lluvia e intemperie extrema.',
+        sku: 'PIN-KOR-02',
+        cantidad: isCunete ? Math.ceil(gallonsNeeded / 5) : gallonsNeeded,
+        presentacion: isCunete ? 'Cuñete (5 Gal)' : 'Galón',
+        precioUnitario: isCunete ? 429000 : 98900,
+        precioGalon: 98900,
+        precioCunete: 429000,
+        imagenUrl: '/src/assets/images/koraza_bucket_studio_1790894419359.jpg',
+      };
+    }
+
+    if (pureWoodOrMetalFlag) {
+      return {
+        tipo: 'recomendada',
+        badge: '⭐ Metal y Madera',
+        productName: 'Pintulux Esmalte Sintético 3 en 1',
+        descripcion: 'Alta durabilidad, brillo y adherencia para rejas, puertas, metal y madera.',
+        sku: 'PIN-LUX-01',
+        cantidad: isCunete ? Math.ceil(gallonsNeeded / 5) : gallonsNeeded,
+        presentacion: isCunete ? 'Cuñete (5 Gal)' : 'Galón',
+        precioUnitario: isCunete ? 410000 : 92900,
+        precioGalon: 92900,
+        precioCunete: 410000,
+        imagenUrl: '/src/assets/images/pintulux_enamel_can_1790894428353.jpg',
+      };
+    }
+
+    if (wetZoneFlag) {
+      return {
+        tipo: 'recomendada',
+        badge: '⭐ Zonas Húmedas & Cocinas (NTC 1335)',
+        productName: 'Viniltex Baños y Cocinas Antibacterial',
+        descripcion: 'Barrera activa antihongos, resistente a vapor, grasa y condensación.',
+        sku: 'PIN-VTX-BC',
+        cantidad: isCunete ? Math.ceil(gallonsNeeded / 5) : gallonsNeeded,
+        presentacion: isCunete ? 'Cuñete (5 Gal)' : 'Galón',
+        precioUnitario: isCunete ? 379000 : 86900,
+        precioGalon: 86900,
+        precioCunete: 379000,
+        imagenUrl: '/src/assets/images/viniltex_can_studio_1790894409491.jpg',
+      };
+    }
+
+    return {
+      tipo: 'recomendada',
+      badge: isCommercialCtx ? '⭐ Alto Tráfico Comercial (NTC 1335)' : '⭐ Interiores Premium (NTC 1335)',
+      productName: 'Viniltex Avanzado Máxima Lavabilidad',
+      descripcion: 'Tipo 1 NTC 1335 (+20.000 ciclos de lavado), bajo olor y ultra cubrimiento.',
+      sku: 'PIN-VTX-01',
+      cantidad: isCunete ? Math.ceil(gallonsNeeded / 5) : gallonsNeeded,
+      presentacion: isCunete ? 'Cuñete (5 Gal)' : 'Galón',
+      precioUnitario: isCunete ? 349000 : 79900,
+      precioGalon: 79900,
+      precioCunete: 349000,
+      imagenUrl: '/src/assets/images/viniltex_can_studio_1790894409491.jpg',
+    };
+  };
+
   // Helper function for domain-specific fallback adhering to the official guidelines
   const buildFallbackResponse = () => {
-    const textLower = userQuery.toLowerCase();
-
-    // 1. Detección de consultas fuera de alcance / ajenas a Pintuco y ColorLink
+    // 1. Detección estricta de consultas verdaderamente ajenas a Pintuco y ColorLink
     const outOfDomainKeywords = [
-      'receta', 'cocina', 'cocinar', 'futbol', 'fútbol', 'partido', 'politica', 'política',
+      'receta', 'cocinar', 'futbol', 'fútbol', 'partido', 'politica', 'política',
       'gobierno', 'presidente', 'elecciones', 'chiste', 'cuento', 'poema', 'musica', 'música',
       'cancion', 'canción', 'pelicula', 'película', 'serie', 'netflix', 'viaje', 'avion',
-      'vuelo', 'hotel', 'programar', 'javascript', 'python', 'react', 'java', 'c++', 'software',
+      'vuelo', 'programar', 'javascript', 'python', 'react', 'java', 'c++', 'software',
       'tarea de', 'matematicas', 'matemáticas', 'historia de', 'quimica', 'filosofia', 'filosofía',
-      'amor', 'horoscopo', 'horóscopo', 'zodiaco', 'astrologia', 'medicina', 'sintomas', 'dolor',
+      'horoscopo', 'horóscopo', 'zodiaco', 'astrologia', 'medicina', 'sintomas', 'dolor',
     ];
 
-    const isExplicitlyOutOfDomain = outOfDomainKeywords.some((kw) => textLower.includes(kw));
-    const isPaintRelated = /pintur|pintuco|colorlink|color|broch|rodill|fachad|pared|muro|techo|cielo|cuñete|cunete|galon|galón|metro|m2|m²|lavab|koraza|viniltex|pintulux|intervinil|estuco|grano|lija|adhesivo|sellad|impermeab|aquablock|pedido|rastreo|orden|cotiz|compra|sede|horario|tienda|despacho|flete|envio|envío|entrega|superficie|ntc|1335|resane|fisura|foto|imagen/i.test(textLower);
-    const isGreeting = /^(hola|buen(?:os|as)|saludos|hey|alo|aló|buenos dias|buenas tardes|buenas noches)/i.test(textLower);
+    const isPaintRelated = /pintar|pinto|pintando|pintamos|pintur|pintuco|colorlink|color|broch|rodill|fachad|pared|muro|techo|cielo|cuñete|cunete|galon|galón|metro|m2|m²|lavab|koraza|viniltex|pintulux|intervinil|vinilo|estuco|grano|lija|adhesivo|sellad|impermeab|aquablock|pedido|rastreo|orden|cotiz|presupuesto|compra|sede|horario|tienda|despacho|flete|envio|envío|entrega|superficie|ntc|1335|resane|fisura|foto|imagen|remodel|renovar|decorar|acabado|esmalte|barniz|laca|imprimante|humedad|hongo|cafeter|restaurante|local|comercio|comercial|oficina|habitaci|cuarto|sala|\bcocinas?\b|baño|bano|bodega|garaje|hospital|clinica|clínica|colegio|hotel|apartamento|casa|edificio|madera|metal|hierro|reja|porton|portón|puerta|ventana|mueble|mobiliario|concreto|ladrillo|drywall|azotea|terraza|patio|balcon|balcón|obra|proyecto|precio|cuesta|vale/i.test(textLower);
+    const isExplicitlyOutOfDomain = !isPaintRelated && outOfDomainKeywords.some((kw) => textLower.includes(kw));
+    const m2 = extractRequestedAreaM2();
 
-    if (isExplicitlyOutOfDomain || (!isPaintRelated && !isGreeting && !imageUrl && textLower.length > 8)) {
+    if (isExplicitlyOutOfDomain || (!isPaintRelated && !isGreetingOnly && !imageUrl && !m2 && textLower.length > 8)) {
       return {
-        reply: 'Soy el Asesor Técnico Oficial de Pintuco/ColorLink. Solo puedo ayudarte con consultas sobre pinturas, preparación de superficies, cotizaciones y pedidos de nuestra tienda.',
+        reply: 'Soy Linky, tu asesor técnico oficial de ColorLink / Pintuco. Solo puedo ayudarte con consultas sobre pinturas, preparación de superficies, cotizaciones y pedidos de nuestra tienda.',
         esFueraDeAlcance: true,
         cartActions: [],
         toolsKit: [],
@@ -1646,163 +1771,184 @@ app.post(['/api/chat', '/api/ai/chat', '/api/ai/chat-advisor'], async (req, res)
       };
     }
 
-    // 4. Preparación de superficies bajo norma NTC 1335
-    if (/prepar|superficie|ntc 1335|como pintar|cómo pintar|estuco|resane|fisura|lija/i.test(textLower) && !/(\d+)\s*(?:m2|m²|metros)/i.test(textLower)) {
+    // 4. Saludos puros o preguntas teóricas / de medición / diferencias / preparación sin m² ni intención explícita de compra -> SOLO texto
+    if (isGreetingOnly) {
       return {
-        reply: 'Bajo la norma NTC 1335, la preparación requiere limpiar polvo y grasa, resanar fisuras con Estuco Profesional Pintuco y lijar con grano 180-220 antes de pintar. Luego aplica 2 manos de Viniltex Avanzado o Koraza respetando de 2 a 4 horas de secado entre manos.',
+        reply: '¡Hola! Soy Linky, tu asesor técnico oficial de ColorLink / Pintuco. Cuéntame qué espacio, mueble o superficie deseas pintar y cuántos m² aproximados tiene para recomendarte el producto ideal bajo norma NTC 1335 y cotizarlo al instante.',
         esFueraDeAlcance: false,
-        cartActions: [
-          {
-            tipo: 'recomendada',
-            badge: '⭐ Preparación NTC 1335',
-            productName: 'Viniltex Avanzado Máxima Lavabilidad',
-            descripcion: 'Ultra lavable +20.000 ciclos NTC 1335 y bajo olor.',
-            sku: 'PIN-VTX-01',
-            cantidad: 1,
-            presentacion: 'Galón',
-            precioUnitario: 79900,
-            precioGalon: 79900,
-            precioCunete: 349000,
-            imagenUrl: '/src/assets/images/viniltex_can_studio_1790894409491.jpg',
-          },
-        ],
-        toolsKit: defaultTools,
+        cartActions: [],
+        toolsKit: [],
+        superficieIdentificada: 'consulta general',
+        areaEstimadaM2: null,
+      };
+    }
+
+    if (/c[oó]mo\s+(?:mido|medir|calculo|calcular|saco|sacar)/i.test(textLower) && !m2) {
+      return {
+        reply: 'Medir tus paredes es muy sencillo: multiplica el ancho por el alto de cada muro en metros (por ejemplo, una pared de 4 m de ancho × 2.5 m de alto = 10 m²), suma todas las paredes y resta el área aproximada de ventanas y puertas grandes. Cuando tengas el total en m², compártemelo y qué espacio vas a pintar para calcular tus galones exactos.',
+        esFueraDeAlcance: false,
+        cartActions: [],
+        toolsKit: [],
+        superficieIdentificada: 'medición de área',
+        areaEstimadaM2: null,
+      };
+    }
+
+    if (/diferencia\s+entre|qu[eé]\s+diferencia|tipo\s*1.*tipo\s*2/i.test(textLower) && !isExplicitQuoteOrPriceRequest) {
+      return {
+        reply: 'Según la norma NTC 1335, el Vinilo Tipo 1 (como Viniltex Avanzado) ofrece máxima lavabilidad (+20.000 ciclos), mayor poder cubriente y resistencia superior al frote húmedo, ideal para salas, comedores, cuartos de niños y zonas de alto tráfico; mientras que el Tipo 2 (como Intervinil) tiene lavabilidad media y está pensado para techos, cielos rasos o alcobas de bajo roce. Si me indicas qué espacio pintarás y sus m², te cotizo la mejor opción.',
+        esFueraDeAlcance: false,
+        cartActions: [],
+        toolsKit: [],
+        superficieIdentificada: 'consulta técnica',
+        areaEstimadaM2: null,
+      };
+    }
+
+    if (/prepar|superficie|ntc 1335|como pintar|cómo pintar|estuco|resane|fisura|lija/i.test(textLower) && !m2 && !isExplicitQuoteOrPriceRequest) {
+      return {
+        reply: 'Bajo la norma NTC 1335, una buena preparación consiste en limpiar polvo y grasa, resanar fisuras con Estuco Profesional Pintuco y lijar suavemente con grano 180-220 antes de aplicar la primera mano. Luego aplica 2 manos del acabado adecuado respetando de 2 a 4 horas de secado entre manos. Si deseas calcular materiales, cuéntame qué superficie es y cuántos m² tiene.',
+        esFueraDeAlcance: false,
+        cartActions: [],
+        toolsKit: [],
         superficieIdentificada: 'preparación de superficie',
         areaEstimadaM2: null,
       };
     }
 
-    // 5. Sugerencia de pintura blanca o tipo de pintura general
+    // 5. Detección contextual inteligente de espacio y superficie
     const isWhitePaint = /blanc[ao]|color blanco|pintura blanca/i.test(textLower);
-    const isExterior = /exterior|fachada|intemperie|terraza|patio|balcon|balcón/i.test(textLower);
-    const isWetZone = /baño|cocina|humedad|hongo/i.test(textLower);
+    const isResidentialInterior = /sala|habitaci|cuarto|apartamento|casa|estudio|pasillo|comedor|interior|muro|pared|techo|cielo/i.test(combinedContext);
 
-    // Detección de metros cuadrados si los hay
-    const areaMultiMatch = textLower.match(/(\d+(?:[.,]\d+)?)\s*(?:x|\*|por)\s*(\d+(?:[.,]\d+)?)/i);
-    const areaUnitMatch = textLower.match(/(\d+(?:[.,]\d+)?)\s*(?:m2|m²|metros\s*cuadrados|mts2|metros|mts|m\b)/i);
-    const areaNumberMatch = textLower.match(/\b(\d{1,4}(?:[.,]\d+)?)\b/);
+    const detectedSpaceLabel = isExteriorCtx
+      ? 'fachada exterior'
+      : isPureWoodOrMetalCtx
+      ? 'metal o madera'
+      : isWetZoneCtx
+      ? 'área húmeda'
+      : isCommercialCtx
+      ? 'espacio comercial / alto tráfico'
+      : 'muro interior';
 
-    let m2: number | null = null;
-    if (areaMultiMatch) {
-      const w = parseFloat(areaMultiMatch[1].replace(',', '.'));
-      const h = parseFloat(areaMultiMatch[2].replace(',', '.'));
-      if (!isNaN(w) && !isNaN(h) && w > 0 && h > 0) m2 = Math.round(w * h * 10) / 10;
-    } else if (areaUnitMatch) {
-      const val = parseFloat(areaUnitMatch[1].replace(',', '.'));
-      if (!isNaN(val) && val > 0) m2 = Math.round(val * 10) / 10;
-    } else if (imageUrl) {
-      m2 = isExterior ? 60 : 24;
-    } else if (areaNumberMatch && !isGreeting) {
-      const val = parseFloat(areaNumberMatch[1].replace(',', '.'));
-      if (!isNaN(val) && val > 0 && val < 5000) m2 = Math.round(val * 10) / 10;
-    }
-
-    // Generar acciones y respuesta según especificaciones
-    if (isWhitePaint && !m2) {
-      return {
-        reply: 'Para pintura blanca en interiores te recomiendo Viniltex Avanzado Máxima Lavabilidad en Blanco Puro bajo la norma NTC 1335 por su ultra cubrimiento. Si la aplicación es para fachadas exteriores, te sugiero Koraza Doble Vida Blanco Nieve para máxima protección contra lluvias y sol. ¿Cuántos metros cuadrados deseas pintar?',
-        esFueraDeAlcance: false,
-        superficieIdentificada: isExterior ? 'fachada exterior' : 'muro interior',
-        areaEstimadaM2: null,
-        cartActions: [
-          {
-            tipo: 'recomendada',
-            badge: '⭐ Interiores: Blanco Puro (NTC 1335)',
-            productName: 'Viniltex Avanzado Máxima Lavabilidad - Blanco Puro',
-            descripcion: 'Rinde hasta 32 m²/galón a 2 manos. Máxima lavabilidad y blancura duradera.',
-            sku: 'PIN-VTX-01',
-            cantidad: 1,
-            presentacion: 'Galón',
-            precioUnitario: 79900,
-            precioGalon: 79900,
-            precioCunete: 349000,
-            imagenUrl: '/src/assets/images/viniltex_can_studio_1790894409491.jpg',
-          },
-          {
-            tipo: 'alternativa',
-            badge: '💡 Fachadas: Blanco Nieve',
-            productName: 'Koraza Doble Vida Protección Clima Extremo - Blanco Nieve',
-            descripcion: 'Hidrófuga, elástica y resistente a rayos UV e intemperie extrema.',
-            sku: 'PIN-KOR-02',
-            cantidad: 1,
-            presentacion: 'Galón',
-            precioUnitario: 98900,
-            precioGalon: 98900,
-            precioCunete: 429000,
-            imagenUrl: '/src/assets/images/koraza_bucket_studio_1790894419359.jpg',
-          },
-        ],
-        toolsKit: defaultTools,
-      };
-    }
-
+    // 6A. Si hay m² (o imagen) -> Devolver tarjeta de cotización coherente con cantidad calculada
     if (m2 && m2 > 0) {
-      const coverage = isExterior ? 28 : (isWetZone ? 30 : 32);
-      const gallonsNeeded = Math.max(1, Math.ceil((m2 / coverage) * 1.10));
-      const isCuñete = gallonsNeeded >= 5;
-      const primaryProduct = isExterior
-        ? 'Koraza Doble Vida Protección Clima Extremo'
-        : (isWetZone ? 'Viniltex Baños y Cocinas Antibacterial' : 'Viniltex Avanzado Máxima Lavabilidad');
-      const primarySku = isExterior ? 'PIN-KOR-02' : (isWetZone ? 'PIN-VTX-BC' : 'PIN-VTX-01');
-      const unitPrice = isExterior
-        ? (isCuñete ? 429000 : 98900)
-        : (isWetZone ? (isCuñete ? 379000 : 86900) : (isCuñete ? 349000 : 79900));
-
+      const action = buildCoherentProductAction(m2);
       const replyText = imageUrl
-        ? `Para tu espacio de aproximadamente ${m2} m², te recomiendo ${primaryProduct} bajo la norma NTC 1335, requiriendo ${isCuñete ? Math.ceil(gallonsNeeded / 5) : gallonsNeeded} ${isCuñete ? 'cuñete(s)' : 'galón(es)'} a 2 manos. He activado la simulación visual y la cotización de materiales lista para ordenar.`
-        : `Para tu área de ${m2} m², te recomiendo ${primaryProduct} según la norma técnica NTC 1335, requiriendo ${isCuñete ? Math.ceil(gallonsNeeded / 5) : gallonsNeeded} ${isCuñete ? 'cuñete(s)' : 'galón(es)'} a 2 manos. A continuación encontrarás la cotización oficial y el kit de herramientas profesional correspondiente.`;
+        ? `Para tu espacio de aproximadamente ${m2} m² (${detectedSpaceLabel}), te recomiendo ${action.productName} bajo la norma NTC 1335, requiriendo ${action.cantidad} ${action.presentacion.toLowerCase()}(es) a 2 manos. He activado la simulación visual y la cotización de materiales lista para ordenar.`
+        : `Para tu ${detectedSpaceLabel} de ${m2} m², te recomiendo ${action.productName} según la norma técnica NTC 1335, requiriendo ${action.cantidad} ${action.presentacion.toLowerCase()}(es) a 2 manos (incluyendo 10% de desperdicio). A continuación encontrarás la cotización oficial y el kit de herramientas profesional.`;
 
       return {
         reply: replyText,
         esFueraDeAlcance: false,
-        superficieIdentificada: isExterior ? 'fachada exterior' : (isWetZone ? 'área húmeda' : 'muro interior'),
+        superficieIdentificada: detectedSpaceLabel,
         areaEstimadaM2: m2,
         chatState: {
-          tipoEspacio: isExterior ? 'fachada exterior' : 'muro interior',
+          tipoEspacio: detectedSpaceLabel,
           metrosCuadrados: m2,
           estadoPared: 'Buen Estado / Repinte',
         },
-        cartActions: [
-          {
-            tipo: 'recomendada',
-            badge: isExterior ? '⭐ Fachadas (NTC 1335)' : '⭐ Máxima Lavabilidad (NTC 1335)',
-            productName: primaryProduct,
-            descripcion: isExterior ? 'Máxima durabilidad en intemperie, hidrófuga y barrera contra rayos UV.' : 'Rinde hasta 32 m²/gal a 2 manos. Ultra lavable +20.000 ciclos.',
-            sku: primarySku,
-            cantidad: isCuñete ? Math.ceil(gallonsNeeded / 5) : gallonsNeeded,
-            presentacion: isCuñete ? 'Cuñete (5 Gal)' : 'Galón',
-            precioUnitario: unitPrice,
-            precioGalon: isExterior ? 98900 : 79900,
-            precioCunete: isExterior ? 429000 : 349000,
-            imagenUrl: isExterior ? '/src/assets/images/koraza_bucket_studio_1790894419359.jpg' : '/src/assets/images/viniltex_can_studio_1790894409491.jpg',
-          },
-        ],
+        cartActions: [action],
         toolsKit: defaultTools,
       };
     }
 
-    // Respuesta de bienvenida amigable y orientada al dominio
-    return {
-      reply: '¡Hola! Soy el Asesor Técnico Oficial de Pintuco / ColorLink. Te asesoro en la elección de pinturas, cálculo de metros cuadrados bajo norma NTC 1335 y cotizaciones de la tienda. ¿Qué espacio o superficie deseas pintar hoy?',
-      esFueraDeAlcance: false,
-      superficieIdentificada: 'muro interior',
-      areaEstimadaM2: null,
-      cartActions: [
-        {
-          tipo: 'recomendada',
-          badge: '⭐ Más Vendido / Interiores (NTC 1335)',
-          productName: 'Viniltex Avanzado Máxima Lavabilidad',
-          descripcion: 'Rinde hasta 32 m²/gal a 2 manos. Ultra lavable +20.000 ciclos y bajo olor.',
-          sku: 'PIN-VTX-01',
-          cantidad: 1,
-          presentacion: 'Galón',
-          precioUnitario: 79900,
-          precioGalon: 79900,
-          precioCunete: 349000,
-          imagenUrl: '/src/assets/images/viniltex_can_studio_1790894409491.jpg',
+    // 6B. Si solicitó explícitamente precio, presupuesto o qué producto comprar sin m² aún
+    if (isExplicitQuoteOrPriceRequest) {
+      const action = buildCoherentProductAction(null);
+      return {
+        reply: `Para tu proyecto en ${detectedSpaceLabel}, te recomiendo ${action.productName} (${action.presentacion} desde $${action.precioGalon.toLocaleString('es-CO')} COP). Si me indicas cuántos m² aproximados deseas cubrir, ajusto de inmediato la cantidad exacta para tu cotización.`,
+        esFueraDeAlcance: false,
+        superficieIdentificada: detectedSpaceLabel,
+        areaEstimadaM2: null,
+        chatState: {
+          tipoEspacio: detectedSpaceLabel,
+          estadoPared: 'Por confirmar',
         },
-      ],
-      toolsKit: defaultTools,
+        cartActions: [action],
+        toolsKit: defaultTools,
+      };
+    }
+
+    // 6C. Si el usuario describe un proyecto SIN indicar m² todavía y SIN pedir cotización/precio explícito -> SOLO texto conversacional (sin tarjeta de producto)
+    if (isCommercialCtx || isExteriorCtx || isPureWoodOrMetalCtx || isWetZoneCtx || isResidentialInterior || isWhitePaint) {
+      if (isCommercialCtx) {
+        return {
+          reply: '¡Excelente proyecto! Para una cafetería o local comercial de alto tráfico te recomiendo Viniltex Avanzado Máxima Lavabilidad (Tipo 1 según norma NTC 1335) en muros interiores por su resistencia a manchas y limpieza frecuente, y Pintulux Esmalte Sintético si tienes muebles o estructuras metálicas. ¿Cuántos metros cuadrados (m²) aproximados o medidas (alto × ancho) deseas pintar y en qué estado se encuentran las paredes?',
+          esFueraDeAlcance: false,
+          superficieIdentificada: 'espacio comercial / alto tráfico',
+          areaEstimadaM2: null,
+          chatState: { tipoEspacio: 'espacio comercial / alto tráfico', estadoPared: 'Por confirmar' },
+          cartActions: [],
+          toolsKit: [],
+        };
+      }
+
+      if (isPureWoodOrMetalCtx) {
+        return {
+          reply: 'Para superficies en madera o metal (puertas, rejas, portones o mobiliario) te recomiendo Pintulux Esmalte Sintético 3 en 1 por su adherencia y durabilidad; si es metal ferroso a la intemperie, aplica primero Anticorrosivo Pintuco. ¿Cuántos m² aproximados o dimensiones (alto × ancho) tiene el proyecto y si la superficie es nueva o para repintar?',
+          esFueraDeAlcance: false,
+          superficieIdentificada: 'metal o madera',
+          areaEstimadaM2: null,
+          chatState: { tipoEspacio: 'metal o madera', estadoPared: 'Por confirmar' },
+          cartActions: [],
+          toolsKit: [],
+        };
+      }
+
+      if (isWetZoneCtx) {
+        return {
+          reply: 'Para cocinas, baños o zonas con vapor y humedad te recomiendo Viniltex Baños y Cocinas Antibacterial (NTC 1335), formulado con barrera antihongos y alta lavabilidad frente a grasa y condensación. ¿Cuántos m² aproximados deseas cubrir y hay señales de humedad activa o es muro en buen estado?',
+          esFueraDeAlcance: false,
+          superficieIdentificada: 'área húmeda',
+          areaEstimadaM2: null,
+          chatState: { tipoEspacio: 'área húmeda', estadoPared: 'Por confirmar' },
+          cartActions: [],
+          toolsKit: [],
+        };
+      }
+
+      if (isExteriorCtx) {
+        return {
+          reply: 'Para fachadas y exteriores expuestos al sol y la lluvia te recomiendo Koraza Doble Vida Protección Clima Extremo, nuestra pintura acrílica elástica e hidrófuga certificada. ¿Cuántos metros cuadrados (m²) aproximados o medidas (alto × ancho) tiene la fachada y en qué estado está el revoque o pintura actual?',
+          esFueraDeAlcance: false,
+          superficieIdentificada: 'fachada exterior',
+          areaEstimadaM2: null,
+          chatState: { tipoEspacio: 'fachada exterior', estadoPared: 'Por confirmar' },
+          cartActions: [],
+          toolsKit: [],
+        };
+      }
+
+      if (isWhitePaint) {
+        return {
+          reply: 'Para pintura blanca en interiores te recomiendo Viniltex Avanzado Máxima Lavabilidad en Blanco Puro bajo la norma NTC 1335 por su ultra cubrimiento; si es para fachadas exteriores, te sugiero Koraza Doble Vida Blanco Nieve. ¿Cuántos metros cuadrados (m²) deseas pintar y en qué estado se encuentra la superficie?',
+          esFueraDeAlcance: false,
+          superficieIdentificada: 'muro interior',
+          areaEstimadaM2: null,
+          cartActions: [],
+          toolsKit: [],
+        };
+      }
+
+      return {
+        reply: 'Para muros interiores de tu hogar o proyecto te recomiendo Viniltex Avanzado Máxima Lavabilidad Tipo 1 (norma NTC 1335) por su alto poder cubriente, bajo olor y durabilidad. ¿Cuántos metros cuadrados (m²) aproximados o medidas (alto × ancho) deseas pintar y cuál es el estado actual de las paredes (estuco nuevo, repinte o humedad)?',
+        esFueraDeAlcance: false,
+        superficieIdentificada: 'muro interior',
+        areaEstimadaM2: null,
+        chatState: { tipoEspacio: 'muro interior', estadoPared: 'Por confirmar' },
+        cartActions: [],
+        toolsKit: [],
+      };
+    }
+
+    // Respuesta general amigable sin tarjeta
+    return {
+      reply: '¡Hola! Soy Linky, tu asesor técnico oficial de ColorLink / Pintuco. Cuéntame qué espacio, mueble o superficie deseas pintar y cuántos m² aproximados tiene para recomendarte el producto ideal bajo norma NTC 1335 y cotizarlo al instante.',
+      esFueraDeAlcance: false,
+      superficieIdentificada: 'consulta general',
+      areaEstimadaM2: null,
+      cartActions: [],
+      toolsKit: [],
     };
   };
 
@@ -1831,41 +1977,41 @@ app.post(['/api/chat', '/api/ai/chat', '/api/ai/chat-advisor'], async (req, res)
 - Cédula/NIT: ${userSession.documento || 'No registrado'}`
       : `\n\nDATOS DEL USUARIO: Visitante no autenticado / Anónimo.`;
 
-    const systemInstruction = `Eres el Asesor Técnico Oficial de Pintuco / ColorLink. Tu único propósito es asesorar a los usuarios sobre productos de pintura Pintuco, cálculo de áreas, preparación de superficies bajo la norma NTC 1335, cotizaciones de la tienda y seguimiento de pedidos dentro de la plataforma COLORLINK.
-- Responde de forma concisa, fluida, amable y profesional (máximo 2 a 3 frases por respuesta).
-- Si el usuario pregunta algo ajeno a pinturas, recubrimientos, cotizaciones o servicios de Pintuco/ColorLink, responde cortésmente: 'Soy el Asesor Técnico Oficial de Pintuco/ColorLink. Solo puedo ayudarte con consultas sobre pinturas, preparación de superficies, cotizaciones y pedidos de nuestra tienda.'
-- Al sugerir productos (ej. 'pintura blanca'), recomienda directamente las referencias de la tienda como Viniltex Avanzado o Koraza según el contexto.
-- Para interiores: Recomienda Viniltex Avanzado Máxima Lavabilidad (NTC 1335, rinde hasta 32 m²/gal a 2 manos).
-- Para fachadas/exteriores: Recomienda Koraza Doble Vida Protección Clima Extremo (hidrófuga, rinde hasta 28 m²/gal a 2 manos).
-- Para metales y maderas: Pintulux Esmalte Sintético.
-- Si el usuario adjunta una foto o consulta por un área, calcula los galones exactos requeridos (con 10% de desperdicio) e incluye cartActions y toolsKit.
-- NUNCA pongas listas de precios ni tablas en el texto de 'reply'; mantén 'reply' en máximo 2 a 3 frases y pon los productos en 'cartActions'.
+    const systemInstruction = `Eres Linky, el asesor técnico virtual especialista y oficial de ColorLink / Pintuco. Tu propósito es asesorar con calidez profesional, cercanía y criterio experto a los usuarios sobre proyectos de pintura, remodelación y recubrimientos (residenciales, comerciales como cafeterías, restaurantes u oficinas, e industriales como bodegas, estructuras metálicas, madera, muebles o concreto), cálculo de áreas en m², preparación de superficies bajo la norma NTC 1335, cotizaciones de la tienda y seguimiento de pedidos dentro de COLORLINK.
+- IDENTIDAD Y TONO: Preséntate y responde naturalmente como Linky. Saluda con calidez profesional y recuerda siempre el contexto completo del historial de la conversación (tipo de espacio, superficie u objeto mencionado en mensajes anteriores, área en m² y estado de pared) para dar continuidad fluida en turnos consecutivos sin repetir preguntas ya respondidas ni bloquear el flujo.
+- DOMINIO INCLUSIVO: Nunca rechaces consultas sobre pintar o remodelar espacios reales o mobiliario (cafetería, restaurante, cocina, baño, oficina, bodega, fachada, habitación, sala, madera, metal, rejas, muebles o concreto).
+- Solo rechaza temas completamente ajenos a pintura/construcción/ColorLink (ej. política, recetas de comida, programación, deportes) con: 'Soy Linky, tu asesor técnico oficial de ColorLink / Pintuco. Solo puedo ayudarte con consultas sobre pinturas, preparación de superficies, cotizaciones y pedidos de nuestra tienda.'
+- Responde de forma concisa, fluida y profesional (máximo 2 a 4 frases claras por respuesta).
+- CATÁLOGO REAL Y COHERENCIA ESTRICTA POR SUPERFICIE (incluye siempre 10% de desperdicio a 2 manos):
+  * Viniltex Avanzado Máxima Lavabilidad (SKU: PIN-VTX-01 | Galón: $79.900 | Cuñete 5 Gal: $349.000 | rinde 32 m²/gal a 2 manos) -> ÚNICAMENTE para muros interiores y locales comerciales de alto tráfico (Tipo 1 NTC 1335).
+  * Viniltex Baños y Cocinas Antibacterial (SKU: PIN-VTX-BC | Galón: $86.900 | Cuñete 5 Gal: $379.000 | rinde 30 m²/gal a 2 manos) -> ÚNICAMENTE para cocinas, baños y zonas húmedas.
+  * Koraza Doble Vida Protección Clima Extremo (SKU: PIN-KOR-02 | Galón: $98.900 | Cuñete 5 Gal: $429.000 | rinde 28 m²/gal a 2 manos) -> ÚNICAMENTE para fachadas y exteriores.
+  * Pintulux Esmalte Sintético 3 en 1 (SKU: PIN-LUX-01 | Galón: $92.900 | Cuñete 5 Gal: $410.000 | rinde 26 m²/gal a 2 manos) -> ÚNICAMENTE para madera o metal (puertas, rejas, portones, barandas o muebles), NUNCA para muros de pared ni fachadas.
+  * Intervinil Cielos y Muros Mate (SKU: CIN-INT-CL | Galón: $54.900 | Cuñete 5 Gal: $239.000 | rinde 30 m²/gal a 2 manos) -> Alternativa económica interior/techos.
+- REGLA ESTRICTA DE VISUALIZACIÓN DE TARJETA ('cartActions' y 'toolsKit'):
+  * DEBES devolver "cartActions": [] y "toolsKit": [] (vacíos) cuando:
+    1) El usuario esté saludando (ej. "Hola", "Buenos días").
+    2) El usuario haga preguntas teóricas, técnicas, de comparación o de medición (ej. "¿cómo mido los m² de una pared?", "¿qué diferencia hay entre vinilo tipo 1 y tipo 2?", "¿cómo preparo una pared?").
+    3) El usuario indique qué espacio desea pintar pero AÚN NO haya dado el área aproximada (m² o alto × ancho) y NO haya pedido explícitamente precios o cotización de compra (en ese caso, responde en 'reply' la recomendación técnica y pregunta los m² y estado, dejando cartActions y toolsKit vacíos []).
+  * SOLO debes poblar 'cartActions' y 'toolsKit' cuando se cumpla alguna de estas dos condiciones:
+    A) El usuario YA indicó tanto la superficie/objeto como el área aproximada en m² (o subió imagen para estimar); O
+    B) El usuario solicita explícitamente el precio, presupuesto o recomendación de compra de un producto específico.
+- NUNCA pongas tablas ni listas largas de precios en 'reply'; pon los productos en 'cartActions' únicamente cuando aplique según la regla anterior.
+- Cuando el usuario adjunte una imagen, observa primero el entorno: si ves cielo abierto, nubes, sol directo, terraza, cubierta o fachada externa, clasifícalo como EXTERIOR y recomienda productos de exterior (ej. Koraza o Pintulux Exterior) manteniendo exactamente tu mismo estilo amable y humano. Solo clasifícalo como INTERIOR si es un espacio cerrado bajo techo.
 ${userContextStr}
 
 FORMATO JSON OBLIGATORIO:
 {
-  "reply": "Máximo 2 a 3 frases concisas...",
-  "superficieIdentificada": "muro interior" | "fachada exterior" | "área húmeda" | "metal o madera",
+  "reply": "Máximo 2 a 4 frases concisas y conversacionales como Linky...",
+  "superficieIdentificada": "muro interior" | "fachada exterior" | "área húmeda" | "metal o madera" | "espacio comercial / alto tráfico" | "consulta general",
   "areaEstimadaM2": número o null,
-  "productoRecomendado": "Nombre de producto Pintuco",
-  "cartActions": [
-    {
-      "tipo": "recomendada",
-      "badge": "⭐ Opción Recomendada (NTC 1335)",
-      "productName": "Viniltex Avanzado Máxima Lavabilidad",
-      "descripcion": "Rinde hasta 32 m²/gal a 2 manos.",
-      "sku": "PIN-VTX-01",
-      "cantidad": 1,
-      "presentacion": "Galón",
-      "precioUnitario": 79900,
-      "imagenUrl": "/src/assets/images/viniltex_can_studio_1790894409491.jpg"
-    }
-  ],
-  "toolsKit": [ ... ],
+  "productoRecomendado": "Nombre de producto Pintuco o null",
+  "cartActions": [],
+  "toolsKit": [],
   "chatState": {
     "tipoEspacio": "muro interior",
-    "metrosCuadrados": 24,
-    "estadoPared": "Buen Estado / Repinte"
+    "metrosCuadrados": null,
+    "estadoPared": "Por confirmar"
   },
   "esFueraDeAlcance": false
 }`;
@@ -1885,12 +2031,12 @@ FORMATO JSON OBLIGATORIO:
 
     const currentParts: any[] = [];
     if (imageUrl && typeof imageUrl === 'string' && imageUrl.startsWith('data:image/')) {
-      const match = imageUrl.match(/^data:(image\/[a-zA-Z0-9\+\-\.]+);base64,(.+)$/);
+      const match = imageUrl.match(/^data:(image\/[a-zA-Z0-9\+\-\.]+)(?:;[^,]*)?;base64,([\s\S]+)$/);
       if (match) {
         currentParts.push({
           inlineData: {
             mimeType: match[1],
-            data: match[2],
+            data: match[2].replace(/\s+/g, ''),
           },
         });
       }
@@ -1905,21 +2051,21 @@ FORMATO JSON OBLIGATORIO:
       parts: currentParts,
     });
 
-    const candidateModels = ['gemini-3.8-flash', 'gemini-2.5-flash'];
+    const candidateModels = ['gemini-4-hydrogen', 'gemini-3.1-flash-lite'];
     let rawText = '';
     let lastErr: any = null;
 
     for (const model of candidateModels) {
+      let chatTimer: ReturnType<typeof setTimeout> | null = null;
       try {
-        const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Timeout Gemini')), 12000)
-        );
+        const timeoutPromise = new Promise((_, reject) => {
+          chatTimer = setTimeout(() => reject(new Error('Timeout Gemini')), imageUrl ? 45000 : 25000);
+        });
         const generatePromise = ai.models.generateContent({
           model,
           contents,
           config: {
             systemInstruction,
-            temperature: 0.2,
             responseMimeType: 'application/json',
           },
         });
@@ -1929,6 +2075,8 @@ FORMATO JSON OBLIGATORIO:
       } catch (err: any) {
         lastErr = err;
         console.warn(`Model ${model} unavailable in chat, trying next:`, err.status || err.message);
+      } finally {
+        if (chatTimer) clearTimeout(chatTimer);
       }
     }
 
@@ -1959,24 +2107,120 @@ FORMATO JSON OBLIGATORIO:
     }
 
     const reply = parsed?.reply || rawText;
-    const actions = Array.isArray(parsed?.cartActions) && parsed.cartActions.length > 0
-      ? parsed.cartActions
-      : (parsed?.cartAction ? [parsed.cartAction] : []);
+    const requestedM2 = extractRequestedAreaM2();
+    const parsedM2 = typeof parsed?.areaEstimadaM2 === 'number' && parsed.areaEstimadaM2 > 0
+      ? parsed.areaEstimadaM2
+      : (typeof parsed?.chatState?.metrosCuadrados === 'number' && parsed.chatState.metrosCuadrados > 0
+          ? parsed.chatState.metrosCuadrados
+          : null);
+    const effectiveM2 = (imageUrl && parsedM2) ? parsedM2 : (requestedM2 || (!isMeasurementOrTheoryQuestion && !isGreetingOnly ? parsedM2 : null));
 
-    const tools = Array.isArray(parsed?.toolsKit) && parsed.toolsKit.length > 0
-      ? parsed.toolsKit
-      : (actions.length > 0 ? defaultTools : []);
+    // Validación determinística estricta: solo mostrar tarjeta si se cumplen las condiciones del prompt
+    const hasSurfaceForCard = Boolean(
+      isExteriorCtx || isPureWoodOrMetalCtx || isWetZoneCtx || isCommercialCtx || hasInteriorWallCtx ||
+      (parsed?.superficieIdentificada && parsed.superficieIdentificada !== 'consulta general')
+    );
+    const shouldAllowCard =
+      !isGreetingOnly &&
+      !Boolean(parsed?.esFueraDeAlcance) &&
+      (!isMeasurementOrTheoryQuestion || requestedM2 !== null || isExplicitQuoteOrPriceRequest) &&
+      ((effectiveM2 !== null && hasSurfaceForCard) || Boolean(imageUrl) || isExplicitQuoteOrPriceRequest);
+
+    const visualSurfaceCtx = `${parsed?.superficieIdentificada || ''} ${parsed?.chatState?.tipoEspacio || ''} ${parsed?.productoRecomendado || ''} ${reply || ''}`.toLowerCase();
+    const effectiveIsExterior = isExteriorCtx || (Boolean(imageUrl) && /exterior|fachada|terraza|patio|cubierta|intemperie|koraza/i.test(visualSurfaceCtx));
+    const effectiveIsPureWoodOrMetal = isPureWoodOrMetalCtx || (Boolean(imageUrl) && !effectiveIsExterior && /madera|metal|reja|port[oó]n|puerta|mueble/i.test(visualSurfaceCtx));
+    const effectiveIsWetZone = isWetZoneCtx || (Boolean(imageUrl) && !effectiveIsExterior && /ba[nñ]o|cocina|h[uú]med/i.test(visualSurfaceCtx));
+
+    const rawActions = shouldAllowCard
+      ? (Array.isArray(parsed?.cartActions) && parsed.cartActions.length > 0
+          ? parsed.cartActions
+          : (parsed?.cartAction ? [parsed.cartAction] : [buildCoherentProductAction(effectiveM2, effectiveIsExterior, effectiveIsPureWoodOrMetal, effectiveIsWetZone)]))
+      : [];
+
+    const validActionImages = new Set([
+      '/src/assets/images/viniltex_can_studio_1790894409491.jpg',
+      '/src/assets/images/koraza_bucket_studio_1790894419359.jpg',
+      '/src/assets/images/pintulux_enamel_can_1790894428353.jpg',
+    ]);
+
+    const coherentDefaultAction = buildCoherentProductAction(effectiveM2, effectiveIsExterior, effectiveIsPureWoodOrMetal, effectiveIsWetZone);
+
+    const normalizedActions = rawActions.map((a: any) => {
+      const pName = String(a?.productName || a?.nombre || coherentDefaultAction.productName);
+      const pSku = String(a?.sku || coherentDefaultAction.sku).toUpperCase();
+      const isKoraza = /koraza/i.test(pName) || pSku.startsWith('PIN-KOR');
+      const isPintulux = /pintulux|esmalte/i.test(pName) || pSku.startsWith('PIN-LUX');
+      const isWet = /ba[nñ]o|cocina/i.test(pName) || pSku === 'PIN-VTX-BC';
+      const isIntervinil = /intervinil/i.test(pName) || pSku.startsWith('CIN-INT');
+      const resolvedImg = a?.imagenUrl && validActionImages.has(a.imagenUrl)
+        ? a.imagenUrl
+        : isKoraza
+        ? '/src/assets/images/koraza_bucket_studio_1790894419359.jpg'
+        : isPintulux
+        ? '/src/assets/images/pintulux_enamel_can_1790894428353.jpg'
+        : '/src/assets/images/viniltex_can_studio_1790894409491.jpg';
+
+      const rawPres = String(a?.presentacion || a?.tipo || '');
+      const isCunetePres = /cu[nñ]ete|5\s*gal/i.test(rawPres);
+      const defaultGalPrice = isKoraza ? 98900 : isPintulux ? 92900 : isWet ? 86900 : isIntervinil ? 54900 : 79900;
+      const defaultCunetePrice = isKoraza ? 429000 : isPintulux ? 410000 : isWet ? 379000 : isIntervinil ? 239000 : 349000;
+      const resolvedPres = isCunetePres ? 'Cuñete (5 Gal)' : (a?.presentacion || coherentDefaultAction.presentacion || 'Galón');
+      const resolvedUnitPrice = Number(a?.precioUnitario) > 0
+        ? Number(a.precioUnitario)
+        : (isCunetePres ? defaultCunetePrice : defaultGalPrice);
+
+      return {
+        ...a,
+        tipo: a?.tipo === 'alternativa' ? 'alternativa' : 'recomendada',
+        badge: a?.badge || coherentDefaultAction.badge,
+        productName: pName,
+        descripcion: a?.descripcion || coherentDefaultAction.descripcion,
+        sku: pSku,
+        cantidad: Number(a?.cantidad) > 0 ? Number(a.cantidad) : coherentDefaultAction.cantidad,
+        presentacion: resolvedPres,
+        precioUnitario: resolvedUnitPrice,
+        precioGalon: Number(a?.precioGalon) > 0 ? Number(a.precioGalon) : defaultGalPrice,
+        precioCunete: Number(a?.precioCunete) > 0 ? Number(a.precioCunete) : defaultCunetePrice,
+        imagenUrl: resolvedImg,
+      };
+    });
+
+    // Verificación de coherencia técnica del producto principal recomendado respecto a la superficie
+    if (normalizedActions.length > 0) {
+      const first = normalizedActions[0];
+      const firstNameSku = `${first.productName || ''} ${first.sku || ''}`.toLowerCase();
+      const isExpectedExteriorMismatch = effectiveIsExterior && !/koraza|pin-kor|pintulux|pin-lux/i.test(firstNameSku);
+      const isExpectedMetalWoodMismatch = effectiveIsPureWoodOrMetal && !/pintulux|esmalte|pin-lux/i.test(firstNameSku);
+      const isExpectedWetMismatch = effectiveIsWetZone && !effectiveIsExterior && !/ba[nñ]os|cocinas|pin-vtx-bc/i.test(firstNameSku);
+      const isExpectedWallMismatch = !effectiveIsExterior && !effectiveIsPureWoodOrMetal && !effectiveIsWetZone && /pintulux|esmalte|pin-lux/i.test(firstNameSku);
+
+      if (isExpectedExteriorMismatch || isExpectedMetalWoodMismatch || isExpectedWetMismatch || isExpectedWallMismatch) {
+        normalizedActions[0] = buildCoherentProductAction(effectiveM2, effectiveIsExterior, effectiveIsPureWoodOrMetal, effectiveIsWetZone);
+      }
+    }
+
+    const tools = shouldAllowCard && normalizedActions.length > 0
+      ? (Array.isArray(parsed?.toolsKit) && parsed.toolsKit.length > 0
+          ? parsed.toolsKit.map((t: any, idx: number) => ({
+              nombre: String(t?.nombre || t?.productName || defaultTools[idx % defaultTools.length].nombre),
+              sku: String(t?.sku || defaultTools[idx % defaultTools.length].sku),
+              cantidad: Number(t?.cantidad || 1),
+              precioUnitario: Number(t?.precioUnitario || defaultTools[idx % defaultTools.length].precioUnitario),
+              imagenUrl: t?.imagenUrl || defaultTools[idx % defaultTools.length].imagenUrl,
+            }))
+          : defaultTools)
+      : [];
 
     return res.status(200).json({
       success: true,
       reply,
       text: reply,
       message: reply,
-      cartActions: actions,
-      cartAction: actions[0] || null,
+      cartActions: normalizedActions,
+      cartAction: normalizedActions[0] || null,
       toolsKit: tools,
-      superficieIdentificada: parsed?.superficieIdentificada || 'muro interior',
-      areaEstimadaM2: parsed?.areaEstimadaM2 || parsed?.chatState?.metrosCuadrados || null,
+      superficieIdentificada: parsed?.superficieIdentificada || (effectiveIsExterior ? 'fachada exterior' : effectiveIsPureWoodOrMetal ? 'metal o madera' : effectiveIsWetZone ? 'área húmeda' : 'muro interior'),
+      areaEstimadaM2: shouldAllowCard ? effectiveM2 : null,
       chatState: parsed?.chatState || null,
       esFueraDeAlcance: Boolean(parsed?.esFueraDeAlcance),
     });
@@ -2614,6 +2858,168 @@ app.post('/api/corporate/send-welcome-credentials', async (req, res) => {
   } catch (err: any) {
     console.error('Error in /api/corporate/send-welcome-credentials:', err);
     return res.status(500).json({ success: false, error: 'Error enviando credenciales de bienvenida' });
+  }
+});
+
+// API: Registrar Nuevo Funcionario en Supabase Auth (sin alterar sesión actual) + Enviar Credenciales
+app.post('/api/corporate/register-funcionario', async (req, res) => {
+  try {
+    const {
+      funcionarioNombre,
+      corporateEmail,
+      personalEmail,
+      tempPassword,
+      cargo,
+      areaNombre,
+      sedeNombre,
+      rolId,
+      rolNombre,
+      documentoIdentidad,
+      telefono,
+    } = req.body;
+
+    if (!corporateEmail || !funcionarioNombre || !tempPassword) {
+      return res.status(400).json({ success: false, error: 'Nombre, correo corporativo y contraseña temporal son obligatorios' });
+    }
+
+    const cleanCorpEmail = String(corporateEmail).trim().toLowerCase();
+    const cleanPersonalEmail = personalEmail ? String(personalEmail).trim().toLowerCase() : '';
+
+    // 1. Crear cuenta en Supabase Auth usando un cliente aislado (persistSession: false)
+    let supabaseAuthCreated = false;
+    let supabaseNote = 'Cuenta registrada localmente';
+    if (isSupabaseConfigured && SUPABASE_PROJECT_URL && SUPABASE_ANON_KEY) {
+      try {
+        const isolatedSupabase = createClient(SUPABASE_PROJECT_URL, SUPABASE_ANON_KEY, {
+          auth: {
+            persistSession: false,
+            autoRefreshToken: false,
+            detectSessionInUrl: false,
+          },
+        });
+        const { data: signUpData, error: signUpError } = await isolatedSupabase.auth.signUp({
+          email: cleanCorpEmail,
+          password: String(tempPassword),
+          options: {
+            data: {
+              nombre: funcionarioNombre,
+              cargo: cargo || 'Funcionario',
+              area: areaNombre || 'General',
+              sede: sedeNombre || 'Nacional',
+              role: rolId || 'funcionario',
+              rolNombre: rolNombre || 'Funcionario General',
+              documento: documentoIdentidad || '',
+              telefono: telefono || '',
+              isCorporate: true,
+              corporateEmail: cleanCorpEmail,
+            },
+          },
+        });
+        if (!signUpError && signUpData?.user) {
+          supabaseAuthCreated = true;
+          supabaseNote = 'Usuario creado exitosamente en Supabase Auth';
+        } else if (signUpError) {
+          const msg = signUpError.message || '';
+          if (msg.toLowerCase().includes('already') || msg.toLowerCase().includes('registered')) {
+            supabaseAuthCreated = true;
+            supabaseNote = 'Usuario ya existente en Supabase Auth (vinculado)';
+          } else {
+            supabaseNote = `Supabase Auth: ${msg}`;
+          }
+        }
+      } catch (authErr: any) {
+        supabaseNote = `Nota Supabase Auth: ${authErr?.message || 'Error de conexión'}`;
+      }
+    }
+
+    // 2. Enviar correo de bienvenida / activación con credenciales temporales
+    const emailSubject = `Bienvenido al equipo Pintuco • Activación de cuenta corporativa (${cleanCorpEmail})`;
+    const emailHtml = `
+      <div style="font-family: Arial, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 640px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden; background: #ffffff;">
+        <div style="background: linear-gradient(135deg, #001D3D 0%, #003366 100%); padding: 30px 24px; text-align: center; color: #ffffff;">
+          <div style="display: inline-block; background: #00f2fe; color: #001D3D; font-weight: 900; font-size: 13px; padding: 4px 12px; border-radius: 9999px; text-transform: uppercase; margin-bottom: 12px; letter-spacing: 1px;">
+            PINTUCO COLOMBIA • COLORLINK
+          </div>
+          <h1 style="margin: 0; font-size: 24px; font-weight: 900; letter-spacing: -0.5px;">¡Bienvenido al Equipo Corporativo!</h1>
+          <p style="margin: 8px 0 0; font-size: 14px; color: #93c5fd;">Activación Oficial de Correo Corporativo y Portal de Funcionarios</p>
+        </div>
+
+        <div style="padding: 32px 24px;">
+          <p style="font-size: 15px; color: #334155; margin-bottom: 20px; line-height: 1.6;">
+            Estimado(a) <strong>${funcionarioNombre}</strong>, tu perfil institucional y acceso en Supabase Auth han sido activados exitosamente. Aquí tienes tus credenciales oficiales de ingreso:
+          </p>
+
+          <div style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 14px; padding: 20px; margin: 24px 0;">
+            <h3 style="margin: 0 0 16px 0; font-size: 14px; font-weight: 900; color: #0f172a; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px;">
+              Ficha de Acceso Institucional
+            </h3>
+
+            <table style="width: 100%; font-size: 13px; color: #334155; border-collapse: collapse;">
+              <tr>
+                <td style="padding: 6px 0; font-weight: bold; width: 40%; color: #64748b;">Correo Corporativo:</td>
+                <td style="padding: 6px 0; font-family: monospace; font-weight: bold; color: #0369a1; font-size: 14px;">${cleanCorpEmail}</td>
+              </tr>
+              <tr>
+                <td style="padding: 6px 0; font-weight: bold; color: #64748b;">Contraseña Temporal:</td>
+                <td style="padding: 6px 0; font-family: monospace; font-weight: 900; color: #0f172a;">${tempPassword}</td>
+              </tr>
+              <tr>
+                <td style="padding: 6px 0; font-weight: bold; color: #64748b;">Documento:</td>
+                <td style="padding: 6px 0; font-weight: 600;">${documentoIdentidad || 'Registrado'}</td>
+              </tr>
+              <tr>
+                <td style="padding: 6px 0; font-weight: bold; color: #64748b;">Cargo Asignado:</td>
+                <td style="padding: 6px 0; font-weight: 600;">${cargo || 'Funcionario'}</td>
+              </tr>
+              <tr>
+                <td style="padding: 6px 0; font-weight: bold; color: #64748b;">Área Principal:</td>
+                <td style="padding: 6px 0; font-weight: 600;">${areaNombre || 'General'}</td>
+              </tr>
+              <tr>
+                <td style="padding: 6px 0; font-weight: bold; color: #64748b;">Sede / CEDI Asignado:</td>
+                <td style="padding: 6px 0; font-weight: 600;">${sedeNombre || 'Nacional'}</td>
+              </tr>
+              <tr>
+                <td style="padding: 6px 0; font-weight: bold; color: #64748b;">Rol de Seguridad:</td>
+                <td style="padding: 6px 0; font-weight: 600;">${rolNombre || 'Colaborador'}</td>
+              </tr>
+            </table>
+          </div>
+
+          <div style="background: #eff6ff; border-left: 4px solid #2563eb; padding: 14px 18px; border-radius: 8px; margin: 24px 0; font-size: 13px; color: #1e40af;">
+            <strong>Instrucciones de Activación:</strong>
+            <ul style="margin: 8px 0 0 0; padding-left: 20px; line-height: 1.5;">
+              <li>Ingresa al Portal de Funcionarios ColorLink con tu correo corporativo y contraseña temporal.</li>
+              <li>Revisa el enlace de confirmación en tu bandeja si Supabase Auth solicita verificación de correo.</li>
+              <li>Actualiza tu contraseña temporal al completar tu primer acceso.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div style="background: #f1f5f9; padding: 18px 24px; text-align: center; font-size: 11px; color: #64748b; border-top: 1px solid #e2e8f0;">
+          © ${new Date().getFullYear()} Pintuco Colombia S.A.S. • Intranet Corporativa ColorLink Enterprise • Todos los derechos reservados.
+        </div>
+      </div>
+    `;
+
+    const dispatchResult = await sendTransactionalEmail({
+      to: cleanPersonalEmail ? `${cleanCorpEmail}, ${cleanPersonalEmail}` : cleanCorpEmail,
+      subject: emailSubject,
+      html: emailHtml,
+    });
+
+    return res.status(200).json({
+      success: true,
+      supabaseAuthCreated,
+      supabaseNote,
+      emailSent: dispatchResult.success,
+      isRealDelivery: dispatchResult.isRealDelivery,
+      previewUrl: dispatchResult.previewUrl,
+      message: `Funcionario registrado con correo ${cleanCorpEmail} (${supabaseNote})`,
+    });
+  } catch (err: any) {
+    console.error('Error in /api/corporate/register-funcionario:', err);
+    return res.status(500).json({ success: false, error: err?.message || 'Error registrando funcionario' });
   }
 });
 

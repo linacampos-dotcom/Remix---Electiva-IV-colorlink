@@ -241,6 +241,8 @@ export interface CatalogProduct {
   enOferta?: boolean;
   badgeOferta?: string;
   descuentoPorcentaje?: number;
+  originalPrice?: number;
+  precioAnterior?: number;
 }
 
 export interface InventoryItem {
@@ -279,8 +281,9 @@ export type UserRoleType = 'cliente' | 'funcionario' | 'distribuidor' | 'adminis
 
 export interface UserAddress {
   id: string;
-  etiqueta: string; // ej. "Casa", "Oficina", "Obra / Proyecto Santa Marta", "Bodega Principal"
+  etiqueta: string; // ej. "Casa", "Oficina", "Obra / Proyecto", "Bodega Principal"
   direccion: string;
+  barrio?: string;
   ciudad: string;
   departamento?: string;
   detalles?: string;
